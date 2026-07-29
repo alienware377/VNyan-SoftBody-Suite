@@ -39,8 +39,9 @@ two, or all three; they find each other automatically.
 
 ## Quick Start
 
-1. Download the latest release and copy each plugin folder into
-   `C:\Program Files\VNyan\Items\Assemblies\` (see [INSTALL](docs/INSTALL.md)).
+1. Download the latest release zip, unzip it, and run **`install.bat`** — it finds (or
+   lets you pick) your VNyan folder and only asks for admin rights if that folder
+   actually needs them. Prefer manual? See [INSTALL](docs/INSTALL.md).
 2. Launch VNyan, open **Squish Studio** from the plugins menu, toggle **On**.
 3. Paint a region (or use *Select from bones*), add a mesh collider set, and poke yourself.
 4. Add **Jello Studio** for the soft-body jiggle layer and enable
