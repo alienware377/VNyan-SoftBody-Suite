@@ -41,6 +41,16 @@ See the performance section in [USAGE](USAGE.md): enable **Async physics** in Sq
 automatically when nothing is near. Also lower **Remesh passes** / raise **Cage edge
 length** in Jello for a lighter sim cage.
 
+**Q: My VNyan isn't in Program Files — can I still use the installer?**
+Yes — that's what it's for. Run `install.bat`, answer `n` when it offers the default
+location (or if VNyan isn't found there you go straight to the picker), and browse to
+your VNyan folder. Unprotected locations install without any admin prompt.
+
+**Q: Why does the installer ask for admin rights?**
+Only because your VNyan folder is somewhere Windows write-protects (like
+`C:\Program Files`). The installer probes writability first and elevates only when the
+copy would otherwise fail — portable installs never trigger UAC.
+
 **Q: Where are my settings saved? Can I share them?**
 `%USERPROFILE%\AppData\LocalLow\Suvidriel\VNyan\<studio>.json`. They're plain JSON —
 copy them to another machine (regions/colliders included) or back them up freely.

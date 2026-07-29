@@ -9,6 +9,19 @@
 
 ## Installing the plugins
 
+### Option A — installer (recommended)
+
+1. Download the all-in-one release zip and unzip it anywhere.
+2. Close VNyan and double-click **`install.bat`**.
+3. The installer finds VNyan at `C:\Program Files\VNyan` automatically, or lets you
+   **browse to your VNyan folder** if you installed it somewhere else (itch.io app,
+   portable drive, custom path...).
+4. Admin rights are requested **only if your VNyan folder is write-protected** (e.g. the
+   default Program Files location). Portable/user-folder installs never see a UAC prompt.
+5. Start VNyan — done.
+
+### Option B — manual copy
+
 1. Download the latest release zip(s) from the Releases page.
 2. Close VNyan.
 3. For each studio you want, create a folder under VNyan's plugin directory and copy the
