@@ -350,7 +350,7 @@ namespace SquishStudio
                 { "Slider_groupthr", "Minimum skin weight for a vertex to be selected by vertex-group picking." },
                 { "Button_PickGroups", "Select region vertices from the mesh's bone weight groups (multi-select checkbox list)." },
                 { "Button_ClearWeights", "Erase ALL paint in this region." },
-                { "Button_ApplyMulti", "Copy this region onto other meshes (same group names or nearest-vertex transfer)." },
+                { "Button_ApplyMulti", "Copy region(s) onto other meshes: Auto (same bones as the painted area), bone group, or surface projection — with radius / bone-cutoff options and a copy-ALL-regions switch." },
                 { "Slider_squish", "How strongly the skin dents under a collider. The soft, aesthetic layer." },
                 { "Slider_squishdepth", "Maximum dent depth in meters. 0 = automatic from region size." },
                 { "Slider_bulge", "Volume pushed sideways around the contact — the flesh 'flows' out around fingers/arms." },
@@ -768,6 +768,7 @@ namespace SquishStudio
             for (int m = 0; m < config.meshes.Count; m++) if (config.meshes[m].mesh == nm) selMesh = config.meshes[m];
             for (int p = 0; p < proxies.Count; p++) if (proxies[p].cfg == selMesh) selProxy = proxies[p];
             selRegion = (selMesh != null && selMesh.regions.Count > 0) ? selMesh.regions[0] : null;
+            CloseApplyPanel();   // its source/target lists are stale now
             RefreshRegionList(); RefreshGroupList(); PushRegionToUI();
         }
 
@@ -832,6 +833,7 @@ namespace SquishStudio
             string nm = selRegion.name;
             selMesh.regions.Remove(selRegion);
             selRegion = selMesh.regions.Count > 0 ? selMesh.regions[0] : null;
+            CloseApplyPanel();
             Rebind(); RefreshRegionList();
             SetStatus("removed region '" + nm + "'");
         }
@@ -1138,27 +1140,40 @@ namespace SquishStudio
         // ==================== apply-to-meshes panel ====================
         GameObject applyPanel;
         readonly HashSet<string> applySel = new HashSet<string>();
-        int applyMethod = 1;   // 0 = by bone group, 1 = by surface transfer
+        int applyMethod = 2;           // 0 = by bone group, 1 = by surface transfer, 2 = auto (region's own bones)
+        float applyRadius = 0.03f;     // surface-transfer projection radius (metres)
+        float applyBoneShare = 0.10f;  // auto mode: min share of the region's total skin weight
+        bool applyAllRegions = false;  // copy every region on this mesh, not just the selected one
 
         void OpenApplyPanel()
         {
-            if (selMesh == null || selRegion == null) { SetStatus("select a mesh + region first"); return; }
+            // destroy-toggle FIRST so the button can always close a stale panel
             if (applyPanel != null) { Destroy(applyPanel); applyPanel = null; return; }
+            if (selMesh == null || selRegion == null) { SetStatus("select a mesh + region first"); return; }
             BuildApplyPanel();
         }
+
+        void CloseApplyPanel() { if (applyPanel != null) { Destroy(applyPanel); applyPanel = null; } }
 
         void BuildApplyPanel()
         {
             if (window == null) return;
+            // selection can die while the panel is open (mesh switch, region delete, reload)
+            // and every option click rebuilds — bail safely instead of NRE-ing mid-build
+            if (selMesh == null || selRegion == null)
+            { CloseApplyPanel(); SetStatus("apply panel closed — select a mesh + region first"); return; }
             SkinnedMeshRenderer[] rends = boundAvatar != null
                 ? boundAvatar.GetComponentsInChildren<SkinnedMeshRenderer>(true) : new SkinnedMeshRenderer[0];
 
             List<string> targets = new List<string>();
             for (int i = 0; i < rends.Length; i++)
                 if (rends[i] != null && rends[i].name != selMesh.mesh) targets.Add(rends[i].name);
+            // ticks remembered from another source mesh may no longer be valid targets
+            // (the SOURCE itself must never be in here — src==dst would wipe its paint)
+            applySel.RemoveWhere(delegate(string n) { return !targets.Contains(n); });
 
             float w = 340f, rowH = 24f, pad = 10f;
-            float h = 96f + rowH * 2f + targets.Count * rowH + 46f;
+            float h = 284f + targets.Count * rowH;
 
             applyPanel = new GameObject("SquishApplyPanel", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
             RectTransform prt = applyPanel.GetComponent<RectTransform>();
@@ -1174,12 +1189,37 @@ namespace SquishStudio
             rtParent = applyPanel;
 
             float y = pad;
-            RtText("Title", "Apply region '" + selRegion.name + "' to other meshes", pad, y, w - 2 * pad, 20f, 13, FontStyle.Bold); y += 26f;
+            RtText("Title", "Copy " + (applyAllRegions ? "ALL regions" : "region '" + selRegion.name + "'") + " to other meshes",
+                pad, y, w - 2 * pad, 20f, 13, FontStyle.Bold); y += 26f;
 
+            RtButton("M2", (applyMethod == 2 ? "◉" : "○") + " Auto: same bones as the painted area", pad, y, w - 2 * pad, rowH,
+                () => { applyMethod = 2; RebuildApply(); }); y += rowH + 2f;
             RtButton("M0", (applyMethod == 0 ? "◉" : "○") + " By bone group (current Group pick)", pad, y, w - 2 * pad, rowH,
-                () => { applyMethod = 0; RebuildApply(); }); y += rowH + 2f;
+                () => { applyMethod = 0; applyAllRegions = false; RebuildApply(); }); y += rowH + 2f;
             RtButton("M1", (applyMethod == 1 ? "◉" : "○") + " By surface transfer (project painted area)", pad, y, w - 2 * pad, rowH,
                 () => { applyMethod = 1; RebuildApply(); }); y += rowH + 8f;
+
+            RtButton("AllReg", applyMethod == 0
+                ? "☐ Copy ALL regions — n/a for the group-pick method"
+                : (applyAllRegions ? "☒ " : "☐ ") + "Copy ALL regions of this mesh (" + selMesh.regions.Count + ")",
+                pad, y, w - 2 * pad, rowH,
+                () =>
+                {
+                    if (applyMethod == 0) { SetStatus("one group pick can't fill several regions — use Auto or surface transfer"); return; }
+                    applyAllRegions = !applyAllRegions; RebuildApply();
+                }); y += rowH + 2f;
+
+            RtText("LblRad", "Projection radius (surface):", pad, y + 4f, 170f, 18f, 11, FontStyle.Normal);
+            RtButton("RadDn", "-", pad + 178f, y, 26f, rowH, () => { applyRadius = Mathf.Max(0.005f, applyRadius * 0.75f); RebuildApply(); });
+            RtText("RadV", applyRadius.ToString("0.000") + " m", pad + 210f, y + 4f, 60f, 18f, 11, FontStyle.Bold);
+            RtButton("RadUp", "+", pad + 274f, y, 26f, rowH, () => { applyRadius = Mathf.Min(0.3f, applyRadius * 1.3333f); RebuildApply(); });
+            y += rowH + 2f;
+
+            RtText("LblShare", "Auto-bone weight share ≥", pad, y + 4f, 170f, 18f, 11, FontStyle.Normal);
+            RtButton("ShDn", "-", pad + 178f, y, 26f, rowH, () => { applyBoneShare = Mathf.Max(0.02f, applyBoneShare - 0.02f); RebuildApply(); });
+            RtText("ShV", Mathf.RoundToInt(applyBoneShare * 100f) + " %", pad + 210f, y + 4f, 60f, 18f, 11, FontStyle.Bold);
+            RtButton("ShUp", "+", pad + 274f, y, 26f, rowH, () => { applyBoneShare = Mathf.Min(0.6f, applyBoneShare + 0.02f); RebuildApply(); });
+            y += rowH + 8f;
 
             float half = (w - 2 * pad - 6f) / 2f;
             RtButton("All", "All meshes", pad, y, half, rowH, () => { applySel.Clear(); for (int i = 0; i < targets.Count; i++) applySel.Add(targets[i]); RebuildApply(); });
@@ -1239,6 +1279,7 @@ namespace SquishStudio
 
         static void CopyRegionParams(SquishRegion src, SquishRegion dst)
         {
+            if (src == null || dst == null || src == dst) return;   // src==dst would wipe colliders mid-copy
             dst.enabled = src.enabled;
             dst.jiggle = src.jiggle; dst.stiffness = src.stiffness; dst.damping = src.damping;
             dst.bounce = src.bounce; dst.maxOffset = src.maxOffset;
@@ -1252,11 +1293,14 @@ namespace SquishStudio
             dst.cellulite = src.cellulite; dst.celluliteSize = src.celluliteSize;
             dst.squish = src.squish; dst.squishDepth = src.squishDepth;
             dst.bulge = src.bulge; dst.selfSquish = src.selfSquish;
+            dst.maxDent = src.maxDent; dst.evacBone = src.evacBone;
+            dst.evacAllBones = src.evacAllBones; dst.evacBlob = src.evacBlob;
             dst.colliders = new List<SquishCollider>();
             for (int i = 0; i < src.colliders.Count; i++)
             {
                 SquishCollider c = new SquishCollider();
-                c.bone = src.colliders[i].bone; c.radius = src.colliders[i].radius;
+                c.bone = src.colliders[i].bone; c.mesh = src.colliders[i].mesh;
+                c.radius = src.colliders[i].radius;
                 c.length = src.colliders[i].length; c.enabled = src.colliders[i].enabled;
                 dst.colliders.Add(c);
             }
@@ -1265,46 +1309,99 @@ namespace SquishStudio
         void OnApplyMulti()
         {
             if (applySel.Count == 0) { SetStatus("tick at least one target mesh"); return; }
-            if (selProxy == null || selRegion == null) return;
+            if (selProxy == null || selMesh == null || selRegion == null) return;
+
+            List<SquishRegion> srcs = new List<SquishRegion>();
+            if (applyAllRegions) { for (int r = 0; r < selMesh.regions.Count; r++) if (selMesh.regions[r] != null) srcs.Add(selMesh.regions[r]); }
+            else srcs.Add(selRegion);
+            if (srcs.Count == 0) { SetStatus("no regions on this mesh"); return; }
 
             if (applyMethod == 0 && lastGroupPick.Count == 0)
             { SetStatus("bone-group method: pick vertex groups on the source region first"); return; }
-            List<Vector4> samples = applyMethod == 1 ? selProxy.RegionWorldSamples(selRegion) : null;
-            if (applyMethod == 1 && (samples == null || samples.Count == 0))
-            { SetStatus("surface transfer needs painted weights on the source region"); return; }
+
+            // per-source-region precompute: world samples (projection) / derived bones (auto)
+            List<List<Vector4>> samplesPer = new List<List<Vector4>>();
+            List<List<string>> bonesPer = new List<List<string>>();
+            string skipped = "";
+            for (int i = 0; i < srcs.Count; i++)
+            {
+                samplesPer.Add(applyMethod == 1 ? selProxy.RegionWorldSamples(srcs[i]) : null);
+                bonesPer.Add(applyMethod == 2 ? selProxy.DeriveRegionBones(srcs[i], applyBoneShare) : null);
+                bool empty = (applyMethod == 1 && samplesPer[i].Count == 0) ||
+                             (applyMethod == 2 && bonesPer[i].Count == 0);
+                if (empty) skipped += (skipped.Length > 0 ? ", " : "") + srcs[i].name;
+            }
+            if (skipped.Length > 0)
+            {
+                int live = 0;
+                for (int i = 0; i < srcs.Count; i++)
+                    if (!((applyMethod == 1 && samplesPer[i].Count == 0) || (applyMethod == 2 && bonesPer[i].Count == 0))) live++;
+                if (live == 0) { SetStatus("no painted weights to copy from (" + skipped + ")"); return; }
+            }
 
             SkinnedMeshRenderer[] rends = boundAvatar.GetComponentsInChildren<SkinnedMeshRenderer>(true);
             string report = "";
             foreach (string nm in applySel)
             {
+                if (nm == selMesh.mesh) continue;   // never let the source be its own target
                 SkinnedMeshRenderer target = null;
                 for (int r = 0; r < rends.Length; r++) if (rends[r] != null && rends[r].name == nm) { target = rends[r]; break; }
                 if (target == null) continue;
 
+                // existing config entry only — created lazily on the first real commit so a
+                // fully-failed apply doesn't enable a do-nothing proxy on this mesh
                 SquishMesh sm = null;
                 for (int m = 0; m < config.meshes.Count; m++) if (config.meshes[m].mesh == nm) sm = config.meshes[m];
-                if (sm == null) { sm = new SquishMesh(); sm.mesh = nm; config.meshes.Add(sm); }
-                sm.enabled = true;
 
-                SquishRegion reg = null;
-                for (int r = 0; r < sm.regions.Count; r++) if (sm.regions[r].name == selRegion.name) reg = sm.regions[r];
-                if (reg == null) { reg = new SquishRegion(); reg.name = selRegion.name; sm.regions.Add(reg); }
-                CopyRegionParams(selRegion, reg);
-
-                int count;
-                if (applyMethod == 0)
+                int meshTotal = 0;
+                HashSet<SquishRegion> claimed = new HashSet<SquishRegion>();   // duplicate src names stay 1:1
+                for (int s = 0; s < srcs.Count; s++)
                 {
-                    MeshProxy.SelectFromBonesOn(target, reg, lastGroupPick, groupThreshold, groupChildren);
-                    count = reg.vertIndex.Count;
-                }
-                else count = MeshProxy.TransferWeights(target, reg, samples, 0.03f);
+                    SquishRegion src = srcs[s];
+                    if (applyMethod == 1 && samplesPer[s].Count == 0) continue;
+                    if (applyMethod == 2 && bonesPer[s].Count == 0) continue;
 
-                report += (report.Length > 0 ? ", " : "") + nm + ":" + count;
+                    // trial-transfer into a scratch region: existing paint on the target is
+                    // only overwritten when the method actually found vertices there
+                    SquishRegion trial = new SquishRegion();
+                    if (applyMethod == 0)
+                        MeshProxy.SelectFromBonesOn(target, trial, lastGroupPick, groupThreshold, groupChildren);
+                    else if (applyMethod == 2)
+                        MeshProxy.SelectFromBonesOn(target, trial, bonesPer[s], groupThreshold, false);
+                    else
+                        MeshProxy.TransferWeights(target, trial, samplesPer[s], applyRadius);
+                    if (trial.vertIndex.Count == 0) continue;
+
+                    if (sm == null) { sm = new SquishMesh(); sm.mesh = nm; config.meshes.Add(sm); }
+                    SquishRegion reg = null;
+                    for (int r = 0; r < sm.regions.Count; r++)
+                        if (sm.regions[r].name == src.name && !claimed.Contains(sm.regions[r])) { reg = sm.regions[r]; break; }
+                    if (reg == null) { reg = new SquishRegion(); reg.name = src.name; sm.regions.Add(reg); }
+                    claimed.Add(reg);
+
+                    PushUndo(reg);
+                    CopyRegionParams(src, reg);
+                    reg.vertIndex = trial.vertIndex;
+                    reg.weight = trial.weight;
+                    meshTotal += reg.vertIndex.Count;
+                }
+                if (meshTotal > 0 && sm != null) sm.enabled = true;
+                report += (report.Length > 0 ? ", " : "") + nm + ":" + meshTotal;
             }
 
             Destroy(applyPanel); applyPanel = null;
             Rebind(); RefreshMeshList();
-            SetStatus("applied '" + selRegion.name + "' → " + report + " verts — Save to keep");
+            string msg = "applied " + (applyAllRegions ? srcs.Count + " region(s)" : "'" + selRegion.name + "'")
+                + " → " + report + " verts";
+            if (skipped.Length > 0) msg += " (skipped empty: " + skipped + ")";
+            if (applyMethod == 2 && bonesPer.Count > 0 && bonesPer[0] != null && bonesPer[0].Count > 0)
+            {
+                string bl = "";
+                for (int i = 0; i < bonesPer[0].Count && i < 4; i++) bl += (i > 0 ? ", " : "") + bonesPer[0][i];
+                if (bonesPer[0].Count > 4) bl += " +" + (bonesPer[0].Count - 4);
+                msg += " [bones: " + bl + "]";
+            }
+            SetStatus(msg + " — Save to keep");
         }
 
         // ==================== config IO ====================

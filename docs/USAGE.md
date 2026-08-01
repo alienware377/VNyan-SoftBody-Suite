@@ -26,6 +26,24 @@ colliders are authored once in **Squish Studio** and mirror to the others within
 3. The **overlay** shows painted weight as a heatmap. Paint generously past the area you
    want to move — weights taper the motion smoothly at the boundary.
 
+### Copy regions to other meshes
+
+Clothing/accessory meshes covering the same body part should jiggle with it. Click
+**Apply to other meshes** and pick a method:
+
+- **Auto: same bones as the painted area** (default) — the plugin reads which bones
+  actually skin your painted verts (full multi-weight data, strongest first) and selects
+  the matching verts on each target mesh. The **weight-share ≥ %** stepper controls how
+  dominant a bone must be to count.
+- **By bone group** — reuses your last manual bone-group pick.
+- **By surface transfer** — projects the painted area through space onto each target
+  (**projection radius** stepper); best when skeletons/skinning differ.
+
+Tick target meshes (**All meshes**/**None**), optionally **Copy ALL regions of this
+mesh** to move every region in one click (Auto/surface methods). Copies carry all sim
+params + colliders; existing paint on a target is only overwritten when the method
+actually found vertices there, and every overwrite is undoable (Ctrl+Z).
+
 ## 2. Colliders (Squish Studio)
 
 - **Mesh collider** (recommended): pick a skinned mesh (your body, or *(all meshes)*) —

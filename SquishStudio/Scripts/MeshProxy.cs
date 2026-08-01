@@ -280,6 +280,68 @@ namespace SquishStudio
             }
         }
 
+        // Derive which bones "own" a painted region: accumulate each bone's skin weight
+        // across the painted verts (scaled by paint weight), keep bones holding at least
+        // `shareCutoff` of the total. Uses the FULL multi-weight arrays (not the legacy
+        // 4-wide API) so >4-influence meshes count every influence. Strongest first.
+        public List<string> DeriveRegionBones(SquishRegion region, float shareCutoff)
+        {
+            List<string> outNames = new List<string>();
+            if (smr == null || smr.sharedMesh == null || region == null || region.vertIndex.Count == 0) return outNames;
+            Mesh mesh = smr.sharedMesh;
+            var bpv = mesh.GetBonesPerVertex();
+            var all = mesh.GetAllBoneWeights();
+            Dictionary<int, float> tally = new Dictionary<int, float>();
+            float total = 0f;
+            if (bpv.Length > 0)
+            {
+                // prefix offsets so the sparse painted verts can index their weight runs
+                int[] start = new int[bpv.Length];
+                int run = 0;
+                for (int v = 0; v < bpv.Length; v++) { start[v] = run; run += bpv[v]; }
+                for (int i = 0; i < region.vertIndex.Count; i++)
+                {
+                    int vi = region.vertIndex[i];
+                    if (vi < 0 || vi >= bpv.Length) continue;
+                    float pw = region.weight[i];
+                    int s = start[vi], n = bpv[vi];
+                    for (int j = 0; j < n; j++)
+                    {
+                        BoneWeight1 b1 = all[s + j];
+                        float c = b1.weight * pw;
+                        if (c <= 0f) continue;
+                        float cur; tally.TryGetValue(b1.boneIndex, out cur); tally[b1.boneIndex] = cur + c;
+                        total += c;
+                    }
+                }
+            }
+            else
+            {
+                BoneWeight[] bw = mesh.boneWeights;
+                for (int i = 0; i < region.vertIndex.Count; i++)
+                {
+                    int vi = region.vertIndex[i];
+                    if (vi < 0 || vi >= bw.Length) continue;
+                    float pw = region.weight[i];
+                    Acc(tally, bw[vi].boneIndex0, bw[vi].weight0 * pw);
+                    Acc(tally, bw[vi].boneIndex1, bw[vi].weight1 * pw);
+                    Acc(tally, bw[vi].boneIndex2, bw[vi].weight2 * pw);
+                    Acc(tally, bw[vi].boneIndex3, bw[vi].weight3 * pw);
+                }
+                foreach (KeyValuePair<int, float> kv in tally) total += kv.Value;
+            }
+            if (total <= 0f) return outNames;
+            List<KeyValuePair<int, float>> ranked = new List<KeyValuePair<int, float>>(tally);
+            ranked.Sort(delegate(KeyValuePair<int, float> a, KeyValuePair<int, float> b) { return b.Value.CompareTo(a.Value); });
+            for (int i = 0; i < ranked.Count; i++)
+            {
+                if (ranked[i].Value / total < shareCutoff) break;   // sorted, safe to stop
+                int bi = ranked[i].Key;
+                if (bi >= 0 && bi < smr.bones.Length && smr.bones[bi] != null) outNames.Add(smr.bones[bi].name);
+            }
+            return outNames;
+        }
+
         Transform AutoRefBone(SquishSim s)
         {
             if (smr.sharedMesh == null || smr.bones == null || smr.bones.Length == 0) return null;
@@ -988,18 +1050,26 @@ namespace SquishStudio
 
         // ---------- surface transfer (project weights onto another mesh) ----------
         // Collect this proxy's painted region as WORLD-space (position, weight) samples.
+        // Fresh-bakes the source SMR rather than reading bakedVerts: by this point in the
+        // frame bakedVerts holds the SIM-DISPLACED surface (jiggle/sag/chained wobble),
+        // while TransferWeights raw-bakes the target — sampling the same raw skinned pose
+        // on both sides keeps overlapping surfaces aligned within the search radius.
         public List<Vector4> RegionWorldSamples(SquishRegion region)
         {
             List<Vector4> pts = new List<Vector4>();
             if (!Alive || region == null) return pts;
-            Transform tr = go.transform;
+            Mesh tmp = new Mesh();
+            smr.BakeMesh(tmp);
+            Vector3[] verts = tmp.vertices;
+            Transform tr = smr.transform;
             for (int i = 0; i < region.vertIndex.Count; i++)
             {
                 int vi = region.vertIndex[i];
-                if (vi >= bakedVerts.Length) continue;
-                Vector3 wp = tr.TransformPoint(bakedVerts[vi]);
+                if (vi >= verts.Length) continue;
+                Vector3 wp = tr.TransformPoint(verts[vi]);
                 pts.Add(new Vector4(wp.x, wp.y, wp.z, region.weight[i]));
             }
+            Object.Destroy(tmp);
             return pts;
         }
 
