@@ -1341,6 +1341,7 @@ namespace SquishStudio
 
             SkinnedMeshRenderer[] rends = boundAvatar.GetComponentsInChildren<SkinnedMeshRenderer>(true);
             string report = "";
+            bool anyApplied = false;
             foreach (string nm in applySel)
             {
                 if (nm == selMesh.mesh) continue;   // never let the source be its own target
@@ -1385,12 +1386,15 @@ namespace SquishStudio
                     reg.weight = trial.weight;
                     meshTotal += reg.vertIndex.Count;
                 }
-                if (meshTotal > 0 && sm != null) sm.enabled = true;
+                if (meshTotal > 0 && sm != null) { sm.enabled = true; anyApplied = true; }
                 report += (report.Length > 0 ? ", " : "") + nm + ":" + meshTotal;
             }
 
             Destroy(applyPanel); applyPanel = null;
             Rebind(); RefreshMeshList();
+            // auto-save like every other weight edit — this is what triggers the
+            // Wobble/Jello region mirror (2 s mtime watch) and their cage rebuilds
+            if (anyApplied) SaveConfig();
             string msg = "applied " + (applyAllRegions ? srcs.Count + " region(s)" : "'" + selRegion.name + "'")
                 + " → " + report + " verts";
             if (skipped.Length > 0) msg += " (skipped empty: " + skipped + ")";
@@ -1401,7 +1405,7 @@ namespace SquishStudio
                 if (bonesPer[0].Count > 4) bl += " +" + (bonesPer[0].Count - 4);
                 msg += " [bones: " + bl + "]";
             }
-            SetStatus(msg + " — Save to keep");
+            SetStatus(msg + (anyApplied ? " — saved (mirrors to Wobble/Jello in ~2 s)" : ""));
         }
 
         // ==================== config IO ====================
