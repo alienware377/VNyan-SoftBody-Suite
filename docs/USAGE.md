@@ -44,6 +44,11 @@ mesh** to move every region in one click (Auto/surface methods). Copies carry al
 params + colliders; existing paint on a target is only overwritten when the method
 actually found vertices there, and every overwrite is undoable (Ctrl+Z).
 
+A successful apply auto-saves, so Squish sims the new regions instantly and Wobble /
+Jello mirror them within ~2 s (including a background rebuild of the remeshed sim
+cage). One caveat: a mesh that's *brand-new* to Wobble/Jello arrives there disabled —
+enable it once in that studio's mesh dropdown and it stays in sync from then on.
+
 ## 2. Colliders (Squish Studio)
 
 - **Mesh collider** (recommended): pick a skinned mesh (your body, or *(all meshes)*) —
