@@ -39,6 +39,8 @@ namespace JelloStudio
         public float cageInflate = 0f;        // static outward clearance (m) added to the driven area
         public float cageInflateDyn = 0f;     // extra outward push proportional to the OUTWARD part of
                                               // the motion — cloth leads the body out, never digs in
+        public bool cageBindWhole = false;    // bind clothes to the WHOLE body surface (not just the
+                                              // painted-region cage) and ride Jello's FULL output
 
         // ----- boundary seam smoothing (painted <-> unpainted edge) -----
         // The seam where the deformed region meets the still body is often sharp no
