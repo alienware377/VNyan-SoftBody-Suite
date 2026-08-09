@@ -56,23 +56,32 @@ namespace JelloStudio
             public Mesh baked, display;
             public Vector3[] verts;
             public bool boundsSet;
+            public bool whole;                  // bound to the WHOLE body surface vs the region cage
             // driven WELD GROUPS (UV-seam duplicates merged — per-render smoothing would tear)
             public int[] gRep;                  // group -> representative render vert
             public int[] gMemStart, gMem;       // CSR: members (render verts) per group
-            public int[] gA, gB, gC;            // cage binding per group
+            public int[] gA, gB, gC;            // bound tri verts: CAGE indices, or SOURCE RENDER indices (whole)
             public float[] gwA, gwB, gwC, gFall;
             public Vector3[] gOff;              // rest offset in the bound tri's local frame (WRAP bind)
             public int[][] gAdj;                // adjacency among driven groups
             public float[] gSeam;               // metric distance to the driven-area boundary
             public int[] gBand;                 // groups sorted by gSeam (active band = prefix)
             public Vector3[] gDisp, gDisp2;     // per-frame scratch
+            public Vector3[] gNrm;              // per-frame bound-tri normal (anti-clip enforcement)
+            public float[] gProt;               // per-frame protected outward component (anti-clip floor)
         }
         readonly List<Follower> followers = new List<Follower>();
         readonly List<SkinnedMeshRenderer> folQueue = new List<SkinnedMeshRenderer>();  // bind 1/frame
         RemeshCage folCage;            // cage the current followers/queue were built against
+        bool folGenActive;             // a follower generation exists (whole mode has no cage)
+        bool folLastWhole;
         float folLastRange, folRangeT, folRetryT;
-        bool folRetried;
         readonly List<SkinnedMeshRenderer> folFailed = new List<SkinnedMeshRenderer>();
+        // bind-generation search structures: a CURRENT-POSE grid (rest-space search mis-bound
+        // verts and froze pose error into the fit)
+        RemeshCage.TriGrid bindGrid;
+        Vector3[] bindPts;             // positions the grid indexes (refreshed in place per bind call)
+        int[] bindTris;                // triangle array the grid's results index into
         Vector3[] cageOut, cageHeld, cagePrev;        // follower-side mirror of the held/lerp timing
         bool cageHeldValid;
 
@@ -404,34 +413,40 @@ namespace JelloStudio
         // ---------- cage followers ----------
         void UpdateFollowerLifecycle()
         {
-            bool want = cage != null && settingsRef != null && settingsRef.cageDrive && settingsRef.useRemesh > 0.5f;
-            if (!want) { if (folCage != null || followers.Count > 0) DetachFollowers(); return; }
+            bool whole = settingsRef != null && settingsRef.cageBindWhole;
+            bool want = settingsRef != null && settingsRef.cageDrive &&
+                        (whole || (cage != null && settingsRef.useRemesh > 0.5f));
+            if (!want) { if (folGenActive || followers.Count > 0) DetachFollowers(); return; }
             float range = Mathf.Clamp(settingsRef.cageFollowRange, 0.005f, 0.3f);
-            // cage rebuilt: detach and RETURN — requeueing next frame lets the pending-destroy
-            // "_JelloFollow" corpses actually die, or the claim check would exclude everything
-            if (folCage != null && folCage != cage) { DetachFollowers(); return; }
+            // cage rebuilt (cage mode) or bind-mode flipped: detach and RETURN — requeueing
+            // next frame lets the pending-destroy "_JelloFollow" corpses actually die
+            if (folGenActive && (folLastWhole != whole || (!whole && folCage != cage))) { DetachFollowers(); return; }
             // range slider: debounce the drag; followers keep running until it settles
-            if (folCage != null && Mathf.Abs(range - folLastRange) > 0.0005f)
+            if (folGenActive && Mathf.Abs(range - folLastRange) > 0.0005f)
             { folRangeT = 0.5f; folLastRange = range; }
             if (folRangeT > 0f)
             {
                 folRangeT -= Time.deltaTime;
                 if (folRangeT <= 0f) { DetachFollowers(); return; }   // rebind next frame at the settled range
             }
-            if (folCage == null)
+            if (!folGenActive)
             {
-                folCage = cage; folLastRange = range;
+                folGenActive = true; folCage = cage; folLastWhole = whole; folLastRange = range;
                 QueueFollowerCandidates();
             }
-            if (folQueue.Count > 0) BindNextFollower(range);   // one mesh per frame spreads the cost
-            else if (folFailed.Count > 0 && !folRetried)
+            if (folQueue.Count > 0) BindNextFollower(range, whole);   // one mesh per frame spreads the cost
+            else if (folFailed.Count > 0)
             {
-                // binding is pose-dependent (bake at bind moment): meshes that failed coverage
-                // get ONE retry a few seconds later, when the pose has likely returned to rest
+                // binding is pose-dependent: meshes that failed coverage retry every few
+                // seconds (a permanent one-shot latch left garments unbound for the session)
                 folRetryT += Time.deltaTime;
-                if (folRetryT > 3f)
+                if (folRetryT > 5f)
                 {
-                    folRetried = true;
+                    folRetryT = 0f;
+                    // rebuild the search grid: its cell binning froze at generation start,
+                    // and the whole point of the retry is that the pose has MOVED since —
+                    // stale cells either find nothing or mis-bind to the wrong body patch
+                    bindGrid = null; bindPts = null; bindTris = null;
                     for (int i = 0; i < folFailed.Count; i++) if (folFailed[i] != null) folQueue.Add(folFailed[i]);
                     folFailed.Clear();
                 }
@@ -465,19 +480,68 @@ namespace JelloStudio
             }
         }
 
-        void BindNextFollower(float range)
+        Vector3 bindMin, bindMax;
+
+        void ComputeBindBounds()
+        {
+            bindMin = bindPts[0]; bindMax = bindPts[0];
+            for (int i = 1; i < bindPts.Length; i++)
+            { bindMin = Vector3.Min(bindMin, bindPts[i]); bindMax = Vector3.Max(bindMax, bindPts[i]); }
+        }
+
+        // Build (once per follower generation) a search grid over the CURRENT-POSE clean
+        // surface — rest-space search mis-bound verts and froze pose error into the fit.
+        // bindPts stays live: cage mode points at cage.simBaked; whole mode is refreshed
+        // in place per bind call (cell membership drifts a vert-cm, well under a cell).
+        bool EnsureBindGrid(bool whole)
+        {
+            if (bindGrid != null)
+            {
+                if (whole && bindPts != null && bakedVerts != null && bindPts.Length == bakedVerts.Length)
+                    for (int i = 0; i < bindPts.Length; i++) bindPts[i] = bakedVerts[i] - disp[i];
+                ComputeBindBounds();
+                return true;
+            }
+            if (whole)
+            {
+                if (display == null || bakedVerts == null || bakedNormals == null) return false;
+                int n = bakedVerts.Length;
+                bindPts = new Vector3[n];
+                for (int i = 0; i < n; i++) bindPts[i] = bakedVerts[i] - disp[i];
+                bindTris = display.triangles;
+            }
+            else
+            {
+                if (cage == null || cage.simBaked == null || cage.SimVertCount < 1 ||
+                    (cage.simBaked[0] == Vector3.zero && cage.simBaked[cage.SimVertCount - 1] == Vector3.zero))
+                    return false;   // freshly built cage hasn't interpolated yet — wait one tick
+                bindPts = cage.simBaked;
+                bindTris = cage.simTris;
+            }
+            int nt = bindTris.Length / 3;
+            Vector3[] tn = new Vector3[nt];
+            Vector3[] nsrc = whole ? bakedNormals : cage.simNormals;
+            for (int t = 0; t < nt; t++)
+            {
+                Vector3 s = nsrc[bindTris[t * 3]] + nsrc[bindTris[t * 3 + 1]] + nsrc[bindTris[t * 3 + 2]];
+                float m = s.magnitude;
+                tn[t] = m > 1e-9f ? s / m : Vector3.up;
+            }
+            bindGrid = new RemeshCage.TriGrid(bindPts, bindTris, 0.02f);
+            bindGrid.triNormals = tn;
+            ComputeBindBounds();
+            return true;
+        }
+
+        void BindNextFollower(float range, bool whole)
         {
             SkinnedMeshRenderer r = folQueue[folQueue.Count - 1];
             folQueue.RemoveAt(folQueue.Count - 1);
-            if (r == null || r.sharedMesh == null || cage == null || go == null) return;
+            if (r == null || r.sharedMesh == null || go == null) return;
             // re-check at bind time: another proxy may have claimed/hidden it since queueing
             if (FollowClaimAlive(r) || OtherStudioProxyAlive(r)) return;
             if (!r.enabled || !r.gameObject.activeInHierarchy || r.forceRenderingOff) return;
-            // wrap offsets are measured against the UNDISPLACED skinned cage (simBaked);
-            // a freshly built cage hasn't interpolated yet — wait one sim tick
-            if (cage.simBaked == null || cage.SimVertCount < 1 ||
-                (cage.simBaked[0] == Vector3.zero && cage.simBaked[cage.SimVertCount - 1] == Vector3.zero))
-            { folQueue.Add(r); return; }
+            if (!EnsureBindGrid(whole)) { folQueue.Add(r); return; }
 
             Mesh bk = new Mesh();
             r.BakeMesh(bk);
@@ -507,7 +571,7 @@ namespace JelloStudio
             // ---- bind each group once (shared by all its duplicates — no seam tearing) ----
             // AABB prefilter keeps far meshes (hair etc.) nearly free. Double-sided cloth:
             // opposing duplicate normals cancel → ungated (but range-limited) fallback.
-            Vector3 lo = cage.restMin - Vector3.one * range, hi = cage.restMax + Vector3.one * range;
+            Vector3 lo = bindMin - Vector3.one * range, hi = bindMax + Vector3.one * range;
             int nGlobal = gFirst.Count;
             int[] localOf = new int[nGlobal];
             for (int i = 0; i < nGlobal; i++) localOf[i] = -1;
@@ -519,14 +583,15 @@ namespace JelloStudio
                 if (q.x < lo.x || q.y < lo.y || q.z < lo.z || q.x > hi.x || q.y > hi.y || q.z > hi.z) continue;
                 Vector3 ns = gNormSum[gg];
                 Vector3 nq = ns.sqrMagnitude > 1e-6f ? toSrc.MultiplyVector(ns).normalized : Vector3.zero;
-                int a, b, c; Vector3 bar, cp;
-                if (!cage.BindPoint(q, nq, range * 1.25f, out a, out b, out c, out bar, out cp)) continue;
+                int bt; Vector3 cp, bar; bool viaGate;
+                if (!bindGrid.NearestGatedWithin(q, nq, 0.35f, range * 1.25f, out bt, out cp, out bar, out viaGate)) continue;
                 float dist = (q - cp).magnitude;
                 if (dist > range) continue;
                 float u = Mathf.Clamp01((dist - range * 0.5f) / (range * 0.5f));
                 float fall = 1f - u * u * (3f - 2f * u);   // 1 inside half-range, smooth to 0 at range
                 localOf[gg] = rep.Count;
-                rep.Add(gFirst[gg]); A.Add(a); B.Add(b); C.Add(c);
+                rep.Add(gFirst[gg]);
+                A.Add(bindTris[bt]); B.Add(bindTris[bt + 1]); C.Add(bindTris[bt + 2]);
                 WA.Add(bar.x); WB.Add(bar.y); WC.Add(bar.z); FF.Add(fall);
             }
             if (rep.Count < 8) { Object.Destroy(bk); folFailed.Add(r); return; }   // not covered (maybe off-pose)
@@ -536,24 +601,30 @@ namespace JelloStudio
             f.display = Object.Instantiate(bk); f.display.MarkDynamic();
             f.display.name = r.name + "_jellofollow";
             int G = rep.Count;
+            f.whole = whole;
             f.gRep = rep.ToArray(); f.gA = A.ToArray(); f.gB = B.ToArray(); f.gC = C.ToArray();
             f.gwA = WA.ToArray(); f.gwB = WB.ToArray(); f.gwC = WC.ToArray(); f.gFall = FF.ToArray();
             f.verts = new Vector3[pts.Length];
             f.gDisp = new Vector3[G]; f.gDisp2 = new Vector3[G];
+            f.gNrm = new Vector3[G]; f.gProt = new float[G];
 
             // WRAP offsets: each group's rest position expressed in its bound tri's local
-            // frame, measured on the UNDISPLACED skinned cage (skinned bra vs skinned body,
-            // matching poses). Per frame the group rides the tri absolutely, so sim,
-            // blendshapes and skinning divergence are all tracked 1:1.
+            // frame, measured on the CLEAN current-pose surface (bindPts: skinned bra vs
+            // skinned body, SAME frame, sim removed). Per frame the group rides the tri
+            // absolutely, so sim, blendshapes and skinning divergence are all tracked 1:1.
             f.gOff = new Vector3[G];
-            Vector3[] cbase = cage.simBaked;
+            Vector3[] refN = whole ? bakedNormals : cage.simNormals;
             for (int g2 = 0; g2 < G; g2++)
             {
                 Vector3 q2 = toSrc.MultiplyPoint3x4(pts[f.gRep[g2]]);
-                Vector3 A3 = cbase[f.gA[g2]], B3 = cbase[f.gB[g2]], C3 = cbase[f.gC[g2]];
+                Vector3 A3 = bindPts[f.gA[g2]], B3 = bindPts[f.gB[g2]], C3 = bindPts[f.gC[g2]];
                 Vector3 cpB = A3 * f.gwA[g2] + B3 * f.gwB[g2] + C3 * f.gwC[g2];
                 Vector3 e1, e2, n3;
                 TriFrame(A3, B3, C3, out e1, out e2, out n3);
+                // canonicalize the frame: cage-tri winding isn't guaranteed, and the anti-
+                // clip floor must know which way is genuinely OUT of the body. Same rule
+                // is applied per frame, so offsets stay consistent.
+                if (Vector3.Dot(n3, refN[f.gA[g2]] + refN[f.gB[g2]] + refN[f.gC[g2]]) < 0f) { n3 = -n3; e2 = -e2; }
                 Vector3 d3 = q2 - cpB;
                 f.gOff[g2] = new Vector3(Vector3.Dot(d3, e1), Vector3.Dot(d3, e2), Vector3.Dot(d3, n3));
             }
@@ -632,18 +703,20 @@ namespace JelloStudio
 
         void UpdateFollowers()
         {
-            if (followers.Count == 0 || cageOut == null || go == null) return;
-            if (cage == null || cageOut.Length != cage.SimVertCount) return;   // mid-rebuild frame: sizes disagree
+            if (followers.Count == 0 || go == null) return;
+            bool cageOk = cage != null && cageOut != null && cageOut.Length == cage.SimVertCount;
             Matrix4x4 srcL2W = go.transform.localToWorldMatrix;
             for (int fi = followers.Count - 1; fi >= 0; fi--)
             {
                 Follower f = followers[fi];
                 if (f.smr == null || f.go == null) { RemoveFollower(fi); continue; }
-                // hidden meanwhile (hide panel sets enabled=false), or another studio took
-                // ownership: drop the follower WITHOUT un-hiding — they own visibility now
+                // hidden meanwhile (hide panel sets enabled=false): drop the follower and
+                // RELEASE forceRenderingOff — enabled=false is what hides it, and leaving
+                // our flag set would keep the mesh invisible forever after an un-hide
                 if (!f.smr.enabled || !f.smr.gameObject.activeInHierarchy ||
                     (settingsRef != null && settingsRef.hiddenMeshes != null && settingsRef.hiddenMeshes.Contains(f.smr.name)))
-                { RemoveFollower(fi, false); continue; }
+                { RemoveFollower(fi, true); continue; }
+                // another studio took ownership: they manage visibility now
                 if (OtherStudioProxyAlive(f.smr)) { RemoveFollower(fi, false); continue; }
                 f.smr.forceRenderingOff = true;   // we render this mesh while driving it
                 f.smr.BakeMesh(f.baked);
@@ -654,36 +727,68 @@ namespace JelloStudio
                 bool haveN = folNrmScratch.Count == f.verts.Length;
                 Matrix4x4 M = f.smr.transform.worldToLocalMatrix * srcL2W;
 
+                if (!f.whole && !cageOk) continue;   // cage followers wait out a rebuild frame
                 float fit = settingsRef != null ? Mathf.Clamp(settingsRef.cageFitStrength, 0f, 3f) : 1f;
                 float inf = settingsRef != null ? Mathf.Clamp(settingsRef.cageInflate, 0f, 0.1f) : 0f;
                 float dyn = settingsRef != null ? Mathf.Clamp(settingsRef.cageInflateDyn, 0f, 3f) : 0f;
                 int G = f.gRep.Length;
-                Vector3[] cb = cage.simBaked;
+                Vector3[] cb = f.whole ? bakedVerts : cage.simBaked;
                 for (int g2 = 0; g2 < G; g2++)
                 {
-                    // WRAP: rebuild the bound tri's frame on the CURRENT surface (skinned
-                    // interp + lerp-matched sim field) and re-place the stored rest offset.
-                    // The delta vs the garment's own skinning is what we apply — so sim,
-                    // blendshape growth and skinning divergence are all tracked.
+                    // WRAP: rebuild the bound tri's frame on the CURRENT surface and re-place
+                    // the stored rest offset. whole mode rides Jello's FINAL output verts
+                    // (post-lerp, seam-smoothed); cage mode rides skinned interp + sim mirror.
                     int ia = f.gA[g2], ib = f.gB[g2], ic = f.gC[g2];
-                    Vector3 A2 = cb[ia] + cageOut[ia];
-                    Vector3 B2 = cb[ib] + cageOut[ib];
-                    Vector3 C2 = cb[ic] + cageOut[ic];
+                    Vector3 A2, B2, C2;
+                    if (f.whole) { A2 = cb[ia]; B2 = cb[ib]; C2 = cb[ic]; }
+                    else
+                    {
+                        A2 = cb[ia] + cageOut[ia];
+                        B2 = cb[ib] + cageOut[ib];
+                        C2 = cb[ic] + cageOut[ic];
+                    }
                     Vector3 e1, e2, n2;
-                    if (!TriFrame(A2, B2, C2, out e1, out e2, out n2)) { f.gDisp[g2] = Vector3.zero; continue; }
+                    if (!TriFrame(A2, B2, C2, out e1, out e2, out n2))
+                    { f.gDisp[g2] = Vector3.zero; f.gNrm[g2] = Vector3.up; f.gProt[g2] = 0f; continue; }
+                    // same canonicalization as at bind — the floor must push OUT of the body
+                    Vector3 nrf = f.whole
+                        ? bakedNormals[ia] + bakedNormals[ib] + bakedNormals[ic]
+                        : cage.simNormals[ia] + cage.simNormals[ib] + cage.simNormals[ic];
+                    if (Vector3.Dot(n2, nrf) < 0f) { n2 = -n2; e2 = -e2; }
                     Vector3 cp2 = A2 * f.gwA[g2] + B2 * f.gwB[g2] + C2 * f.gwC[g2];
                     Vector3 off = f.gOff[g2];
                     Vector3 wrapSrc = cp2 + e1 * off.x + e2 * off.y + n2 * off.z;
-                    Vector3 dl = (M.MultiplyPoint3x4(wrapSrc) - f.verts[f.gRep[g2]]) * (f.gFall[g2] * fit);
-                    if (dyn > 0f || inf > 0f)
+                    Vector3 dlRaw = M.MultiplyPoint3x4(wrapSrc) - f.verts[f.gRep[g2]];
+                    Vector3 nl = M.MultiplyVector(n2).normalized;
+
+                    // ANTI-CLIP SPLIT: only the tangential part obeys falloff/fit and the seam
+                    // machinery below. The OUTWARD-normal part — the component that stops the
+                    // breast punching through the cup — gets a protected floor for close-
+                    // fitting verts (rest clearance |off.z| under ~1 cm, fading out by 3 cm).
+                    float baseW = f.gFall[g2] * fit;
+                    float dn = Vector3.Dot(dlRaw, nl);
+                    Vector3 dt = dlRaw - nl * dn;
+                    float wClip = 1f - Mathf.Clamp01((Mathf.Abs(off.z) - 0.01f) / 0.02f);
+                    // the floor fades in over the first ~2 cm from the driven edge: an
+                    // unprotectable boundary vert can't guard the cup anyway — an uncapped
+                    // floor there only re-creates the seam step the smoothing removed
+                    float ef = Mathf.Clamp01(f.gSeam[g2] / 0.02f);
+                    wClip *= ef * ef * (3f - 2f * ef);
+                    float outW = Mathf.Max(baseW, wClip);
+                    float prot = 0f;
+                    Vector3 dl = dt * baseW;
+                    if (dn > 0f)
                     {
-                        Vector3 nl = M.MultiplyVector(n2).normalized;
-                        // dynamic inflate: amplify only the OUTWARD part, so the cloth leads
-                        // the body when it pushes out but never digs in when it retracts
-                        float outc = Vector3.Dot(dl, nl);
-                        if (outc > 0f && dyn > 0f) dl += nl * (outc * dyn);
-                        if (inf > 0f) dl += nl * (inf * f.gFall[g2]);   // static clearance
+                        dl += nl * (dn * outW); prot = dn * outW;
+                        if (dyn > 0f) { dl += nl * (dn * outW * dyn); prot += dn * outW * dyn; }
                     }
+                    else dl += nl * (dn * baseW);   // inward (body moving away): soft, clampable
+                    if (inf > 0f)
+                    {
+                        float add = inf * Mathf.Max(f.gFall[g2], wClip);
+                        dl += nl * add; prot += add;
+                    }
+                    f.gNrm[g2] = nl; f.gProt[g2] = prot;
                     f.gDisp[g2] = dl;
                 }
 
@@ -729,6 +834,22 @@ namespace JelloStudio
                     }
                 }
 
+                // anti-clip floor: whatever the seam smoothing/clamps did above, the protected
+                // outward component survives — a close-fitting cup can never be pierced.
+                // The floor still obeys the seam RAMP law near the driven edge (a boundary
+                // group snapping to full amplitude against undriven neighbours is a tear).
+                float pSmax = settingsRef != null ? settingsRef.seamMaxStretch : 0f;
+                float pSrange = settingsRef != null ? Mathf.Min(settingsRef.seamRange, SEAM_MAXR) : 0f;
+                float pSlope = (pSmax > 0.0001f && pSrange > 0.0005f) ? pSmax / pSrange : -1f;
+                for (int g2 = 0; g2 < G; g2++)
+                {
+                    float prot = f.gProt[g2];
+                    if (prot <= 0f) continue;
+                    if (pSlope > 0f) prot = Mathf.Min(prot, f.gSeam[g2] * pSlope);
+                    float dn2 = Vector3.Dot(f.gDisp[g2], f.gNrm[g2]);
+                    if (dn2 < prot) f.gDisp[g2] += f.gNrm[g2] * (prot - dn2);
+                }
+
                 for (int g2 = 0; g2 < G; g2++)
                 {
                     Vector3 dl = f.gDisp[g2];
@@ -762,8 +883,9 @@ namespace JelloStudio
         {
             for (int i = followers.Count - 1; i >= 0; i--) RemoveFollower(i);
             folQueue.Clear(); folFailed.Clear();
-            folRetried = false; folRetryT = 0f; folRangeT = 0f;
-            folCage = null;
+            folRetryT = 0f; folRangeT = 0f;
+            folCage = null; folGenActive = false;
+            bindGrid = null; bindPts = null; bindTris = null;
             // drop the timing mirrors: a rebuilt cage has a different vert count, and a
             // held frame would otherwise feed followers a stale wrong-length field
             cageOut = null; cageHeld = null; cagePrev = null; cageHeldValid = false;
@@ -839,7 +961,6 @@ namespace JelloStudio
         {
             if (!Alive) { return; }
             PollCageBuild();
-            UpdateFollowerLifecycle();
             swDbg.Restart();
 
             // upstream appearing/disappearing: cheap re-check 1x/second for UPGRADES, but
@@ -904,6 +1025,10 @@ namespace JelloStudio
                 System.Array.Copy(heldDisp, disp, disp.Length);
                 if (cageHeld != null && cageOut != null && cageHeld.Length == cageOut.Length)
                     System.Array.Copy(cageHeld, cageOut, cageOut.Length);   // followers hold too
+                // keep simBaked FRESH on held frames — followers rebuild their wrap frames
+                // from it every frame against a fresh garment bake; a stale interp made the
+                // garment lag the body by a frame at half rate
+                if (cage != null && cageSim != null) cage.InterpBaked(bakedVerts, bakedNormals);
             }
             else if (simEnabled)
             {
@@ -997,7 +1122,10 @@ namespace JelloStudio
             // fixed expanded bounds once — per-frame RecalculateBounds is a full-mesh scan
             if (!dispBoundsSet) { display.bounds = new Bounds(display.bounds.center, display.bounds.size + Vector3.one * 2f); dispBoundsSet = true; }
             if (overlayOn && overlayMode == 1) RefreshSharpColors();   // live jaggedness view
-            UpdateFollowers();   // replay this frame's cage field onto the driven meshes
+            // follower lifecycle runs HERE (post-output) so binds measure against the SAME
+            // frame's surface (simBaked fresh, bakedVerts final) — no one-frame skew baked in
+            UpdateFollowerLifecycle();
+            UpdateFollowers();   // replay this frame's surface onto the driven meshes
 
             msSim = Mathf.Lerp(msSim, (float)swDbg.Elapsed.TotalMilliseconds, 0.08f);
             DrawDebug();

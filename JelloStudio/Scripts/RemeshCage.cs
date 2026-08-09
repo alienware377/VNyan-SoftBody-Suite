@@ -615,7 +615,7 @@ namespace JelloStudio
         }
 
         // ==================== triangle spatial hash ====================
-        class TriGrid
+        public class TriGrid
         {
             readonly Vector3[] P; readonly int[] T; readonly float cell;
             readonly Dictionary<long, List<int>> cells = new Dictionary<long, List<int>>();
