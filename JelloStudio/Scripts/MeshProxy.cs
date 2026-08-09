@@ -61,6 +61,7 @@ namespace JelloStudio
             public int[] gMemStart, gMem;       // CSR: members (render verts) per group
             public int[] gA, gB, gC;            // cage binding per group
             public float[] gwA, gwB, gwC, gFall;
+            public Vector3[] gOff;              // rest offset in the bound tri's local frame (WRAP bind)
             public int[][] gAdj;                // adjacency among driven groups
             public float[] gSeam;               // metric distance to the driven-area boundary
             public int[] gBand;                 // groups sorted by gSeam (active band = prefix)
@@ -74,6 +75,17 @@ namespace JelloStudio
         readonly List<SkinnedMeshRenderer> folFailed = new List<SkinnedMeshRenderer>();
         Vector3[] cageOut, cageHeld, cagePrev;        // follower-side mirror of the held/lerp timing
         bool cageHeldValid;
+
+        // orthonormal frame of a triangle (for wrap offsets); false = degenerate
+        static bool TriFrame(Vector3 A, Vector3 B, Vector3 C, out Vector3 e1, out Vector3 e2, out Vector3 n)
+        {
+            e1 = B - A; float m1 = e1.magnitude;
+            Vector3 ac = C - A;
+            n = Vector3.Cross(e1, ac); float mn = n.magnitude;
+            if (m1 < 1e-9f || mn < 1e-12f) { e1 = Vector3.right; e2 = Vector3.up; n = Vector3.forward; return false; }
+            e1 /= m1; n /= mn; e2 = Vector3.Cross(n, e1);
+            return true;
+        }
 
         // pending-destroy corpses are inactive — same hazard ProxyAlive guards against
         static bool FollowClaimAlive(SkinnedMeshRenderer r)
@@ -461,6 +473,11 @@ namespace JelloStudio
             // re-check at bind time: another proxy may have claimed/hidden it since queueing
             if (FollowClaimAlive(r) || OtherStudioProxyAlive(r)) return;
             if (!r.enabled || !r.gameObject.activeInHierarchy || r.forceRenderingOff) return;
+            // wrap offsets are measured against the UNDISPLACED skinned cage (simBaked);
+            // a freshly built cage hasn't interpolated yet — wait one sim tick
+            if (cage.simBaked == null || cage.SimVertCount < 1 ||
+                (cage.simBaked[0] == Vector3.zero && cage.simBaked[cage.SimVertCount - 1] == Vector3.zero))
+            { folQueue.Add(r); return; }
 
             Mesh bk = new Mesh();
             r.BakeMesh(bk);
@@ -523,6 +540,23 @@ namespace JelloStudio
             f.gwA = WA.ToArray(); f.gwB = WB.ToArray(); f.gwC = WC.ToArray(); f.gFall = FF.ToArray();
             f.verts = new Vector3[pts.Length];
             f.gDisp = new Vector3[G]; f.gDisp2 = new Vector3[G];
+
+            // WRAP offsets: each group's rest position expressed in its bound tri's local
+            // frame, measured on the UNDISPLACED skinned cage (skinned bra vs skinned body,
+            // matching poses). Per frame the group rides the tri absolutely, so sim,
+            // blendshapes and skinning divergence are all tracked 1:1.
+            f.gOff = new Vector3[G];
+            Vector3[] cbase = cage.simBaked;
+            for (int g2 = 0; g2 < G; g2++)
+            {
+                Vector3 q2 = toSrc.MultiplyPoint3x4(pts[f.gRep[g2]]);
+                Vector3 A3 = cbase[f.gA[g2]], B3 = cbase[f.gB[g2]], C3 = cbase[f.gC[g2]];
+                Vector3 cpB = A3 * f.gwA[g2] + B3 * f.gwB[g2] + C3 * f.gwC[g2];
+                Vector3 e1, e2, n3;
+                TriFrame(A3, B3, C3, out e1, out e2, out n3);
+                Vector3 d3 = q2 - cpB;
+                f.gOff[g2] = new Vector3(Vector3.Dot(d3, e1), Vector3.Dot(d3, e2), Vector3.Dot(d3, n3));
+            }
 
             // members CSR (driven groups only)
             int[] cnt = new int[G];
@@ -624,18 +658,31 @@ namespace JelloStudio
                 float inf = settingsRef != null ? Mathf.Clamp(settingsRef.cageInflate, 0f, 0.1f) : 0f;
                 float dyn = settingsRef != null ? Mathf.Clamp(settingsRef.cageInflateDyn, 0f, 3f) : 0f;
                 int G = f.gRep.Length;
+                Vector3[] cb = cage.simBaked;
                 for (int g2 = 0; g2 < G; g2++)
                 {
-                    Vector3 d = cageOut[f.gA[g2]] * f.gwA[g2] + cageOut[f.gB[g2]] * f.gwB[g2] + cageOut[f.gC[g2]] * f.gwC[g2];
-                    Vector3 dl = M.MultiplyVector(d) * (f.gFall[g2] * fit);
-                    if (haveN && (dyn > 0f || inf > 0f))
+                    // WRAP: rebuild the bound tri's frame on the CURRENT surface (skinned
+                    // interp + lerp-matched sim field) and re-place the stored rest offset.
+                    // The delta vs the garment's own skinning is what we apply — so sim,
+                    // blendshape growth and skinning divergence are all tracked.
+                    int ia = f.gA[g2], ib = f.gB[g2], ic = f.gC[g2];
+                    Vector3 A2 = cb[ia] + cageOut[ia];
+                    Vector3 B2 = cb[ib] + cageOut[ib];
+                    Vector3 C2 = cb[ic] + cageOut[ic];
+                    Vector3 e1, e2, n2;
+                    if (!TriFrame(A2, B2, C2, out e1, out e2, out n2)) { f.gDisp[g2] = Vector3.zero; continue; }
+                    Vector3 cp2 = A2 * f.gwA[g2] + B2 * f.gwB[g2] + C2 * f.gwC[g2];
+                    Vector3 off = f.gOff[g2];
+                    Vector3 wrapSrc = cp2 + e1 * off.x + e2 * off.y + n2 * off.z;
+                    Vector3 dl = (M.MultiplyPoint3x4(wrapSrc) - f.verts[f.gRep[g2]]) * (f.gFall[g2] * fit);
+                    if (dyn > 0f || inf > 0f)
                     {
-                        Vector3 n = folNrmScratch[f.gRep[g2]];
+                        Vector3 nl = M.MultiplyVector(n2).normalized;
                         // dynamic inflate: amplify only the OUTWARD part, so the cloth leads
                         // the body when it pushes out but never digs in when it retracts
-                        float outc = Vector3.Dot(dl, n);
-                        if (outc > 0f && dyn > 0f) dl += n * (outc * dyn);
-                        if (inf > 0f) dl += n * (inf * f.gFall[g2]);   // static clearance
+                        float outc = Vector3.Dot(dl, nl);
+                        if (outc > 0f && dyn > 0f) dl += nl * (outc * dyn);
+                        if (inf > 0f) dl += nl * (inf * f.gFall[g2]);   // static clearance
                     }
                     f.gDisp[g2] = dl;
                 }
