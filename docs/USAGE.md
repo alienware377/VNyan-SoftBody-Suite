@@ -78,6 +78,18 @@ regions, remeshes the copy to uniform triangles in the background (~2 s), simula
 cage, and projects the deformation back — your mesh's actual topology never touches the
 solver, which is where the smoothness comes from.
 
+### Cage also drives other meshes (anti-clip)
+
+Turn on **Cage also drives other meshes** to make clothing/accessory meshes covering the
+region ride the SAME cage sim instead of running their own: every mesh vert within **Cage
+follow range** of the cage surface binds to it (normal-gated, so a bra's inner face can't
+grab the wrong breast wall) and replays the identical deformation each frame. One shared
+sim means the body and its clothing can never diverge — no more clipping between them.
+Meshes that have their own enabled sim, hidden meshes, and meshes driven by another studio
+are skipped automatically; binding happens one mesh per frame and logs what it grabbed
+(`[Jello] cage follower ...`). Meshes bound while the avatar held an extreme pose get one
+automatic re-try a few seconds later.
+
 The recipe that works well as a starting point:
 
 - Interior kept loose: *jiggle 1*, solver iterations 1, most stiffness sliders at 0

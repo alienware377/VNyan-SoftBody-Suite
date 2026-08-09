@@ -220,6 +220,7 @@ namespace JelloStudio
         {
             DetachAll();
             MeshProxy.settingsRef = config.settings;
+            MeshProxy.configRef = config;
             needHiddenApply = true;
             if (boundAvatar == null || config.meshes == null) return;
             SkinnedMeshRenderer[] rends = boundAvatar.GetComponentsInChildren<SkinnedMeshRenderer>(true);
@@ -361,6 +362,8 @@ namespace JelloStudio
                 { "Slider_remeshsize", "Cage vertex density: target edge length (m) of the remeshed cage. Smaller = more detail but slower. Rebuilds after you stop dragging." },
                 { "Slider_remeshpasses", "Remeshing quality passes (split / collapse / flip / smooth). More = more uniform triangles, slower rebuild." },
                 { "Slider_projavg", "PROXY→mesh projection averaging RANGE: spreads each cage node's motion across a wider neighbourhood before it lands on the mesh (diffusion passes). Higher = softer, blurrier deformation. Live — no rebuild." },
+                { "Toggle_cagedrive", "ONE SHARED SIM for everything covering the region: other meshes (clothing etc.) bind to this mesh's remesh cage and replay the SAME deformation, so they cannot clip against the body. Meshes with their own enabled sim and hidden meshes are skipped. Needs the remesh cage ON." },
+                { "Slider_cagefollow", "How far (m) from the cage surface another mesh's vert may sit and still be driven. Full influence within half this range, fading to zero at the range. Changing it re-binds automatically." },
                 { "Slider_proxysmooth", "PROXY peak / sharp-edge smoothing (Taubin, shrink-free) applied to the cage BEFORE projecting: knocks down spikes and creases while keeping the overall squished shape. Very high values are safe. Live — no rebuild." },
                 { "Slider_seamlevel", "SEAM smoothing level: how hard to smooth the displacement right where the painted area meets the untouched body. Strongest exactly on the boundary, fading out across the range. Fixes the sharp edge that persists no matter what the interior does." },
                 { "Slider_seamrange", "SEAM smoothing range (m): how far the seam smoothing reaches on either side of the painted<->unpainted boundary. Wider = a longer, gentler blend into the still body." },
@@ -518,6 +521,18 @@ namespace JelloStudio
                 Rebind();
                 SetStatus(v ? "building remesh cage in background… (see log)" : "physics on original mesh");
             });
+            cageDriveToggle = FindControl<Toggle>("Toggle_cagedrive");
+            if (cageDriveToggle != null) cageDriveToggle.onValueChanged.AddListener(v =>
+            {
+                if (suppress || config.settings == null) return;
+                config.settings.cageDrive = v;
+                SetStatus(v
+                    ? (config.settings.useRemesh > 0.5f
+                        ? "cage now drives other meshes covering the region (binding… see log)"
+                        : "needs the remesh cage — turn on 'Sim on remeshed proxy' too")
+                    : "cage followers off — other meshes released");
+            });
+            HookSlider("cagefollow", 0.005f, 0.15f, v => { if (config.settings != null) config.settings.cageFollowRange = v; });
             WireButton("Button_ShowRemesh", () =>
             {
                 bool any = false;
@@ -887,7 +902,10 @@ namespace JelloStudio
             if (gravityPoseToggle != null) gravityPoseToggle.isOn = selRegion.gravityPoseOnly;
             if (gridAutoToggle != null) gridAutoToggle.isOn = selRegion.xGridAuto > 0.5f;
             if (remeshToggle != null && config.settings != null) remeshToggle.isOn = config.settings.useRemesh > 0.5f;
+            if (cageDriveToggle != null && config.settings != null) cageDriveToggle.isOn = config.settings.cageDrive;
             Slider rsz;
+            if (config.settings != null && sliders.TryGetValue("cagefollow", out rsz) && rsz != null)
+            { rsz.value = config.settings.cageFollowRange; SetValueLabel("cagefollow", rsz.value); }
             if (config.settings != null && sliders.TryGetValue("remeshsize", out rsz) && rsz != null)
             { rsz.value = config.settings.remeshSize; SetValueLabel("remeshsize", rsz.value); }
             if (config.settings != null && sliders.TryGetValue("remeshpasses", out rsz) && rsz != null)
@@ -1404,6 +1422,7 @@ namespace JelloStudio
         float solverDirtyT;   // grid/blend changed: rebuild sims shortly after the drag settles
         Toggle gridAutoToggle;
         Toggle remeshToggle;
+        Toggle cageDriveToggle;
         void SyncGridAutoToggle()
         {
             if (gridAutoToggle == null || selRegion == null) return;

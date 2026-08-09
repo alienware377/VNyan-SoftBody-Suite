@@ -42,7 +42,50 @@ namespace JelloStudio
         Color32[] overlayColors;
         public static Material overlayMatOverride;
         public static SquishSettings settingsRef;   // plugin-global settings (remesh cage options)
+        public static SquishConfig configRef;       // full config (follower exclusion checks)
         public RemeshCage cage; public SquishSim cageSim; public SquishRegion cageSrc;
+
+        // ----- cage followers: other meshes (clothing etc.) driven by THIS mesh's cage -----
+        // One shared sim: each follower vert binds to its normal-gated nearest cage tri at
+        // rest and replays the same smoothed cage displacement field every frame, so the
+        // clothing moves WITH the body instead of running its own diverging sim (no clipping).
+        class Follower
+        {
+            public SkinnedMeshRenderer smr;
+            public GameObject go; public MeshFilter mf; public MeshRenderer mr;
+            public Mesh baked, display;
+            public int[] fV, fA, fB, fC;              // render vert -> cage tri verts
+            public float[] fwA, fwB, fwC, fFall;      // barycentric + distance falloff
+            public Vector3[] verts;
+            public bool boundsSet;
+        }
+        readonly List<Follower> followers = new List<Follower>();
+        readonly List<SkinnedMeshRenderer> folQueue = new List<SkinnedMeshRenderer>();  // bind 1/frame
+        RemeshCage folCage;            // cage the current followers/queue were built against
+        float folLastRange, folRangeT, folRetryT;
+        bool folRetried;
+        readonly List<SkinnedMeshRenderer> folFailed = new List<SkinnedMeshRenderer>();
+        Vector3[] cageOut, cageHeld, cagePrev;        // follower-side mirror of the held/lerp timing
+        bool cageHeldValid;
+
+        // pending-destroy corpses are inactive — same hazard ProxyAlive guards against
+        static bool FollowClaimAlive(SkinnedMeshRenderer r)
+        {
+            Transform t = r.transform.Find(r.name + "_JelloFollow");
+            return t != null && t.gameObject.activeSelf;
+        }
+
+        // is this mesh already rendered/driven by any studio's proxy (incl. another Jello)?
+        static bool OtherStudioProxyAlive(SkinnedMeshRenderer r)
+        {
+            string[] sfx = { "_WobbleProxy", "_SoftBodyProxy", "_SquishProxy", "_JelloProxy" };
+            for (int i = 0; i < sfx.Length; i++)
+            {
+                Transform t = r.transform.Find(r.name + sfx[i]);
+                if (t != null && t.gameObject.activeSelf) return true;
+            }
+            return false;
+        }
         Mesh cageMesh; Mesh cageVizMesh; GameObject cageVizGo;
         // async cage build: remeshing runs on a worker thread so VNyan never freezes
         RemeshCage cageBuilding; int cageToken;
@@ -339,8 +382,191 @@ namespace JelloStudio
             return null;
         }
 
+        // ---------- cage followers ----------
+        void UpdateFollowerLifecycle()
+        {
+            bool want = cage != null && settingsRef != null && settingsRef.cageDrive && settingsRef.useRemesh > 0.5f;
+            if (!want) { if (folCage != null || followers.Count > 0) DetachFollowers(); return; }
+            float range = Mathf.Clamp(settingsRef.cageFollowRange, 0.005f, 0.3f);
+            // cage rebuilt: detach and RETURN — requeueing next frame lets the pending-destroy
+            // "_JelloFollow" corpses actually die, or the claim check would exclude everything
+            if (folCage != null && folCage != cage) { DetachFollowers(); return; }
+            // range slider: debounce the drag; followers keep running until it settles
+            if (folCage != null && Mathf.Abs(range - folLastRange) > 0.0005f)
+            { folRangeT = 0.5f; folLastRange = range; }
+            if (folRangeT > 0f)
+            {
+                folRangeT -= Time.deltaTime;
+                if (folRangeT <= 0f) { DetachFollowers(); return; }   // rebind next frame at the settled range
+            }
+            if (folCage == null)
+            {
+                folCage = cage; folLastRange = range;
+                QueueFollowerCandidates();
+            }
+            if (folQueue.Count > 0) BindNextFollower(range);   // one mesh per frame spreads the cost
+            else if (folFailed.Count > 0 && !folRetried)
+            {
+                // binding is pose-dependent (bake at bind moment): meshes that failed coverage
+                // get ONE retry a few seconds later, when the pose has likely returned to rest
+                folRetryT += Time.deltaTime;
+                if (folRetryT > 3f)
+                {
+                    folRetried = true;
+                    for (int i = 0; i < folFailed.Count; i++) if (folFailed[i] != null) folQueue.Add(folFailed[i]);
+                    folFailed.Clear();
+                }
+            }
+        }
+
+        void QueueFollowerCandidates()
+        {
+            folQueue.Clear();
+            if (avatarRef == null || smr == null) return;
+            SkinnedMeshRenderer[] rends = avatarRef.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            for (int i = 0; i < rends.Length; i++)
+            {
+                SkinnedMeshRenderer r = rends[i];
+                if (r == null || r == smr || r.sharedMesh == null) continue;
+                // hidden/disabled/outfit-off meshes stay untouched — a follower copy would
+                // RESURRECT them on screen
+                if (!r.enabled || !r.gameObject.activeInHierarchy) continue;
+                if (r.forceRenderingOff) continue;                 // some proxy already owns its rendering
+                if (OtherStudioProxyAlive(r)) continue;            // Wobble/SoftBody/Squish/Jello drive it
+                // meshes with their own enabled sim run themselves; hidden meshes stay hidden
+                bool owned = false;
+                if (configRef != null && configRef.meshes != null)
+                    for (int m = 0; m < configRef.meshes.Count; m++)
+                        if (configRef.meshes[m] != null && configRef.meshes[m].enabled &&
+                            configRef.meshes[m].mesh == r.name) { owned = true; break; }
+                if (owned) continue;
+                if (settingsRef.hiddenMeshes != null && settingsRef.hiddenMeshes.Contains(r.name)) continue;
+                if (FollowClaimAlive(r)) continue;                 // claimed by another proxy (live, not corpse)
+                folQueue.Add(r);
+            }
+        }
+
+        void BindNextFollower(float range)
+        {
+            SkinnedMeshRenderer r = folQueue[folQueue.Count - 1];
+            folQueue.RemoveAt(folQueue.Count - 1);
+            if (r == null || r.sharedMesh == null || cage == null || go == null) return;
+            // re-check at bind time: another proxy may have claimed/hidden it since queueing
+            if (FollowClaimAlive(r) || OtherStudioProxyAlive(r)) return;
+            if (!r.enabled || !r.gameObject.activeInHierarchy || r.forceRenderingOff) return;
+
+            Mesh bk = new Mesh();
+            r.BakeMesh(bk);
+            Vector3[] pts = bk.vertices;
+            Vector3[] nrm = bk.normals;
+            Matrix4x4 toSrc = go.transform.worldToLocalMatrix * r.transform.localToWorldMatrix;
+            bool haveN = nrm != null && nrm.Length == pts.Length;
+
+            // AABB prefilter keeps far meshes (hair etc.) nearly free
+            Vector3 lo = cage.restMin - Vector3.one * range, hi = cage.restMax + Vector3.one * range;
+            List<int> V = new List<int>(), A = new List<int>(), B = new List<int>(), C = new List<int>();
+            List<float> WA = new List<float>(), WB = new List<float>(), WC = new List<float>(), FF = new List<float>();
+            for (int i = 0; i < pts.Length; i++)
+            {
+                Vector3 q = toSrc.MultiplyPoint3x4(pts[i]);
+                if (q.x < lo.x || q.y < lo.y || q.z < lo.z || q.x > hi.x || q.y > hi.y || q.z > hi.z) continue;
+                Vector3 nq = haveN ? toSrc.MultiplyVector(nrm[i]).normalized : Vector3.zero;
+                int a, b, c; Vector3 bar, cp;
+                if (!cage.BindPoint(q, nq, range * 1.25f, out a, out b, out c, out bar, out cp)) continue;
+                float dist = (q - cp).magnitude;
+                if (dist > range) continue;
+                float u = Mathf.Clamp01((dist - range * 0.5f) / (range * 0.5f));
+                float fall = 1f - u * u * (3f - 2f * u);   // 1 inside half-range, smooth to 0 at range
+                V.Add(i); A.Add(a); B.Add(b); C.Add(c);
+                WA.Add(bar.x); WB.Add(bar.y); WC.Add(bar.z); FF.Add(fall);
+            }
+            if (V.Count < 12) { Object.Destroy(bk); folFailed.Add(r); return; }   // not covered (maybe off-pose)
+
+            Follower f = new Follower();
+            f.smr = r; f.baked = bk; f.baked.MarkDynamic();
+            f.display = Object.Instantiate(bk); f.display.MarkDynamic();
+            f.display.name = r.name + "_jellofollow";
+            f.fV = V.ToArray(); f.fA = A.ToArray(); f.fB = B.ToArray(); f.fC = C.ToArray();
+            f.fwA = WA.ToArray(); f.fwB = WB.ToArray(); f.fwC = WC.ToArray(); f.fFall = FF.ToArray();
+            f.verts = new Vector3[pts.Length];
+            f.go = new GameObject(r.name + "_JelloFollow");
+            f.go.transform.SetParent(r.transform, false);
+            f.go.transform.localPosition = Vector3.zero;
+            f.go.transform.localRotation = Quaternion.identity;
+            f.go.transform.localScale = Vector3.one;
+            f.mf = f.go.AddComponent<MeshFilter>(); f.mf.sharedMesh = f.display;
+            f.mr = f.go.AddComponent<MeshRenderer>();
+            f.mr.sharedMaterials = r.sharedMaterials;
+            f.mr.shadowCastingMode = r.shadowCastingMode;
+            f.mr.receiveShadows = r.receiveShadows;
+            r.forceRenderingOff = true;
+            followers.Add(f);
+            Debug.Log("[Jello] cage follower '" + r.name + "': " + f.fV.Length + "/" + pts.Length
+                + " verts driven (range " + range.ToString("0.000") + " m)");
+        }
+
+        void UpdateFollowers()
+        {
+            if (followers.Count == 0 || cageOut == null || go == null) return;
+            if (cage == null || cageOut.Length != cage.SimVertCount) return;   // mid-rebuild frame: sizes disagree
+            Matrix4x4 srcL2W = go.transform.localToWorldMatrix;
+            for (int fi = followers.Count - 1; fi >= 0; fi--)
+            {
+                Follower f = followers[fi];
+                if (f.smr == null || f.go == null) { RemoveFollower(fi); continue; }
+                // hidden meanwhile (hide panel sets enabled=false), or another studio took
+                // ownership: drop the follower WITHOUT un-hiding — they own visibility now
+                if (!f.smr.enabled || !f.smr.gameObject.activeInHierarchy ||
+                    (settingsRef != null && settingsRef.hiddenMeshes != null && settingsRef.hiddenMeshes.Contains(f.smr.name)))
+                { RemoveFollower(fi, false); continue; }
+                if (OtherStudioProxyAlive(f.smr)) { RemoveFollower(fi, false); continue; }
+                f.smr.forceRenderingOff = true;   // we render this mesh while driving it
+                f.smr.BakeMesh(f.baked);
+                f.baked.GetVertices(scratch);
+                if (scratch.Count != f.verts.Length) { RemoveFollower(fi); continue; }   // mesh swapped
+                scratch.CopyTo(f.verts);
+                Matrix4x4 M = f.smr.transform.worldToLocalMatrix * srcL2W;
+                for (int k = 0; k < f.fV.Length; k++)
+                {
+                    Vector3 d = cageOut[f.fA[k]] * f.fwA[k] + cageOut[f.fB[k]] * f.fwB[k] + cageOut[f.fC[k]] * f.fwC[k];
+                    f.verts[f.fV[k]] += M.MultiplyVector(d) * f.fFall[k];
+                }
+                f.display.SetVertices(f.verts);
+                f.baked.GetNormals(scratch);
+                if (scratch.Count == f.verts.Length) f.display.SetNormals(scratch);
+                if (!f.boundsSet)
+                { f.display.bounds = new Bounds(f.display.bounds.center, f.display.bounds.size + Vector3.one * 2f); f.boundsSet = true; }
+            }
+        }
+
+        void RemoveFollower(int i) { RemoveFollower(i, true); }
+
+        void RemoveFollower(int i, bool restoreVisibility)
+        {
+            Follower f = followers[i];
+            // never un-hide a mesh some other proxy is currently driving/hiding
+            if (f.smr != null && restoreVisibility && !OtherStudioProxyAlive(f.smr))
+                f.smr.forceRenderingOff = false;
+            if (f.go != null) { f.go.SetActive(false); Object.Destroy(f.go); }
+            if (f.baked != null) Object.Destroy(f.baked);
+            if (f.display != null) Object.Destroy(f.display);
+            followers.RemoveAt(i);
+        }
+
+        public void DetachFollowers()
+        {
+            for (int i = followers.Count - 1; i >= 0; i--) RemoveFollower(i);
+            folQueue.Clear(); folFailed.Clear();
+            folRetried = false; folRetryT = 0f; folRangeT = 0f;
+            folCage = null;
+            // drop the timing mirrors: a rebuilt cage has a different vert count, and a
+            // held frame would otherwise feed followers a stale wrong-length field
+            cageOut = null; cageHeld = null; cagePrev = null; cageHeldValid = false;
+        }
+
         public void Detach()
         {
+            DetachFollowers();
             if (wobbleMR != null) wobbleMR.enabled = true;   // hand rendering back to Wobble
             wobbleSrc = null; wobbleMR = null;
             // keep the original hidden if ANY other plugin's proxy still drives this mesh
@@ -408,6 +634,7 @@ namespace JelloStudio
         {
             if (!Alive) { return; }
             PollCageBuild();
+            UpdateFollowerLifecycle();
             swDbg.Restart();
 
             // upstream appearing/disappearing: cheap re-check 1x/second for UPGRADES, but
@@ -470,6 +697,8 @@ namespace JelloStudio
                 // HELD frame: reuse last computed displacement (fresh skinning still flows
                 // through — only the offset field is one frame old)
                 System.Array.Copy(heldDisp, disp, disp.Length);
+                if (cageHeld != null && cageOut != null && cageHeld.Length == cageOut.Length)
+                    System.Array.Copy(cageHeld, cageOut, cageOut.Length);   // followers hold too
             }
             else if (simEnabled)
             {
@@ -500,6 +729,28 @@ namespace JelloStudio
                                 Mathf.Clamp(settingsRef.boostMax, 0.001f, 0.2f),
                                 Mathf.Max(0f, settingsRef.slapSens), settingsRef.slapPower, pdt);
                     }
+                    // follower timing mirror: cageOut must show the SAME held/lerp state the
+                    // mesh's disp does, or clothing leads/lags the body by half a tick
+                    if (cageOut == null || cageOut.Length != cage.simDisp.Length)
+                    {
+                        cageOut = new Vector3[cage.simDisp.Length];
+                        cageHeld = new Vector3[cage.simDisp.Length];
+                        cagePrev = new Vector3[cage.simDisp.Length];
+                        cageHeldValid = false;
+                    }
+                    if (halfRateLerp && cageHeldValid)
+                    {
+                        System.Array.Copy(cageHeld, cagePrev, cageHeld.Length);
+                        System.Array.Copy(cage.simDisp, cageHeld, cageHeld.Length);
+                        for (int ci = 0; ci < cageOut.Length; ci++) cageOut[ci] = (cagePrev[ci] + cageHeld[ci]) * 0.5f;
+                    }
+                    else
+                    {
+                        System.Array.Copy(cage.simDisp, cageHeld, cageHeld.Length);
+                        System.Array.Copy(cage.simDisp, cageOut, cageOut.Length);
+                    }
+                    cageHeldValid = true;
+
                     cage.Project(disp);
                     if (cageVizGo != null && cageVizGo.activeSelf && cageVizMesh != null) cage.UpdateViz(cageVizMesh);
                 }
@@ -541,6 +792,7 @@ namespace JelloStudio
             // fixed expanded bounds once — per-frame RecalculateBounds is a full-mesh scan
             if (!dispBoundsSet) { display.bounds = new Bounds(display.bounds.center, display.bounds.size + Vector3.one * 2f); dispBoundsSet = true; }
             if (overlayOn && overlayMode == 1) RefreshSharpColors();   // live jaggedness view
+            UpdateFollowers();   // replay this frame's cage field onto the driven meshes
 
             msSim = Mathf.Lerp(msSim, (float)swDbg.Elapsed.TotalMilliseconds, 0.08f);
             DrawDebug();
@@ -549,7 +801,8 @@ namespace JelloStudio
                 dbgLogT = 0f;
                 int act = 0; foreach (KeyValuePair<string, MeshColliderCloud> kv in colMeshCloud) act += kv.Value.nd;
                 Debug.Log("[Jello] perf '" + (smr != null ? smr.name : "?") + "': bake+chain=" + msBake.ToString("0.00")
-                    + "ms sim+write=" + msSim.ToString("0.00") + "ms activeCapsules=" + act);
+                    + "ms sim+write=" + msSim.ToString("0.00") + "ms activeCapsules=" + act
+                    + " followers=" + followers.Count);
             }
         }
 
@@ -1082,6 +1335,7 @@ namespace JelloStudio
             ResolveRegionRefs(sim, avatarRef, animRef);
             sims.Clear();
             cage = c; cageSim = sim; cageSrc = src; sims.Add(sim);
+            cageHeldValid = false;   // fresh cage: don't lerp followers from the old field
             ResolveColliderMeshes(avatarRef);
             Debug.Log("[Jello] remesh cage LIVE: " + c.SimVertCount + " verts, edge=" + c.usedEdge.ToString("0.0000")
                 + " m, built in " + (cageSw != null ? cageSw.ElapsedMilliseconds : 0) + " ms (union of all regions); valley gate: "

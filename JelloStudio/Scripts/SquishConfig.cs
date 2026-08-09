@@ -31,6 +31,10 @@ namespace JelloStudio
                                             // cage displacement before projecting to the mesh (widens/softens)
         public float proxySmooth = 0f;      // peak/sharp-edge smoothing (Taubin, shrink-free) on the
                                             // cage displacement before projecting
+        public bool cageDrive = false;      // cage ALSO drives other meshes covering the region
+                                            // (clothing etc.): one shared sim, no inter-mesh clipping
+        public float cageFollowRange = 0.04f; // max distance (m) from the cage surface for a follower
+                                              // vert to be driven; influence tapers to 0 at this range
 
         // ----- boundary seam smoothing (painted <-> unpainted edge) -----
         // The seam where the deformed region meets the still body is often sharp no

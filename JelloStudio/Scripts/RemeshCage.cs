@@ -23,6 +23,8 @@ namespace JelloStudio
         int[][] cageNbr; Vector3[] tmpDisp;                     // cage graph adjacency + scratch for disp smoothing
 
         public string logTag = "[Cage]";
+        public Vector3 restMin, restMax;                         // cage rest AABB (source-local)
+        TriGrid projGrid;                                        // retained for follower binding
         public volatile bool buildDone;                          // set by the worker thread
         public volatile bool buildOk;
         public volatile string stage = "queued";                 // progress for the MAIN thread to log
@@ -169,6 +171,13 @@ namespace JelloStudio
             // nothing passes (valley floor, degenerate normals) — never worse than before.
             TriGrid sgrid = new TriGrid(simRest, simTris, Mathf.Max(L * 2f, 0.01f));
             sgrid.triNormals = mNrm != null ? triN : null;
+            projGrid = sgrid;   // kept alive: follower meshes bind against the same gated grid
+            restMin = simRest[0]; restMax = simRest[0];
+            for (int i = 1; i < ns; i++)
+            {
+                restMin = Vector3.Min(restMin, simRest[i]);
+                restMax = Vector3.Max(restMax, simRest[i]);
+            }
             gateUsed = 0; gateFallback = 0;
             List<int> jV = new List<int>(), jA = new List<int>(), jB = new List<int>(), jC = new List<int>();
             List<float> jwA = new List<float>(), jwB = new List<float>(), jwC = new List<float>();
@@ -213,6 +222,21 @@ namespace JelloStudio
                 for (int i = 0; i < ns; i++) cageNbr[i] = adj[i].ToArray();
             }
             stage = "done";
+            return true;
+        }
+
+        // Bind an arbitrary point (source-local space, e.g. a clothing vert) to the cage:
+        // same normal-gated nearest-triangle query the source mesh's projection uses.
+        // Returns the tri's three CAGE VERT indices + barycentric weights + surface point.
+        // Plain math on retained arrays — safe to call from a worker thread.
+        public bool BindPoint(Vector3 q, Vector3 nq, float maxDist, out int a, out int b, out int c,
+                              out Vector3 bar, out Vector3 cp)
+        {
+            a = b = c = 0; bar = Vector3.zero; cp = Vector3.zero;
+            if (projGrid == null || simTris == null) return false;
+            int bt; bool viaGate;
+            if (!projGrid.NearestGatedWithin(q, nq, 0.35f, maxDist, out bt, out cp, out bar, out viaGate)) return false;
+            a = simTris[bt]; b = simTris[bt + 1]; c = simTris[bt + 2];
             return true;
         }
 
@@ -663,6 +687,52 @@ namespace JelloStudio
                 tri = triAny; cp = cpAny;
                 bar = Bary(cp, P[T[tri]], P[T[tri + 1]], P[T[tri + 2]]);
                 return true;   // fallback: plain nearest (old behaviour)
+            }
+
+            // Range-limited gated query: never expands past the rings that can contain
+            // maxDist and rejects anything beyond it. Bounds the worst case for gate-
+            // failing queries (inner faces of double-sided cloth would otherwise force
+            // a full 24-ring scan PER VERT and hitch for seconds on bind).
+            public bool NearestGatedWithin(Vector3 q, Vector3 nq, float tau, float maxDist,
+                                           out int tri, out Vector3 cp, out Vector3 bar, out bool viaGate)
+            {
+                viaGate = false;
+                tri = -1; cp = q; bar = new Vector3(1f, 0f, 0f);
+                bool gate = triNormals != null && nq.sqrMagnitude >= 0.5f;
+                int triAny = -1; Vector3 cpAny = q;
+                float best = float.MaxValue, bestAny = float.MaxValue;
+                float maxD2 = maxDist * maxDist;
+                int maxRing = Mathf.Clamp(Mathf.CeilToInt(maxDist / cell) + 1, 1, 24);
+                int cx = Mathf.FloorToInt(q.x / cell), cy = Mathf.FloorToInt(q.y / cell), cz = Mathf.FloorToInt(q.z / cell);
+                for (int ring = 0; ring <= maxRing; ring++)
+                {
+                    for (int dx = -ring; dx <= ring; dx++)
+                        for (int dy = -ring; dy <= ring; dy++)
+                            for (int dz = -ring; dz <= ring; dz++)
+                            {
+                                int m = Mathf.Max(Mathf.Abs(dx), Mathf.Max(Mathf.Abs(dy), Mathf.Abs(dz)));
+                                if (m != ring) continue;
+                                List<int> l;
+                                if (!cells.TryGetValue(CKey(cx + dx, cy + dy, cz + dz), out l)) continue;
+                                for (int j = 0; j < l.Count; j++)
+                                {
+                                    int t = l[j];
+                                    Vector3 c2 = ClosestPointTriangle(q, P[T[t]], P[T[t + 1]], P[T[t + 2]]);
+                                    float d = (q - c2).sqrMagnitude;
+                                    if (d > maxD2) continue;   // beyond range: caller rejects anyway
+                                    if (d < bestAny) { bestAny = d; triAny = t; cpAny = c2; }
+                                    if (gate && d < best && Vector3.Dot(nq, triNormals[t / 3]) >= tau)
+                                    { best = d; tri = t; cp = c2; }
+                                }
+                            }
+                    if (tri >= 0 && best <= (ring * cell) * (ring * cell)) break;
+                    if (!gate && triAny >= 0 && bestAny <= (ring * cell) * (ring * cell)) break;
+                }
+                if (tri >= 0) { viaGate = true; bar = Bary(cp, P[T[tri]], P[T[tri + 1]], P[T[tri + 2]]); return true; }
+                if (triAny < 0) return false;
+                tri = triAny; cp = cpAny;
+                bar = Bary(cp, P[T[tri]], P[T[tri + 1]], P[T[tri + 2]]);
+                return true;
             }
 
             public bool Nearest(Vector3 q, out int tri, out Vector3 cp, out Vector3 bar)
