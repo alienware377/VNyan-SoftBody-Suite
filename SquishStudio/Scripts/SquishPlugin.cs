@@ -28,6 +28,7 @@ namespace SquishStudio
         InputField regionNameInput, refBoneInput, colBoneInput, colRadiusInput;
         List<string> refBoneOptions = new List<string>();
         Toggle enabledToggle, regionEnabledToggle, paintToggle, overlayToggle, gravityPoseToggle;
+        Toggle clipGuardToggle;
         bool suppress;
 
         SquishConfig config = new SquishConfig();
@@ -204,6 +205,8 @@ namespace SquishStudio
         void Rebind()
         {
             DetachAll();
+            MeshProxy.settingsRef = config.settings;
+            MeshProxy.configRef = config;
             if (boundAvatar == null || config.meshes == null) return;
             SkinnedMeshRenderer[] rends = boundAvatar.GetComponentsInChildren<SkinnedMeshRenderer>(true);
             for (int m = 0; m < config.meshes.Count; m++)
@@ -368,6 +371,10 @@ namespace SquishStudio
                 { "Button_RemoveCollider", "Remove the collider selected in the list." },
                 { "Dropdown_ColBonePick", "Pick a bone from the avatar for a manual sphere collider (no typing needed)." },
                 { "Button_ShowCol", "Toggle translucent capsules showing every ACTIVE collider (same as F10). Collider sets are made HERE and mirror to Wobble + SoftBody Studio." },
+                { "Toggle_clipguard", "THE anti-clip guarantee. Runs at the very end of the pipeline, on the body that actually renders: every painted vertex is bound to the clothes covering it and is held INSIDE that cloth. Works no matter how well the clothes track the body — nothing can poke through. Prefers a garment's deformed (soft-body driven) shape when one exists." },
+                { "Slider_clipclear", "EXTRA margin (m) beyond the fit measured when the guard bound. 0 preserves the exact rest relationship (nothing moves while idle) and only holds the flesh back when a sim pushes it toward the cloth. Raise a millimetre or two if you still see the surface graze through." },
+                { "Slider_cliprange", "Bind range: painted body verts within this distance of a garment are guarded by it. Raise it if deep flesh still escapes, lower it to limit the guard to skin-tight areas." },
+                { "Slider_clipstr", "Blend of the correction (1 = never allowed through, lower = soft/partial). Use below 1 only if the flattening reads too hard." },
                 { "Toggle_NativeOff", "Disable VNyan/native spring & dynamic bones while squishing — they fight the mesh simulation." },
                 { "Toggle_HalfRate", "HALF-RATE physics: compute the simulation every 2nd frame (with doubled timestep) and hold the result between — near-halves the physics cost on slower PCs. Skinning/animation still updates every frame, so it is barely visible." },
                 { "Toggle_HalfRateLerp", "HALF-RATE + SMOOTH: like half-rate physics, but held frames show a blend between the last two physics ticks instead of a repeat — smoother motion at the same cost, with half a tick of extra latency. Mutually exclusive with the other rate options." },
@@ -450,6 +457,34 @@ namespace SquishStudio
             HookSlider("strength", 0.02f, 1f, v => brushStrength = v);
             HookSlider("overlayop", 0.05f, 1f, v => { if (selProxy != null) selProxy.SetOverlayOpacity(v); });
             HookSlider("groupthr", 0.01f, 1f, v => groupThreshold = v);
+            clipGuardToggle = FindControl<Toggle>("Toggle_clipguard");
+            if (clipGuardToggle != null) clipGuardToggle.onValueChanged.AddListener(v =>
+            {
+                if (suppress || config.settings == null) return;
+                config.settings.clipGuard = v;
+                for (int i = 0; i < proxies.Count; i++) proxies[i].ClipGuardInvalidate();
+                SetStatus(v ? "clip guard ON — flesh will be held inside the clothes covering it"
+                            : "clip guard off");
+            });
+            HookSlider("clipclear", 0f, 0.03f, v =>
+            { if (config.settings != null) config.settings.clipClearance = v; });
+            HookSlider("cliprange", 0.005f, 0.15f, v =>
+            { if (config.settings != null) config.settings.clipRange = v; });
+            HookSlider("clipstr", 0f, 1f, v =>
+            { if (config.settings != null) config.settings.clipStrength = v; });
+            if (config.settings != null)
+            {
+                suppress = true;
+                if (clipGuardToggle != null) clipGuardToggle.isOn = config.settings.clipGuard;
+                Slider cs;
+                if (sliders.TryGetValue("clipclear", out cs) && cs != null)
+                { cs.value = config.settings.clipClearance; SetValueLabel("clipclear", cs.value); }
+                if (sliders.TryGetValue("cliprange", out cs) && cs != null)
+                { cs.value = config.settings.clipRange; SetValueLabel("cliprange", cs.value); }
+                if (sliders.TryGetValue("clipstr", out cs) && cs != null)
+                { cs.value = config.settings.clipStrength; SetValueLabel("clipstr", cs.value); }
+                suppress = false;
+            }
             HookRegionSlider("jiggle", 0f, 2f, (r, v) => r.jiggle = v, r => r.jiggle);
             HookRegionSlider("stiffness", 0.5f, 30f, (r, v) => r.stiffness = v, r => r.stiffness);
             HookRegionSlider("damping", 0f, 1f, (r, v) => r.damping = v, r => r.damping);

@@ -82,7 +82,7 @@ namespace JelloStudio
         RemeshCage.TriGrid bindGrid;
         Vector3[] bindPts;             // positions the grid indexes (refreshed in place per bind call)
         int[] bindTris;                // triangle array the grid's results index into
-        Vector3[] cageOut, cageHeld, cagePrev;        // follower-side mirror of the held/lerp timing
+        Vector3[] cageOut, cageHeld, cagePrev, cageRaw, cagePreBoost;   // follower-side field mirror
         bool cageHeldValid;
 
         // orthonormal frame of a triangle (for wrap offsets); false = degenerate
@@ -1047,6 +1047,12 @@ namespace JelloStudio
                         cageSim.StepDynamics(cage.simBaked, cage.simNormals, sdt, localDown, go.transform);
                     System.Array.Clear(cage.simDisp, 0, cage.simDisp.Length);
                     cageSim.FieldAndWrite(cage.simBaked, cage.simNormals, cage.simDisp, pdt, SimsAsList(), go.transform);
+                    // snapshot the field BEFORE the body's smoothing passes: the projection
+                    // averaging that makes the body buttery also blurred the CLOTH's copy down
+                    // to a fraction of its amplitude (measured 24-38% at projAvg 28), which is
+                    // most of why garments looked like they weren't following
+                    if (cageRaw == null || cageRaw.Length != cage.simDisp.Length) cageRaw = new Vector3[cage.simDisp.Length];
+                    System.Array.Copy(cage.simDisp, cageRaw, cageRaw.Length);
                     if (settingsRef != null)
                     {
                         int ts = Mathf.Clamp(Mathf.RoundToInt(settingsRef.proxySmooth), 0, 400);
@@ -1054,10 +1060,21 @@ namespace JelloStudio
                         if (ts > 0 || av > 0) cage.SmoothDisp(ts, av);
                         // 2nd-level squish: restore the sharp dent AFTER the smoothers
                         if (settingsRef.boostStrength > 0.001f || settingsRef.slapPower > 0.001f)
+                        {
+                            // capture the pre-boost state so the boost's contribution can be
+                            // added to the CLOTH field too — contact is exactly when the body
+                            // would otherwise punch through a garment
+                            if (cagePreBoost == null || cagePreBoost.Length != cage.simDisp.Length)
+                                cagePreBoost = new Vector3[cage.simDisp.Length];
+                            System.Array.Copy(cage.simDisp, cagePreBoost, cagePreBoost.Length);
                             cage.ContactBoost(cageSim, go.transform, settingsRef.boostStrength,
                                 Mathf.Clamp(Mathf.RoundToInt(settingsRef.boostSpread), 0, 60),
                                 Mathf.Clamp(settingsRef.boostMax, 0.001f, 0.2f),
                                 Mathf.Max(0f, settingsRef.slapSens), settingsRef.slapPower, pdt);
+                            if (cageRaw != null && cageRaw.Length == cage.simDisp.Length)
+                                for (int bi = 0; bi < cageRaw.Length; bi++)
+                                    cageRaw[bi] += cage.simDisp[bi] - cagePreBoost[bi];
+                        }
                     }
                     // follower timing mirror: cageOut must show the SAME held/lerp state the
                     // mesh's disp does, or clothing leads/lags the body by half a tick
@@ -1068,16 +1085,21 @@ namespace JelloStudio
                         cagePrev = new Vector3[cage.simDisp.Length];
                         cageHeldValid = false;
                     }
+                    // followers ride the UNBLURRED field, with their own light smoothing pass
+                    // count so cloth keeps its amplitude while the body stays smooth
+                    Vector3[] folSrc = cageRaw != null && cageRaw.Length == cage.simDisp.Length ? cageRaw : cage.simDisp;
+                    int folSm = settingsRef != null ? Mathf.Clamp(Mathf.RoundToInt(settingsRef.cageFolSmooth), 0, 60) : 4;
+                    if (folSm > 0 && folSrc == cageRaw) cage.SmoothArray(cageRaw, folSm);
                     if (halfRateLerp && cageHeldValid)
                     {
                         System.Array.Copy(cageHeld, cagePrev, cageHeld.Length);
-                        System.Array.Copy(cage.simDisp, cageHeld, cageHeld.Length);
+                        System.Array.Copy(folSrc, cageHeld, cageHeld.Length);
                         for (int ci = 0; ci < cageOut.Length; ci++) cageOut[ci] = (cagePrev[ci] + cageHeld[ci]) * 0.5f;
                     }
                     else
                     {
-                        System.Array.Copy(cage.simDisp, cageHeld, cageHeld.Length);
-                        System.Array.Copy(cage.simDisp, cageOut, cageOut.Length);
+                        System.Array.Copy(folSrc, cageHeld, cageHeld.Length);
+                        System.Array.Copy(folSrc, cageOut, cageOut.Length);
                     }
                     cageHeldValid = true;
 
@@ -1133,9 +1155,32 @@ namespace JelloStudio
             {
                 dbgLogT = 0f;
                 int act = 0; foreach (KeyValuePair<string, MeshColliderCloud> kv in colMeshCloud) act += kv.Value.nd;
+                float srcMax = 0f;
+                if (cageOut != null) for (int i = 0; i < cageOut.Length; i++)
+                { float m2 = cageOut[i].sqrMagnitude; if (m2 > srcMax) srcMax = m2; }
+                srcMax = Mathf.Sqrt(srcMax);
                 Debug.Log("[Jello] perf '" + (smr != null ? smr.name : "?") + "': bake+chain=" + msBake.ToString("0.00")
                     + "ms sim+write=" + msSim.ToString("0.00") + "ms activeCapsules=" + act
-                    + " followers=" + followers.Count);
+                    + " followers=" + followers.Count + " fieldMax=" + (srcMax * 1000f).ToString("0.0") + "mm");
+                // per-garment: is the cloth actually being moved, and by how much?
+                for (int fi = 0; fi < followers.Count; fi++)
+                {
+                    Follower f = followers[fi];
+                    if (f.gRep == null || f.gRep.Length == 0) continue;
+                    float mx = 0f, sum = 0f, clr = 0f; int prot = 0;
+                    for (int g2 = 0; g2 < f.gRep.Length; g2++)
+                    {
+                        float m3 = f.gDisp[g2].magnitude;
+                        sum += m3; if (m3 > mx) mx = m3;
+                        clr += Mathf.Abs(f.gOff[g2].z);
+                        if (f.gProt[g2] > 0f) prot++;
+                    }
+                    Debug.Log("[Jello] FOL '" + (f.smr != null ? f.smr.name : "?") + "' " + (f.whole ? "WHOLE" : "CAGE")
+                        + " groups=" + f.gRep.Length
+                        + " move avg=" + (sum / f.gRep.Length * 1000f).ToString("0.0")
+                        + "mm max=" + (mx * 1000f).ToString("0.0")
+                        + "mm restClear=" + (clr / f.gRep.Length * 1000f).ToString("0.0") + "mm protected=" + prot);
+                }
             }
         }
 

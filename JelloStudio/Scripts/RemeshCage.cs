@@ -263,6 +263,29 @@ namespace JelloStudio
         // avgPasses: plain diffusion — widens each cage node's influence = the
         // "projection averaging range". Both run on the uniform cage graph, so they
         // are stable and live-adjustable with no rebuild.
+        // Diffusion passes on an ARBITRARY cage-indexed field (the follower field gets its
+        // own, lighter smoothing than the body's projection averaging).
+        public void SmoothArray(Vector3[] arr, int passes)
+        {
+            if (cageNbr == null || arr == null || arr.Length != cageNbr.Length) return;
+            int n = arr.Length;
+            if (tmpDisp2 == null || tmpDisp2.Length != n) tmpDisp2 = new Vector3[n];
+            for (int pass = 0; pass < passes; pass++)
+            {
+                for (int i = 0; i < n; i++)
+                {
+                    int[] nb = cageNbr[i];
+                    if (nb.Length < 2) { tmpDisp2[i] = arr[i]; continue; }
+                    Vector3 avg = Vector3.zero;
+                    for (int j = 0; j < nb.Length; j++) avg += arr[nb[j]];
+                    avg /= nb.Length;
+                    tmpDisp2[i] = arr[i] + (avg - arr[i]) * 0.5f;
+                }
+                System.Array.Copy(tmpDisp2, arr, n);
+            }
+        }
+        Vector3[] tmpDisp2;
+
         public void SmoothDisp(int taubinPasses, int avgPasses)
         {
             if (cageNbr == null || simDisp == null) return;
