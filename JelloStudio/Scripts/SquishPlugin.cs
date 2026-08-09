@@ -364,6 +364,9 @@ namespace JelloStudio
                 { "Slider_projavg", "PROXY→mesh projection averaging RANGE: spreads each cage node's motion across a wider neighbourhood before it lands on the mesh (diffusion passes). Higher = softer, blurrier deformation. Live — no rebuild." },
                 { "Toggle_cagedrive", "ONE SHARED SIM for everything covering the region: other meshes (clothing etc.) bind to this mesh's remesh cage and replay the SAME deformation, so they cannot clip against the body. Meshes with their own enabled sim and hidden meshes are skipped. Needs the remesh cage ON." },
                 { "Slider_cagefollow", "How far (m) from the cage surface another mesh's vert may sit and still be driven. Full influence within half this range, fading to zero at the range. Changing it re-binds automatically." },
+                { "Slider_cagefit", "FIT: multiplier on the motion driven clothes replay. 1 = exactly the body's deformation; above 1 the cloth moves slightly MORE (helps it stay ahead of the flesh); below 1 it follows more loosely." },
+                { "Slider_cageinflate", "Static outward clearance (m): puffs the DRIVEN part of the cloth out along its normals so it hovers above the flesh instead of coinciding with it. The seam sliders blend the puffed edge back down." },
+                { "Slider_cageinflatedyn", "Dynamic inflate: adds extra outward push proportional to how far the body is currently pushing OUT at that spot. Inward motion is never amplified, so the cloth can't dig in." },
                 { "Slider_proxysmooth", "PROXY peak / sharp-edge smoothing (Taubin, shrink-free) applied to the cage BEFORE projecting: knocks down spikes and creases while keeping the overall squished shape. Very high values are safe. Live — no rebuild." },
                 { "Slider_seamlevel", "SEAM smoothing level: how hard to smooth the displacement right where the painted area meets the untouched body. Strongest exactly on the boundary, fading out across the range. Fixes the sharp edge that persists no matter what the interior does." },
                 { "Slider_seamrange", "SEAM smoothing range (m): how far the seam smoothing reaches on either side of the painted<->unpainted boundary. Wider = a longer, gentler blend into the still body." },
@@ -533,6 +536,9 @@ namespace JelloStudio
                     : "cage followers off — other meshes released");
             });
             HookSlider("cagefollow", 0.005f, 0.15f, v => { if (config.settings != null) config.settings.cageFollowRange = v; });
+            HookSlider("cagefit", 0f, 2f, v => { if (config.settings != null) config.settings.cageFitStrength = v; });
+            HookSlider("cageinflate", 0f, 0.05f, v => { if (config.settings != null) config.settings.cageInflate = v; });
+            HookSlider("cageinflatedyn", 0f, 2f, v => { if (config.settings != null) config.settings.cageInflateDyn = v; });
             WireButton("Button_ShowRemesh", () =>
             {
                 bool any = false;
@@ -906,6 +912,12 @@ namespace JelloStudio
             Slider rsz;
             if (config.settings != null && sliders.TryGetValue("cagefollow", out rsz) && rsz != null)
             { rsz.value = config.settings.cageFollowRange; SetValueLabel("cagefollow", rsz.value); }
+            if (config.settings != null && sliders.TryGetValue("cagefit", out rsz) && rsz != null)
+            { rsz.value = config.settings.cageFitStrength; SetValueLabel("cagefit", rsz.value); }
+            if (config.settings != null && sliders.TryGetValue("cageinflate", out rsz) && rsz != null)
+            { rsz.value = config.settings.cageInflate; SetValueLabel("cageinflate", rsz.value); }
+            if (config.settings != null && sliders.TryGetValue("cageinflatedyn", out rsz) && rsz != null)
+            { rsz.value = config.settings.cageInflateDyn; SetValueLabel("cageinflatedyn", rsz.value); }
             if (config.settings != null && sliders.TryGetValue("remeshsize", out rsz) && rsz != null)
             { rsz.value = config.settings.remeshSize; SetValueLabel("remeshsize", rsz.value); }
             if (config.settings != null && sliders.TryGetValue("remeshpasses", out rsz) && rsz != null)
@@ -1150,7 +1162,11 @@ namespace JelloStudio
             SetStatus("native bone physics: " + disabled + " solver(s) disabled");
         }
 
-        // every bone that skins any painted vertex of any active region
+        // Bones that DOMINANTLY move painted flesh. "Any painted vert touches it > 0.1"
+        // pulled in neighbouring chains too (breast paint carries residual weights to
+        // belly/spine bones, so the belly's spring bones died when only breast bones
+        // were selected). A bone now qualifies only when the PAINTED share of its total
+        // skin influence is significant — its own flesh is mostly inside the region.
         HashSet<Transform> CollectRegionBones()
         {
             HashSet<Transform> set = new HashSet<Transform>();
@@ -1160,20 +1176,40 @@ namespace JelloStudio
                 if (!px.Alive || px.smr.sharedMesh == null) continue;
                 BoneWeight[] bw = px.smr.sharedMesh.boneWeights;
                 Transform[] bones = px.smr.bones;
+
+                float[] paintOf = new float[bw.Length];
                 for (int r = 0; r < px.cfg.regions.Count; r++)
                 {
                     SquishRegion reg = px.cfg.regions[r];
+                    if (!reg.enabled) continue;
                     for (int v = 0; v < reg.vertIndex.Count; v++)
                     {
                         int vi = reg.vertIndex[v];
-                        if (vi >= bw.Length) continue;
-                        BoneWeight w4 = bw[vi];
-                        if (w4.weight0 > 0.1f && w4.boneIndex0 < bones.Length && bones[w4.boneIndex0] != null) set.Add(bones[w4.boneIndex0]);
-                        if (w4.weight1 > 0.1f && w4.boneIndex1 < bones.Length && bones[w4.boneIndex1] != null) set.Add(bones[w4.boneIndex1]);
-                        if (w4.weight2 > 0.1f && w4.boneIndex2 < bones.Length && bones[w4.boneIndex2] != null) set.Add(bones[w4.boneIndex2]);
-                        if (w4.weight3 > 0.1f && w4.boneIndex3 < bones.Length && bones[w4.boneIndex3] != null) set.Add(bones[w4.boneIndex3]);
+                        if (vi >= 0 && vi < paintOf.Length && reg.weight[v] > paintOf[vi]) paintOf[vi] = reg.weight[v];
                     }
                 }
+
+                float[] painted = new float[bones.Length];
+                float[] total = new float[bones.Length];
+                for (int v = 0; v < bw.Length; v++)
+                {
+                    BoneWeight w4 = bw[v];
+                    float pw = paintOf[v];
+                    if (w4.boneIndex0 < total.Length) { total[w4.boneIndex0] += w4.weight0; painted[w4.boneIndex0] += w4.weight0 * pw; }
+                    if (w4.boneIndex1 < total.Length) { total[w4.boneIndex1] += w4.weight1; painted[w4.boneIndex1] += w4.weight1 * pw; }
+                    if (w4.boneIndex2 < total.Length) { total[w4.boneIndex2] += w4.weight2; painted[w4.boneIndex2] += w4.weight2 * pw; }
+                    if (w4.boneIndex3 < total.Length) { total[w4.boneIndex3] += w4.weight3; painted[w4.boneIndex3] += w4.weight3 * pw; }
+                }
+                string names = "";
+                for (int b = 0; b < bones.Length; b++)
+                {
+                    if (bones[b] == null || painted[b] < 0.5f) continue;
+                    if (painted[b] < 0.35f * Mathf.Max(0.0001f, total[b])) continue;   // mostly-unpainted bone: leave its physics alone
+                    if (set.Add(bones[b]) && names.Length < 220)
+                        names += (names.Length > 0 ? ", " : "") + bones[b].name;
+                }
+                if (names.Length > 0)
+                    Debug.Log("[Jello] scoped native override bones (" + px.smr.name + "): " + names);
             }
             return set;
         }

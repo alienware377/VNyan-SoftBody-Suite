@@ -54,10 +54,17 @@ namespace JelloStudio
             public SkinnedMeshRenderer smr;
             public GameObject go; public MeshFilter mf; public MeshRenderer mr;
             public Mesh baked, display;
-            public int[] fV, fA, fB, fC;              // render vert -> cage tri verts
-            public float[] fwA, fwB, fwC, fFall;      // barycentric + distance falloff
             public Vector3[] verts;
             public bool boundsSet;
+            // driven WELD GROUPS (UV-seam duplicates merged — per-render smoothing would tear)
+            public int[] gRep;                  // group -> representative render vert
+            public int[] gMemStart, gMem;       // CSR: members (render verts) per group
+            public int[] gA, gB, gC;            // cage binding per group
+            public float[] gwA, gwB, gwC, gFall;
+            public int[][] gAdj;                // adjacency among driven groups
+            public float[] gSeam;               // metric distance to the driven-area boundary
+            public int[] gBand;                 // groups sorted by gSeam (active band = prefix)
+            public Vector3[] gDisp, gDisp2;     // per-frame scratch
         }
         readonly List<Follower> followers = new List<Follower>();
         readonly List<SkinnedMeshRenderer> folQueue = new List<SkinnedMeshRenderer>();  // bind 1/frame
@@ -462,33 +469,117 @@ namespace JelloStudio
             Matrix4x4 toSrc = go.transform.worldToLocalMatrix * r.transform.localToWorldMatrix;
             bool haveN = nrm != null && nrm.Length == pts.Length;
 
-            // AABB prefilter keeps far meshes (hair etc.) nearly free
-            Vector3 lo = cage.restMin - Vector3.one * range, hi = cage.restMax + Vector3.one * range;
-            List<int> V = new List<int>(), A = new List<int>(), B = new List<int>(), C = new List<int>();
-            List<float> WA = new List<float>(), WB = new List<float>(), WC = new List<float>(), FF = new List<float>();
+            // ---- weld duplicate render verts (UV/normal seams) into groups ----
+            Dictionary<long, int> cellMap = new Dictionary<long, int>();
+            int[] gOfGlobal = new int[pts.Length];
+            List<int> gFirst = new List<int>();
+            List<Vector3> gNormSum = new List<Vector3>();
             for (int i = 0; i < pts.Length; i++)
             {
-                Vector3 q = toSrc.MultiplyPoint3x4(pts[i]);
+                Vector3 p = pts[i];
+                long key = (((long)Mathf.RoundToInt(p.x * 20000f) & 0x1FFFFF) << 42)
+                         | (((long)Mathf.RoundToInt(p.y * 20000f) & 0x1FFFFF) << 21)
+                         | ((long)Mathf.RoundToInt(p.z * 20000f) & 0x1FFFFF);
+                int gg;
+                if (!cellMap.TryGetValue(key, out gg))
+                { gg = gFirst.Count; cellMap[key] = gg; gFirst.Add(i); gNormSum.Add(Vector3.zero); }
+                gOfGlobal[i] = gg;
+                if (haveN) gNormSum[gg] += nrm[i];
+            }
+
+            // ---- bind each group once (shared by all its duplicates — no seam tearing) ----
+            // AABB prefilter keeps far meshes (hair etc.) nearly free. Double-sided cloth:
+            // opposing duplicate normals cancel → ungated (but range-limited) fallback.
+            Vector3 lo = cage.restMin - Vector3.one * range, hi = cage.restMax + Vector3.one * range;
+            int nGlobal = gFirst.Count;
+            int[] localOf = new int[nGlobal];
+            for (int i = 0; i < nGlobal; i++) localOf[i] = -1;
+            List<int> rep = new List<int>(), A = new List<int>(), B = new List<int>(), C = new List<int>();
+            List<float> WA = new List<float>(), WB = new List<float>(), WC = new List<float>(), FF = new List<float>();
+            for (int gg = 0; gg < nGlobal; gg++)
+            {
+                Vector3 q = toSrc.MultiplyPoint3x4(pts[gFirst[gg]]);
                 if (q.x < lo.x || q.y < lo.y || q.z < lo.z || q.x > hi.x || q.y > hi.y || q.z > hi.z) continue;
-                Vector3 nq = haveN ? toSrc.MultiplyVector(nrm[i]).normalized : Vector3.zero;
+                Vector3 ns = gNormSum[gg];
+                Vector3 nq = ns.sqrMagnitude > 1e-6f ? toSrc.MultiplyVector(ns).normalized : Vector3.zero;
                 int a, b, c; Vector3 bar, cp;
                 if (!cage.BindPoint(q, nq, range * 1.25f, out a, out b, out c, out bar, out cp)) continue;
                 float dist = (q - cp).magnitude;
                 if (dist > range) continue;
                 float u = Mathf.Clamp01((dist - range * 0.5f) / (range * 0.5f));
                 float fall = 1f - u * u * (3f - 2f * u);   // 1 inside half-range, smooth to 0 at range
-                V.Add(i); A.Add(a); B.Add(b); C.Add(c);
+                localOf[gg] = rep.Count;
+                rep.Add(gFirst[gg]); A.Add(a); B.Add(b); C.Add(c);
                 WA.Add(bar.x); WB.Add(bar.y); WC.Add(bar.z); FF.Add(fall);
             }
-            if (V.Count < 12) { Object.Destroy(bk); folFailed.Add(r); return; }   // not covered (maybe off-pose)
+            if (rep.Count < 8) { Object.Destroy(bk); folFailed.Add(r); return; }   // not covered (maybe off-pose)
 
             Follower f = new Follower();
             f.smr = r; f.baked = bk; f.baked.MarkDynamic();
             f.display = Object.Instantiate(bk); f.display.MarkDynamic();
             f.display.name = r.name + "_jellofollow";
-            f.fV = V.ToArray(); f.fA = A.ToArray(); f.fB = B.ToArray(); f.fC = C.ToArray();
-            f.fwA = WA.ToArray(); f.fwB = WB.ToArray(); f.fwC = WC.ToArray(); f.fFall = FF.ToArray();
+            int G = rep.Count;
+            f.gRep = rep.ToArray(); f.gA = A.ToArray(); f.gB = B.ToArray(); f.gC = C.ToArray();
+            f.gwA = WA.ToArray(); f.gwB = WB.ToArray(); f.gwC = WC.ToArray(); f.gFall = FF.ToArray();
             f.verts = new Vector3[pts.Length];
+            f.gDisp = new Vector3[G]; f.gDisp2 = new Vector3[G];
+
+            // members CSR (driven groups only)
+            int[] cnt = new int[G];
+            for (int i = 0; i < pts.Length; i++) { int lg = localOf[gOfGlobal[i]]; if (lg >= 0) cnt[lg]++; }
+            f.gMemStart = new int[G + 1];
+            for (int g2 = 0; g2 < G; g2++) f.gMemStart[g2 + 1] = f.gMemStart[g2] + cnt[g2];
+            f.gMem = new int[f.gMemStart[G]];
+            int[] cur = new int[G];
+            for (int i = 0; i < pts.Length; i++)
+            {
+                int lg = localOf[gOfGlobal[i]];
+                if (lg >= 0) f.gMem[f.gMemStart[lg] + cur[lg]++] = i;
+            }
+
+            // adjacency among driven groups + boundary detection (edge into undriven territory)
+            List<int>[] adj = new List<int>[G];
+            for (int g2 = 0; g2 < G; g2++) adj[g2] = new List<int>(6);
+            bool[] boundary = new bool[G];
+            int[] tris = bk.triangles;
+            for (int t = 0; t + 2 < tris.Length; t += 3)
+            {
+                int la = localOf[gOfGlobal[tris[t]]], lb = localOf[gOfGlobal[tris[t + 1]]], lc = localOf[gOfGlobal[tris[t + 2]]];
+                if (la >= 0 && lb >= 0 && la != lb && !adj[la].Contains(lb)) { adj[la].Add(lb); adj[lb].Add(la); }
+                if (lb >= 0 && lc >= 0 && lb != lc && !adj[lb].Contains(lc)) { adj[lb].Add(lc); adj[lc].Add(lb); }
+                if (la >= 0 && lc >= 0 && la != lc && !adj[la].Contains(lc)) { adj[la].Add(lc); adj[lc].Add(la); }
+                if (la >= 0 && (lb < 0 || lc < 0)) boundary[la] = true;
+                if (lb >= 0 && (la < 0 || lc < 0)) boundary[lb] = true;
+                if (lc >= 0 && (la < 0 || lb < 0)) boundary[lc] = true;
+            }
+            f.gAdj = new int[G][];
+            for (int g2 = 0; g2 < G; g2++) f.gAdj[g2] = adj[g2].ToArray();
+
+            // seam field: multi-source Dijkstra from the driven-area boundary (mirrors the
+            // main mesh's painted<->unpainted seam machinery, reusing the same sliders)
+            f.gSeam = new float[G];
+            for (int g2 = 0; g2 < G; g2++) f.gSeam[g2] = float.MaxValue;
+            MinHeap heap = new MinHeap(G);
+            for (int g2 = 0; g2 < G; g2++)
+                if (boundary[g2] || f.gFall[g2] < 0.5f) { f.gSeam[g2] = 0f; heap.Push(0f, g2); }
+            while (heap.Count > 0)
+            {
+                float d2; int a2; heap.Pop(out d2, out a2);
+                if (d2 > f.gSeam[a2] || d2 > SEAM_MAXR) continue;
+                Vector3 pa = pts[f.gRep[a2]];
+                int[] nb = f.gAdj[a2];
+                for (int j = 0; j < nb.Length; j++)
+                {
+                    int b2 = nb[j];
+                    float nd = d2 + (pa - pts[f.gRep[b2]]).magnitude;
+                    if (nd < f.gSeam[b2]) { f.gSeam[b2] = nd; if (nd <= SEAM_MAXR) heap.Push(nd, b2); }
+                }
+            }
+            List<int> band = new List<int>();
+            for (int g2 = 0; g2 < G; g2++) if (f.gSeam[g2] <= SEAM_MAXR) band.Add(g2);
+            f.gBand = band.ToArray();
+            float[] gs = f.gSeam;
+            System.Array.Sort(f.gBand, delegate(int x, int y) { return gs[x].CompareTo(gs[y]); });
             f.go = new GameObject(r.name + "_JelloFollow");
             f.go.transform.SetParent(r.transform, false);
             f.go.transform.localPosition = Vector3.zero;
@@ -501,8 +592,8 @@ namespace JelloStudio
             f.mr.receiveShadows = r.receiveShadows;
             r.forceRenderingOff = true;
             followers.Add(f);
-            Debug.Log("[Jello] cage follower '" + r.name + "': " + f.fV.Length + "/" + pts.Length
-                + " verts driven (range " + range.ToString("0.000") + " m)");
+            Debug.Log("[Jello] cage follower '" + r.name + "': " + f.gMem.Length + "/" + pts.Length
+                + " verts (" + G + " groups) driven, range " + range.ToString("0.000") + " m");
         }
 
         void UpdateFollowers()
@@ -525,19 +616,86 @@ namespace JelloStudio
                 f.baked.GetVertices(scratch);
                 if (scratch.Count != f.verts.Length) { RemoveFollower(fi); continue; }   // mesh swapped
                 scratch.CopyTo(f.verts);
+                f.baked.GetNormals(folNrmScratch);
+                bool haveN = folNrmScratch.Count == f.verts.Length;
                 Matrix4x4 M = f.smr.transform.worldToLocalMatrix * srcL2W;
-                for (int k = 0; k < f.fV.Length; k++)
+
+                float fit = settingsRef != null ? Mathf.Clamp(settingsRef.cageFitStrength, 0f, 3f) : 1f;
+                float inf = settingsRef != null ? Mathf.Clamp(settingsRef.cageInflate, 0f, 0.1f) : 0f;
+                float dyn = settingsRef != null ? Mathf.Clamp(settingsRef.cageInflateDyn, 0f, 3f) : 0f;
+                int G = f.gRep.Length;
+                for (int g2 = 0; g2 < G; g2++)
                 {
-                    Vector3 d = cageOut[f.fA[k]] * f.fwA[k] + cageOut[f.fB[k]] * f.fwB[k] + cageOut[f.fC[k]] * f.fwC[k];
-                    f.verts[f.fV[k]] += M.MultiplyVector(d) * f.fFall[k];
+                    Vector3 d = cageOut[f.gA[g2]] * f.gwA[g2] + cageOut[f.gB[g2]] * f.gwB[g2] + cageOut[f.gC[g2]] * f.gwC[g2];
+                    Vector3 dl = M.MultiplyVector(d) * (f.gFall[g2] * fit);
+                    if (haveN && (dyn > 0f || inf > 0f))
+                    {
+                        Vector3 n = folNrmScratch[f.gRep[g2]];
+                        // dynamic inflate: amplify only the OUTWARD part, so the cloth leads
+                        // the body when it pushes out but never digs in when it retracts
+                        float outc = Vector3.Dot(dl, n);
+                        if (outc > 0f && dyn > 0f) dl += n * (outc * dyn);
+                        if (inf > 0f) dl += n * (inf * f.gFall[g2]);   // static clearance
+                    }
+                    f.gDisp[g2] = dl;
+                }
+
+                // driven-area seam polish: SAME sliders as the painted<->unpainted seam.
+                // Smooths across the boundary band of the garment and cone-clamps the ramp
+                // so the driven edge can't crease or pop through.
+                if (settingsRef != null && f.gBand.Length > 0)
+                {
+                    int slv = Mathf.Clamp(Mathf.RoundToInt(settingsRef.seamLevel), 0, 200);
+                    float srange = Mathf.Min(settingsRef.seamRange, SEAM_MAXR);
+                    float smax = settingsRef.seamMaxStretch;
+                    if ((slv > 0 || smax > 0.0001f) && srange > 0.0002f)
+                    {
+                        int active = f.gBand.Length;
+                        for (int i = 0; i < f.gBand.Length; i++) if (f.gSeam[f.gBand[i]] > srange) { active = i; break; }
+                        float invR = 1f / srange;
+                        for (int pass = 0; pass < slv; pass++)
+                        {
+                            for (int i = 0; i < active; i++)
+                            {
+                                int gg = f.gBand[i];
+                                float bw2 = 1f - f.gSeam[gg] * invR;
+                                int[] nb = f.gAdj[gg];
+                                if (bw2 <= 0f || nb.Length < 2) { f.gDisp2[gg] = f.gDisp[gg]; continue; }
+                                Vector3 avg = Vector3.zero;
+                                for (int j = 0; j < nb.Length; j++) avg += f.gDisp[nb[j]];
+                                avg /= nb.Length;
+                                f.gDisp2[gg] = Vector3.Lerp(f.gDisp[gg], avg, bw2);
+                            }
+                            for (int i = 0; i < active; i++) { int gg = f.gBand[i]; f.gDisp[gg] = f.gDisp2[gg]; }
+                        }
+                        if (smax > 0.0001f)
+                        {
+                            float slope = smax / Mathf.Max(srange, 0.0005f);
+                            for (int i = 0; i < f.gBand.Length; i++)
+                            {
+                                int gg = f.gBand[i];
+                                float allowed = f.gSeam[gg] * slope;
+                                float dm = f.gDisp[gg].magnitude;
+                                if (dm > allowed && dm > 1e-9f) f.gDisp[gg] *= allowed / dm;
+                            }
+                        }
+                    }
+                }
+
+                for (int g2 = 0; g2 < G; g2++)
+                {
+                    Vector3 dl = f.gDisp[g2];
+                    int e = f.gMemStart[g2 + 1];
+                    for (int m = f.gMemStart[g2]; m < e; m++) f.verts[f.gMem[m]] += dl;
                 }
                 f.display.SetVertices(f.verts);
-                f.baked.GetNormals(scratch);
-                if (scratch.Count == f.verts.Length) f.display.SetNormals(scratch);
+                if (haveN) f.display.SetNormals(folNrmScratch);
                 if (!f.boundsSet)
                 { f.display.bounds = new Bounds(f.display.bounds.center, f.display.bounds.size + Vector3.one * 2f); f.boundsSet = true; }
             }
         }
+
+        readonly List<Vector3> folNrmScratch = new List<Vector3>();
 
         void RemoveFollower(int i) { RemoveFollower(i, true); }
 

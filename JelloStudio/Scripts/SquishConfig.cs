@@ -35,6 +35,10 @@ namespace JelloStudio
                                             // (clothing etc.): one shared sim, no inter-mesh clipping
         public float cageFollowRange = 0.04f; // max distance (m) from the cage surface for a follower
                                               // vert to be driven; influence tapers to 0 at this range
+        public float cageFitStrength = 1f;    // multiplier on the displacement driven clothes replay
+        public float cageInflate = 0f;        // static outward clearance (m) added to the driven area
+        public float cageInflateDyn = 0f;     // extra outward push proportional to the OUTWARD part of
+                                              // the motion — cloth leads the body out, never digs in
 
         // ----- boundary seam smoothing (painted <-> unpainted edge) -----
         // The seam where the deformed region meets the still body is often sharp no
