@@ -891,8 +891,12 @@ namespace SquishStudio
 
         // ----- multi vertex-group picker (checkbox panel) -----
         GameObject groupPanel;
+        ScrollRect groupScroll;
+        float groupScrollPos = 1f;   // 1 = top; remembered across the per-click rebuilds
         readonly HashSet<string> groupSel = new HashSet<string>();
         List<string> lastGroupPick = new List<string>();   // remembered for apply-to-meshes
+
+        void SaveGroupScroll() { if (groupScroll != null) groupScrollPos = groupScroll.verticalNormalizedPosition; }
 
         void OpenGroupPanel()
         {
@@ -906,7 +910,9 @@ namespace SquishStudio
             List<string> bones = selProxy.BoneNamesWithWeights();
             if (bones.Count == 0) { SetStatus("mesh has no skinned bones?"); return; }
             float w = 320f, rowH = 22f, pad = 10f;
-            float h = 66f + rowH + Mathf.Min(bones.Count, 24) * rowH + 46f;
+            int visRows = Mathf.Min(bones.Count, 24);
+            float vpH = visRows * rowH;
+            float h = 66f + rowH + vpH + 46f;
 
             groupPanel = new GameObject("SquishGroupPanel", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
             RectTransform prt = groupPanel.GetComponent<RectTransform>();
@@ -922,24 +928,52 @@ namespace SquishStudio
 
             float y = pad;
             RtText("Title", "Pick vertex groups for '" + selRegion.name + "'", pad, y, w - 2 * pad, 20f, 13, FontStyle.Bold); y += 24f;
-            RtText("Sub", "Union of ticked groups" + (groupChildren ? " + their child bones" : ""), pad, y, w - 2 * pad, 16f, 10, FontStyle.Italic); y += 20f;
+            RtText("Sub", "Union of ticked groups" + (groupChildren ? " + their child bones" : "")
+                + (bones.Count > visRows ? " — scroll for all " + bones.Count : ""), pad, y, w - 2 * pad, 16f, 10, FontStyle.Italic); y += 20f;
 
             float half = (w - 2 * pad - 6f) / 2f;
-            RtButton("All", "All", pad, y, half, rowH, () => { groupSel.Clear(); for (int i = 0; i < bones.Count; i++) groupSel.Add(bones[i]); RebuildGroupPanel(); });
-            RtButton("None", "None", pad + half + 6f, y, half, rowH, () => { groupSel.Clear(); RebuildGroupPanel(); }); y += rowH + 4f;
+            RtButton("All", "All", pad, y, half, rowH, () => { groupSel.Clear(); for (int i = 0; i < bones.Count; i++) groupSel.Add(bones[i]); SaveGroupScroll(); RebuildGroupPanel(); });
+            RtButton("None", "None", pad + half + 6f, y, half, rowH, () => { groupSel.Clear(); SaveGroupScroll(); RebuildGroupPanel(); }); y += rowH + 4f;
 
-            for (int i = 0; i < bones.Count && i < 24; i++)
+            // scrollable bone list (mouse wheel / drag) — EVERY skinned bone, no cap
+            GameObject vp = new GameObject("VP", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(RectMask2D));
+            RectTransform vprt = vp.GetComponent<RectTransform>();
+            vprt.SetParent(groupPanel.transform, false);
+            vprt.anchorMin = vprt.anchorMax = new Vector2(0f, 1f); vprt.pivot = new Vector2(0f, 1f);
+            vprt.sizeDelta = new Vector2(w - 2 * pad, vpH);
+            vprt.anchoredPosition = new Vector2(pad, -y);
+            vp.GetComponent<Image>().color = new Color(1f, 1f, 1f, 0.02f);
+
+            GameObject ct = new GameObject("CT", typeof(RectTransform));
+            RectTransform ctrt = ct.GetComponent<RectTransform>();
+            ctrt.SetParent(vp.transform, false);
+            ctrt.anchorMin = new Vector2(0f, 1f); ctrt.anchorMax = new Vector2(0f, 1f); ctrt.pivot = new Vector2(0f, 1f);
+            ctrt.sizeDelta = new Vector2(w - 2 * pad, bones.Count * rowH);
+            ctrt.anchoredPosition = Vector2.zero;
+
+            ScrollRect sr = vp.AddComponent<ScrollRect>();
+            sr.content = ctrt; sr.viewport = vprt;
+            sr.horizontal = false; sr.vertical = true;
+            sr.movementType = ScrollRect.MovementType.Clamped;
+            sr.scrollSensitivity = 24f;
+            groupScroll = sr;
+
+            rtParent = ct;
+            for (int i = 0; i < bones.Count; i++)
             {
                 string nm = bones[i];
                 bool on = groupSel.Contains(nm);
-                RtButton("G_" + nm, (on ? "☒ " : "☐ ") + nm, pad, y, w - 2 * pad, rowH,
-                    () => { if (!groupSel.Remove(nm)) groupSel.Add(nm); RebuildGroupPanel(); },
-                    on ? new Color(0.65f, 1f, 0.65f, 1f) : Color.white); y += rowH;
+                RtButton("G_" + nm, (on ? "☒ " : "☐ ") + nm, 0f, i * rowH, w - 2 * pad, rowH,
+                    () => { if (!groupSel.Remove(nm)) groupSel.Add(nm); SaveGroupScroll(); RebuildGroupPanel(); },
+                    on ? new Color(0.65f, 1f, 0.65f, 1f) : Color.white);
             }
-            if (bones.Count > 24) { RtText("More", "… " + (bones.Count - 24) + " more (raise the list cap if needed)", pad, y, w - 2 * pad, 16f, 10, FontStyle.Italic); y += 18f; }
-            y += 6f;
+            rtParent = groupPanel;
+            y += vpH + 6f;
             RtButton("Sel", "Select (" + groupSel.Count + " groups)", pad, y, half, 30f, OnGroupsApply, new Color(0.7f, 1f, 0.7f, 1f));
             RtButton("Cls", "Close", pad + half + 6f, y, half, 30f, () => { Destroy(groupPanel); groupPanel = null; });
+
+            // restore where the user was scrolled before this click's rebuild
+            if (bones.Count > visRows) sr.verticalNormalizedPosition = Mathf.Clamp01(groupScrollPos);
         }
 
         void RebuildGroupPanel() { if (groupPanel != null) { Destroy(groupPanel); groupPanel = null; } BuildGroupPanel(); }
