@@ -21,6 +21,18 @@ namespace SquishStudio
         public bool asyncSim = false;     // run the physics on a worker thread (1 frame latency)
         public float maxDeltaTime = 0.033f;
 
+        // ----- clip guard (clothes can't be poked through) -----
+        // The opposite of chasing the clothes with the flesh: bind the painted body surface
+        // to the garment surfaces that cover it, and every frame — at the FINAL write, after
+        // every sim stage — keep the body at least `clipClearance` INSIDE the garment shell.
+        // Tracking quality becomes irrelevant: the body cannot cross the cloth by construction.
+        public bool clipGuard = false;
+        public float clipClearance = 0.001f;  // EXTRA metres beyond the rest fit (0 = preserve the
+                                              // exact rest relationship, never squash at rest)
+        public float clipRange = 0.05f;       // bind range: body verts within this of a garment
+        public float clipStrength = 1f;       // 0..1 blend of the correction
+        public float clipRimFade = 0.02f;     // fade the guard out this far from a garment's rim/hem
+
         // ----- native bone physics override -----
         // Spring/dynamic bones fight the mesh-level squish when they drive the same
         // body parts. Optionally disable them (restored when turned off / unbound).

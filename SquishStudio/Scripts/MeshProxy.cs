@@ -43,6 +43,35 @@ namespace SquishStudio
         public bool overlayOn;
         public float overlayOpacity = 0.75f;
 
+        // ================= CLIP GUARD =================
+        // Garments that cover this body's painted regions. Each painted body vertex binds
+        // ONCE to the nearest garment triangle (barycentric + signed offset along the garment
+        // normal). Every frame, at the FINAL write of the whole pipeline, any body vertex
+        // that has reached or crossed its garment shell is pushed back inside. Because it
+        // runs on the array that becomes the rendered mesh, nothing downstream can re-open
+        // a poke-through, and it does not care how well the cloth tracks the body.
+        class ClipTarget
+        {
+            public SkinnedMeshRenderer smr;
+            public Mesh bake;                       // reused garment bake
+            public MeshFilter follow;               // a deformer's display copy, if one drives it
+            public Vector3[] gv, gn;                // garment verts / normals (current frame)
+            public int[] gt;                        // garment triangles
+            public int[] bV, bA, bB, bC;            // body vert -> garment tri verts
+            public float[] bwA, bwB, bwC, bW;       // barycentric + guard weight (paint * rim fade)
+            public float[] bRest;                   // signed distance at bind time (the fit to preserve)
+            public bool bound;                      // bindings computed (binding is amortised)
+            public int pen; public float penMax;    // measured penetration this window
+        }
+        readonly List<Vector3> clipScratch = new List<Vector3>();
+        readonly List<ClipTarget> clipTargets = new List<ClipTarget>();
+        bool clipBound; float clipBindT;
+        int clipLastRange, clipLastClear;
+        public static SquishSettings settingsRef;   // plugin-global settings (clip guard options)
+        public static SquishConfig configRef;
+        GameObject avatarRef;
+        Vector3[] clipPush, clipPrev;               // per-frame correction (+ last frame, rate limit)
+
         public bool Alive { get { return smr != null && go != null; } }
         public int VertexCount { get { return bakedVerts != null ? bakedVerts.Length : 0; } }
         public Vector3[] BakedVerts { get { return bakedVerts; } }
@@ -86,6 +115,7 @@ namespace SquishStudio
                 + " bakeBounds=" + baked.bounds.size.ToString("0.###")
                 + " smrLocalBounds=" + smr.localBounds.size.ToString("0.###"));
 
+            avatarRef = avatar;
             // build sims
             sims.Clear();
             for (int r = 0; r < cfg.regions.Count; r++)
@@ -413,6 +443,7 @@ namespace SquishStudio
             if (baked != null) Object.Destroy(baked);
             if (display != null) Object.Destroy(display);
             if (colBakeScratch != null) Object.Destroy(colBakeScratch);
+            ClipGuardInvalidate();   // destroys the per-garment bake meshes
             go = null; overlayGO = null; baked = null; display = null; smr = null; colBakeScratch = null;
             sims.Clear(); colMeshSmr.Clear(); colMeshCloud.Clear();
             for (int i = 0; i < dbgPool.Count; i++) if (dbgPool[i] != null) Object.Destroy(dbgPool[i].gameObject);
@@ -718,6 +749,8 @@ namespace SquishStudio
             RunSim(dt, substeps, worldDown, simEnabled);
         }
 
+        float dtLast = 0.016f;
+
         void RunSim(float dt, int substeps, Vector3 worldDown, bool simEnabled)
         {
             msBake = Mathf.Lerp(msBake, (float)swDbg.Elapsed.TotalMilliseconds, 0.08f);
@@ -802,6 +835,10 @@ namespace SquishStudio
             }
 
             for (int i = 0; i < bakedVerts.Length; i++) bakedVerts[i] += disp[i];
+            // FINAL guarantee, on the very array that becomes the rendered body: the flesh
+            // cannot cross the clothes covering it, no matter what any earlier stage did.
+            dtLast = dt;
+            EnforceClipGuard();
             display.SetVertices(bakedVerts);
             display.SetNormals(bakedNormals);
             // fixed expanded bounds once — per-frame RecalculateBounds is a full-mesh scan
@@ -815,6 +852,17 @@ namespace SquishStudio
                 int act = 0; foreach (KeyValuePair<string, MeshColliderCloud> kv in colMeshCloud) act += kv.Value.nd;
                 Debug.Log("[Squish] perf '" + (smr != null ? smr.name : "?") + "': bake+chain=" + msBake.ToString("0.00")
                     + "ms sim+write=" + msSim.ToString("0.00") + "ms activeCapsules=" + act);
+                // clip guard telemetry: the SYMPTOM itself (how often and how deep the flesh
+                // reached the cloth before correction) — the only number that says "it worked"
+                for (int ci = 0; ci < clipTargets.Count; ci++)
+                {
+                    ClipTarget ct = clipTargets[ci];
+                    if (ct.bV == null) continue;
+                    Debug.Log("[Squish] clip '" + (ct.smr != null ? ct.smr.name : "?") + "': bound=" + ct.bV.Length
+                        + " corrected=" + ct.pen + " maxDepth=" + (ct.penMax * 1000f).ToString("0.0") + "mm"
+                        + (ct.follow != null ? " (vs deformed cloth)" : " (vs skinned cloth)"));
+                    ct.pen = 0; ct.penMax = 0f;
+                }
             }
         }
 
@@ -1154,6 +1202,353 @@ namespace SquishStudio
         // Game meshes duplicate vertices wherever UVs or normals split; simulating the
         // copies independently TEARS the surface. Weld by position so the sim runs one
         // node per unique point and every duplicate moves identically.
+        // ---------------- CLIP GUARD ----------------
+        static Vector3 ClosestOnTri(Vector3 p, Vector3 a, Vector3 b, Vector3 c)
+        {
+            Vector3 ab = b - a, ac = c - a, ap = p - a;
+            float d1 = Vector3.Dot(ab, ap), d2 = Vector3.Dot(ac, ap);
+            if (d1 <= 0f && d2 <= 0f) return a;
+            Vector3 bp = p - b;
+            float d3 = Vector3.Dot(ab, bp), d4 = Vector3.Dot(ac, bp);
+            if (d3 >= 0f && d4 <= d3) return b;
+            float vc = d1 * d4 - d3 * d2;
+            if (vc <= 0f && d1 >= 0f && d3 <= 0f) return a + ab * (d1 / (d1 - d3));
+            Vector3 cp2 = p - c;
+            float d5 = Vector3.Dot(ab, cp2), d6 = Vector3.Dot(ac, cp2);
+            if (d6 >= 0f && d5 <= d6) return c;
+            float vb = d5 * d2 - d1 * d6;
+            if (vb <= 0f && d2 >= 0f && d6 <= 0f) return a + ac * (d2 / (d2 - d6));
+            float va = d3 * d6 - d5 * d4;
+            if (va <= 0f && (d4 - d3) >= 0f && (d5 - d6) >= 0f)
+                return b + (c - b) * ((d4 - d3) / ((d4 - d3) + (d5 - d6)));
+            float denom = 1f / (va + vb + vc);
+            return a + ab * (vb * denom) + ac * (vc * denom);
+        }
+
+        static Vector3 Bary(Vector3 p, Vector3 a, Vector3 b, Vector3 c)
+        {
+            Vector3 v0 = b - a, v1 = c - a, v2 = p - a;
+            float d00 = Vector3.Dot(v0, v0), d01 = Vector3.Dot(v0, v1), d11 = Vector3.Dot(v1, v1);
+            float d20 = Vector3.Dot(v2, v0), d21 = Vector3.Dot(v2, v1);
+            float den = d00 * d11 - d01 * d01;
+            if (Mathf.Abs(den) < 1e-16f) return new Vector3(1f, 0f, 0f);
+            float v = (d11 * d20 - d01 * d21) / den;
+            float w = (d00 * d21 - d01 * d20) / den;
+            return new Vector3(1f - v - w, v, w);
+        }
+
+        public void ClipGuardInvalidate()
+        {
+            clipBound = false;
+            for (int i = 0; i < clipTargets.Count; i++)
+                if (clipTargets[i].bake != null) { Object.Destroy(clipTargets[i].bake); clipTargets[i].bake = null; }
+            clipTargets.Clear();
+            clipPrev = null;
+        }
+
+        // Which meshes count as garments over this body: every other skinned mesh that is
+        // visible and is not itself a configured soft-body mesh.
+        Bounds paintBoundsWorld;
+        float[] clipPaint;      // max paint weight per body vert (weld-aware)
+
+        // union paint weight per body vert, taken as the MAX over each weld group so seam
+        // duplicates can't leave a group unprotected; plus a world AABB of the painted flesh
+        void BuildClipPaint(float range)
+        {
+            int n = bakedVerts.Length;
+            if (clipPaint == null || clipPaint.Length != n) clipPaint = new float[n];
+            else System.Array.Clear(clipPaint, 0, n);
+            for (int r = 0; r < cfg.regions.Count; r++)
+            {
+                SquishRegion reg = cfg.regions[r];
+                if (!reg.enabled) continue;
+                for (int i = 0; i < reg.vertIndex.Count; i++)
+                {
+                    int vi = reg.vertIndex[i];
+                    if (vi >= 0 && vi < n && reg.weight[i] > clipPaint[vi]) clipPaint[vi] = reg.weight[i];
+                }
+            }
+            for (int g = 0; g < weldMembers.Length; g++)
+            {
+                List<int> mem = weldMembers[g];
+                float mx = 0f;
+                for (int m = 0; m < mem.Count; m++) if (clipPaint[mem[m]] > mx) mx = clipPaint[mem[m]];
+                if (mx <= 0f) continue;
+                for (int m = 0; m < mem.Count; m++) clipPaint[mem[m]] = mx;
+            }
+            bool first = true;
+            Bounds b = new Bounds(Vector3.zero, Vector3.zero);
+            Transform tr = go.transform;
+            for (int i = 0; i < n; i++)
+            {
+                if (clipPaint[i] <= 0.02f) continue;
+                Vector3 wp = tr.TransformPoint(bakedVerts[i]);
+                if (first) { b = new Bounds(wp, Vector3.zero); first = false; } else b.Encapsulate(wp);
+            }
+            b.Expand(range * 2f);
+            paintBoundsWorld = b;
+        }
+
+        void CollectClipTargets()
+        {
+            clipTargets.Clear();
+            if (avatarRef == null || smr == null) return;
+            SkinnedMeshRenderer[] rends = avatarRef.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            for (int i = 0; i < rends.Length; i++)
+            {
+                SkinnedMeshRenderer r = rends[i];
+                if (r == null || r == smr || r.sharedMesh == null) continue;
+                if (!r.gameObject.activeInHierarchy) continue;
+                if (!r.enabled && !r.forceRenderingOff) continue;   // genuinely hidden outfit piece
+                bool isBody = false;
+                if (configRef != null && configRef.meshes != null)
+                    for (int m = 0; m < configRef.meshes.Count; m++)
+                        if (configRef.meshes[m] != null && configRef.meshes[m].enabled &&
+                            configRef.meshes[m].mesh == r.name) { isBody = true; break; }
+                if (isBody) continue;
+                // any studio's body proxy lives on the mesh it deforms — that's a body, not cloth
+                if (r.transform.Find(r.name + "_SquishProxy") != null ||
+                    r.transform.Find(r.name + "_JelloProxy") != null ||
+                    r.transform.Find(r.name + "_WobbleProxy") != null ||
+                    r.transform.Find(r.name + "_SoftBodyProxy") != null) continue;
+                // cheap reject: nothing near the painted flesh (hair, shoes, props stay free)
+                if (!r.bounds.Intersects(paintBoundsWorld)) continue;
+                ClipTarget t = new ClipTarget();
+                t.smr = r; t.bake = new Mesh(); t.bake.MarkDynamic();
+                clipTargets.Add(t);
+            }
+        }
+
+        // Refresh a garment's current surface: prefer a deformer's display copy (so the guard
+        // measures against the cloth the viewer actually sees), else its own skinned bake.
+        // Everything is expressed in THIS proxy's local space.
+        bool RefreshClipTarget(ClipTarget t)
+        {
+            if (t.smr == null || go == null) return false;
+            if (t.follow == null)
+            {
+                Transform ft = t.smr.transform.Find(t.smr.name + "_JelloFollow");
+                if (ft != null && ft.gameObject.activeSelf) t.follow = ft.GetComponent<MeshFilter>();
+            }
+            else if (t.follow.gameObject == null || !t.follow.gameObject.activeSelf) t.follow = null;
+
+            Mesh src;
+            Transform space;
+            if (t.follow != null && t.follow.sharedMesh != null)
+            { src = t.follow.sharedMesh; space = t.follow.transform; }
+            else
+            {
+                t.smr.BakeMesh(t.bake);
+                src = t.bake; space = t.smr.transform;
+            }
+            src.GetVertices(clipScratch);
+            int n = clipScratch.Count;
+            if (n < 3) return false;
+            if (t.gv == null || t.gv.Length != n) { t.gv = new Vector3[n]; t.gn = new Vector3[n]; t.bV = null; }
+            Matrix4x4 M = go.transform.worldToLocalMatrix * space.localToWorldMatrix;
+            for (int i = 0; i < n; i++) t.gv[i] = M.MultiplyPoint3x4(clipScratch[i]);
+            src.GetNormals(clipScratch);
+            if (clipScratch.Count == n) for (int i = 0; i < n; i++) t.gn[i] = M.MultiplyVector(clipScratch[i]);
+            if (t.gt == null || t.gt.Length == 0) t.gt = src.triangles;
+            return true;
+        }
+
+        // Bind every painted body vertex to its nearest garment triangle (one-time, per
+        // garment). Spatial hash over garment tris; rim triangles fade out so the guard can't
+        // build a ridge at a hem.
+        void BindClipTarget(ClipTarget t, float range, float rimFade)
+        {
+            if (!RefreshClipTarget(t) || t.gt.Length < 3) return;
+
+            float cell = Mathf.Max(0.01f, range);
+            Dictionary<long, List<int>> hash = new Dictionary<long, List<int>>();
+            for (int tri = 0; tri < t.gt.Length; tri += 3)
+            {
+                Vector3 c = (t.gv[t.gt[tri]] + t.gv[t.gt[tri + 1]] + t.gv[t.gt[tri + 2]]) / 3f;
+                long k = Key(Mathf.FloorToInt(c.x / cell), Mathf.FloorToInt(c.y / cell), Mathf.FloorToInt(c.z / cell));
+                List<int> l; if (!hash.TryGetValue(k, out l)) { l = new List<int>(); hash[k] = l; }
+                l.Add(tri);
+            }
+            // rim detection: an edge used by a single triangle is a boundary edge
+            Dictionary<long, int> edge = new Dictionary<long, int>();
+            for (int tri = 0; tri < t.gt.Length; tri += 3)
+                for (int e = 0; e < 3; e++)
+                {
+                    int v0 = t.gt[tri + e], v1 = t.gt[tri + (e + 1) % 3];
+                    long ek = v0 < v1 ? ((long)v0 << 32) | (uint)v1 : ((long)v1 << 32) | (uint)v0;
+                    int c2; edge.TryGetValue(ek, out c2); edge[ek] = c2 + 1;
+                }
+            List<Vector3> rimPts = new List<Vector3>();
+            {
+                HashSet<int> rim = new HashSet<int>();
+                foreach (KeyValuePair<long, int> kv in edge)
+                    if (kv.Value == 1) { rim.Add((int)(kv.Key >> 32)); rim.Add((int)(kv.Key & 0xFFFFFFFF)); }
+                foreach (int rv in rim) if (rv >= 0 && rv < t.gv.Length) rimPts.Add(t.gv[rv]);
+            }
+            float[] paint = clipPaint;
+
+            List<int> V = new List<int>(), A = new List<int>(), B = new List<int>(), C = new List<int>();
+            List<float> WA = new List<float>(), WB = new List<float>(), WC = new List<float>(), GW = new List<float>();
+            List<float> RS = new List<float>();
+            float r2 = range * range;
+            for (int vi = 0; vi < bakedVerts.Length; vi++)
+            {
+                if (paint[vi] <= 0.02f) continue;
+                if (weldMembers[weldOf[vi]][0] != vi) continue;   // one binding per weld group
+                // measure the fit against the CLEAN skinned body: bakedVerts already carries
+                // this frame's displacement, so binding mid-squish would freeze the dent in
+                Vector3 p = bakedVerts[vi] - disp[vi];
+                int cx = Mathf.FloorToInt(p.x / cell), cy = Mathf.FloorToInt(p.y / cell), cz = Mathf.FloorToInt(p.z / cell);
+                float best = float.MaxValue; int bt = -1; Vector3 bcp = p;
+                for (int dx = -1; dx <= 1; dx++)
+                    for (int dy = -1; dy <= 1; dy++)
+                        for (int dz = -1; dz <= 1; dz++)
+                        {
+                            List<int> l;
+                            if (!hash.TryGetValue(Key(cx + dx, cy + dy, cz + dz), out l)) continue;
+                            for (int j = 0; j < l.Count; j++)
+                            {
+                                int tri = l[j];
+                                Vector3 cp = ClosestOnTri(p, t.gv[t.gt[tri]], t.gv[t.gt[tri + 1]], t.gv[t.gt[tri + 2]]);
+                                float d = (p - cp).sqrMagnitude;
+                                if (d < best) { best = d; bt = tri; bcp = cp; }
+                            }
+                        }
+                if (bt < 0 || best > r2) continue;
+                Vector3 a = t.gv[t.gt[bt]], b = t.gv[t.gt[bt + 1]], c3 = t.gv[t.gt[bt + 2]];
+                Vector3 bar = Bary(bcp, a, b, c3);
+                Vector3 nRest = t.gn[t.gt[bt]] * bar.x + t.gn[t.gt[bt + 1]] * bar.y + t.gn[t.gt[bt + 2]] * bar.z;
+                float nrm2 = nRest.magnitude;
+                if (nrm2 < 1e-6f) continue;
+                nRest /= nrm2;
+                // ORIENTATION: a garment's stored normals may point at the body (modelled
+                // thickness, inner shells, flipped/mirrored normals). Canonicalize against the
+                // BODY's own outward normal so "+N" always means "out of the flesh" — without
+                // this the constraint inverts and drags flesh INTO the cloth.
+                if (Vector3.Dot(nRest, bakedNormals[vi]) < 0f) nRest = -nRest;
+                float restSd = Vector3.Dot(p - bcp, nRest);
+                // only guard flesh that rests INSIDE this garment; skin sitting outside the
+                // shell (next to a hem, through a cut-out) must stay free to move
+                if (restSd > -0.0002f) continue;
+
+                float w = paint[vi];
+                // rim fade: taper smoothly with distance to the garment's hem so the guard
+                // can't build a ridge where the cloth ends
+                if (rimFade > 0.0005f && rimPts.Count > 0)
+                {
+                    float dr2 = float.MaxValue;
+                    for (int q = 0; q < rimPts.Count; q++)
+                    {
+                        float dd = (bcp - rimPts[q]).sqrMagnitude;
+                        if (dd < dr2) dr2 = dd;
+                    }
+                    float u = Mathf.Clamp01(Mathf.Sqrt(dr2) / rimFade);
+                    w *= u * u * (3f - 2f * u);
+                }
+                V.Add(vi); A.Add(t.gt[bt]); B.Add(t.gt[bt + 1]); C.Add(t.gt[bt + 2]);
+                WA.Add(bar.x); WB.Add(bar.y); WC.Add(bar.z); GW.Add(w); RS.Add(restSd);
+            }
+            t.bV = V.ToArray(); t.bA = A.ToArray(); t.bB = B.ToArray(); t.bC = C.ToArray();
+            t.bwA = WA.ToArray(); t.bwB = WB.ToArray(); t.bwC = WC.ToArray(); t.bW = GW.ToArray();
+            t.bRest = RS.ToArray();
+            t.bound = true;
+            if (t.bV.Length > 0)
+                Debug.Log("[Squish] clip guard '" + smr.name + "' vs '" + t.smr.name + "': "
+                    + t.bV.Length + " body verts bound (range " + range.ToString("0.000") + " m"
+                    + (t.follow != null ? ", measuring the deformed cloth" : ", measuring the skinned cloth") + ")");
+        }
+
+        // The guarantee: push any body vertex that reached its garment shell back inside.
+        void EnforceClipGuard()
+        {
+            if (settingsRef == null || !settingsRef.clipGuard) { if (clipBound) ClipGuardInvalidate(); return; }
+            if (bakedVerts == null || weldOf == null) return;
+            float range = Mathf.Clamp(settingsRef.clipRange, 0.005f, 0.3f);
+            float clear = Mathf.Clamp(settingsRef.clipClearance, 0f, 0.05f);
+            float strength = Mathf.Clamp01(settingsRef.clipStrength);
+            float rimFade = Mathf.Max(0f, settingsRef.clipRimFade);
+            // re-bind when the shape of the problem changes (slider moves are quantised so a
+            // drag doesn't rebind every tick)
+            int qr = Mathf.RoundToInt(range * 1000f), qc = Mathf.RoundToInt(clear * 1000f);
+            if (clipBound && (qr != clipLastRange || qc != clipLastClear)) { clipBindT = 0.4f; clipLastRange = qr; clipLastClear = qc; }
+            if (clipBindT > 0f) { clipBindT -= Time.deltaTime; if (clipBindT <= 0f) ClipGuardInvalidate(); }
+            if (!clipBound)
+            {
+                BuildClipPaint(range);
+                CollectClipTargets();
+                clipLastRange = qr; clipLastClear = qc;
+                clipBound = true;
+            }
+            // bind at most ONE garment per frame: binding several thousand verts against
+            // several meshes in a single frame is a visible hitch
+            for (int i = 0; i < clipTargets.Count; i++)
+                if (!clipTargets[i].bound) { BindClipTarget(clipTargets[i], range, rimFade); break; }
+
+            if (clipPush == null || clipPush.Length != bakedVerts.Length)
+            { clipPush = new Vector3[bakedVerts.Length]; clipPrev = new Vector3[bakedVerts.Length]; }
+            else System.Array.Clear(clipPush, 0, clipPush.Length);
+            if (clipPrev == null || clipPrev.Length != clipPush.Length) clipPrev = new Vector3[clipPush.Length];
+            bool any = false;
+            float maxCorr = Mathf.Max(0.005f, range);   // never teleport a vertex
+
+            for (int ti = clipTargets.Count - 1; ti >= 0; ti--)
+            {
+                ClipTarget t = clipTargets[ti];
+                if (t.smr == null) { clipTargets.RemoveAt(ti); continue; }
+                if (!t.bound || t.bV == null || t.bV.Length == 0) continue;
+                int hadVerts = t.gv != null ? t.gv.Length : 0;
+                if (!RefreshClipTarget(t)) continue;
+                if (t.gv.Length != hadVerts || t.bV == null) { ClipGuardInvalidate(); return; }   // outfit swapped
+
+                for (int k = 0; k < t.bV.Length; k++)
+                {
+                    int vi = t.bV[k];
+                    int ia = t.bA[k], ib = t.bB[k], ic = t.bC[k];
+                    Vector3 P = t.gv[ia] * t.bwA[k] + t.gv[ib] * t.bwB[k] + t.gv[ic] * t.bwC[k];
+                    Vector3 N = t.gn[ia] * t.bwA[k] + t.gn[ib] * t.bwB[k] + t.gn[ic] * t.bwC[k];
+                    float nm = N.magnitude;
+                    if (nm < 1e-6f) continue;
+                    N /= nm;
+                    // signed distance along the garment's outward normal, compared to the
+                    // RELATIONSHIP AT BIND TIME: the flesh may never come closer to the cloth
+                    // than it rested (minus an optional extra margin). At rest this is a no-op;
+                    // it only bites when a sim stage pushes the flesh toward/through the cloth.
+                    if (Vector3.Dot(N, bakedNormals[vi]) < 0f) N = -N;   // same canonicalisation as bind
+                    float sd = Vector3.Dot(bakedVerts[vi] - P, N);
+                    float limit = t.bRest[k] - clear;
+                    if (sd <= limit) continue;
+                    float depth = sd - limit;
+                    if (depth > t.penMax) t.penMax = depth;
+                    t.pen++;
+                    // CLAMP rather than abandon: an absolute give-up test switched the guard
+                    // off exactly when penetration was deepest, which popped
+                    if (depth > maxCorr) depth = maxCorr;
+                    Vector3 push = N * (-depth * t.bW[k] * strength);
+                    if (push.sqrMagnitude > clipPush[vi].sqrMagnitude) clipPush[vi] = push;   // deepest garment wins
+                    any = true;
+                }
+            }
+            // rate limit: ease each correction toward its target instead of snapping, so a
+            // vertex entering or leaving the guard can't pop for a frame
+            float rate = Mathf.Clamp01(12f * Mathf.Max(dtLast, 0.001f));
+            for (int i = 0; i < clipPush.Length; i++)
+            {
+                if (clipPush[i].sqrMagnitude < 1e-12f && clipPrev[i].sqrMagnitude < 1e-12f) continue;
+                clipPrev[i] = Vector3.Lerp(clipPrev[i], clipPush[i], rate);
+                if (clipPrev[i].sqrMagnitude > 1e-12f) any = true;
+            }
+            if (!any) return;
+            // scatter over weld groups so UV seams can't tear
+            for (int g = 0; g < weldMembers.Length; g++)
+            {
+                List<int> mem = weldMembers[g];
+                if (mem.Count == 0) continue;
+                Vector3 d = clipPrev[mem[0]];
+                if (d.sqrMagnitude < 1e-12f) continue;
+                for (int m = 0; m < mem.Count; m++) bakedVerts[mem[m]] += d;
+            }
+        }
+
         int[] weldOf;                 // mesh vertex -> weld group id
         List<int>[] weldMembers;      // weld group id -> all duplicate vertex indices
 

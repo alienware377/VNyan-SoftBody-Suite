@@ -41,6 +41,9 @@ namespace JelloStudio
                                               // the motion — cloth leads the body out, never digs in
         public bool cageBindWhole = false;    // bind clothes to the WHOLE body surface (not just the
                                               // painted-region cage) and ride Jello's FULL output
+        public float cageFolSmooth = 4f;      // smoothing passes on the CLOTH's copy of the field
+                                              // (independent of the body's projection averaging,
+                                              // which was blurring garment motion away)
 
         // ----- boundary seam smoothing (painted <-> unpainted edge) -----
         // The seam where the deformed region meets the still body is often sharp no
