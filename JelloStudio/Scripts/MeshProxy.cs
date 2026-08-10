@@ -1800,7 +1800,7 @@ namespace JelloStudio
             if (wRep == null) return false;
             RemeshCage c = new RemeshCage();
             c.logTag = "[Jello]";
-            float L = Mathf.Clamp(settingsRef.remeshSize, 0.002f, 0.05f);
+            float L = Mathf.Clamp(settingsRef.remeshSize, 0.002f, 0.15f);
             int passes = Mathf.Clamp(Mathf.RoundToInt(settingsRef.remeshPasses), 1, 10);
             Vector3[] mvp = display.vertices;
             Vector3[] mnrm = display.normals;                    // rest normals for the valley gate
