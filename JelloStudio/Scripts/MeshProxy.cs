@@ -70,6 +70,8 @@ namespace JelloStudio
             public Vector3[] gNrm;              // per-frame bound-tri normal (anti-clip enforcement)
             public float[] gProt;               // per-frame protected outward component (anti-clip floor)
             public float[] gDnRaw;              // full-wrap normal component (clearance reference)
+            public bool[] gIsFill;              // valley-gap groups: no binding, diffused from neighbors
+            public bool hasFill;
         }
         readonly List<Follower> followers = new List<Follower>();
         readonly List<SkinnedMeshRenderer> folQueue = new List<SkinnedMeshRenderer>();  // bind 1/frame
@@ -588,6 +590,13 @@ namespace JelloStudio
                 if (!bindGrid.NearestGatedWithin(q, nq, 0.35f, range * 1.25f, out bt, out cp, out bar, out viaGate)) continue;
                 float dist = (q - cp).magnitude;
                 if (dist > range) continue;
+                // PERPENDICULAR/OPPOSITE-FACING EXCLUSION: cloth areas ADJACENT to the region
+                // (waistband continuing down, side panels wrapping away) face across or away
+                // from the surface — the facing gate rejects them and only the ungated
+                // fallback would bind them. Refuse that bind UNLESS the group hugs the
+                // surface (a few mm): ribbons and double-sided shells lying ON the region
+                // keep tracking, everything hanging off it does not.
+                if (!viaGate && nq.sqrMagnitude > 0.5f && dist > 0.006f) continue;
                 float u = Mathf.Clamp01((dist - range * 0.5f) / (range * 0.5f));
                 float fall = 1f - u * u * (3f - 2f * u);   // 1 inside half-range, smooth to 0 at range
                 localOf[gg] = rep.Count;
@@ -596,6 +605,59 @@ namespace JelloStudio
                 WA.Add(bar.x); WB.Add(bar.y); WC.Add(bar.z); FF.Add(fall);
             }
             if (rep.Count < 8) { Object.Destroy(bk); folFailed.Add(r); return; }   // not covered (maybe off-pose)
+            int drivenCount = rep.Count;
+
+            // ---- VALLEY-GAP INFILL ----
+            // Where the region has a valley (cleavage), the cloth bridging it often fails to
+            // bind (the walls face away from the bridge). Small/medium UNBOUND islands that
+            // sit between bound areas get FILL groups: no binding of their own — their motion
+            // is diffused from the surrounding bound cloth every frame ("transfer, average
+            // and smooth from nearby"). Large unbound sheets (skirts, straps heading away)
+            // stay untracked by design.
+            List<bool> FILL = new List<bool>();
+            for (int i = 0; i < drivenCount; i++) FILL.Add(false);
+            {
+                List<int>[] adjG = new List<int>[nGlobal];
+                for (int i = 0; i < nGlobal; i++) adjG[i] = new List<int>(6);
+                int[] tris0 = bk.triangles;
+                for (int t = 0; t + 2 < tris0.Length; t += 3)
+                {
+                    int ga = gOfGlobal[tris0[t]], gb = gOfGlobal[tris0[t + 1]], gc = gOfGlobal[tris0[t + 2]];
+                    if (ga != gb && !adjG[ga].Contains(gb)) { adjG[ga].Add(gb); adjG[gb].Add(ga); }
+                    if (gb != gc && !adjG[gb].Contains(gc)) { adjG[gb].Add(gc); adjG[gc].Add(gb); }
+                    if (ga != gc && !adjG[ga].Contains(gc)) { adjG[ga].Add(gc); adjG[gc].Add(ga); }
+                }
+                bool[] seen = new bool[nGlobal];
+                List<int> comp = new List<int>(), stack = new List<int>();
+                for (int s0 = 0; s0 < nGlobal; s0++)
+                {
+                    if (seen[s0] || localOf[s0] >= 0) continue;
+                    comp.Clear(); stack.Clear(); stack.Add(s0); seen[s0] = true;
+                    int drivenTouch = 0;
+                    while (stack.Count > 0)
+                    {
+                        int g0 = stack[stack.Count - 1]; stack.RemoveAt(stack.Count - 1);
+                        comp.Add(g0);
+                        List<int> nb = adjG[g0];
+                        for (int j = 0; j < nb.Count; j++)
+                        {
+                            int b0 = nb[j];
+                            if (localOf[b0] >= 0) { drivenTouch++; continue; }
+                            if (!seen[b0]) { seen[b0] = true; stack.Add(b0); }
+                        }
+                    }
+                    // small/medium island, meaningfully SURROUNDED by tracked cloth
+                    if (comp.Count <= 600 && drivenTouch >= 6 && drivenTouch * 6 >= comp.Count)
+                        for (int j = 0; j < comp.Count; j++)
+                        {
+                            localOf[comp[j]] = rep.Count;
+                            rep.Add(gFirst[comp[j]]);
+                            A.Add(0); B.Add(0); C.Add(0);
+                            WA.Add(0f); WB.Add(0f); WC.Add(0f); FF.Add(0f);
+                            FILL.Add(true);
+                        }
+                }
+            }
 
             Follower f = new Follower();
             f.smr = r; f.baked = bk; f.baked.MarkDynamic();
@@ -608,6 +670,8 @@ namespace JelloStudio
             f.verts = new Vector3[pts.Length];
             f.gDisp = new Vector3[G]; f.gDisp2 = new Vector3[G];
             f.gNrm = new Vector3[G]; f.gProt = new float[G]; f.gDnRaw = new float[G];
+            f.gIsFill = FILL.ToArray();
+            f.hasFill = G > drivenCount;
 
             // WRAP offsets: each group's rest position expressed in its bound tri's local
             // frame, measured on the CLEAN current-pose surface (bindPts: skinned bra vs
@@ -617,6 +681,7 @@ namespace JelloStudio
             Vector3[] refN = whole ? bakedNormals : cage.simNormals;
             for (int g2 = 0; g2 < G; g2++)
             {
+                if (f.gIsFill[g2]) continue;   // fill groups have no binding to measure
                 Vector3 q2 = toSrc.MultiplyPoint3x4(pts[f.gRep[g2]]);
                 Vector3 A3 = bindPts[f.gA[g2]], B3 = bindPts[f.gB[g2]], C3 = bindPts[f.gC[g2]];
                 Vector3 cpB = A3 * f.gwA[g2] + B3 * f.gwB[g2] + C3 * f.gwC[g2];
@@ -667,7 +732,7 @@ namespace JelloStudio
             for (int g2 = 0; g2 < G; g2++) f.gSeam[g2] = float.MaxValue;
             MinHeap heap = new MinHeap(G);
             for (int g2 = 0; g2 < G; g2++)
-                if (boundary[g2] || f.gFall[g2] < 0.5f) { f.gSeam[g2] = 0f; heap.Push(0f, g2); }
+                if (boundary[g2] || (!f.gIsFill[g2] && f.gFall[g2] < 0.5f)) { f.gSeam[g2] = 0f; heap.Push(0f, g2); }
             while (heap.Count > 0)
             {
                 float d2; int a2; heap.Pop(out d2, out a2);
@@ -736,6 +801,7 @@ namespace JelloStudio
                 Vector3[] cb = f.whole ? bakedVerts : cage.simBaked;
                 for (int g2 = 0; g2 < G; g2++)
                 {
+                    if (f.gIsFill[g2]) { f.gProt[g2] = 0f; continue; }   // diffused later, warm-started
                     // WRAP: rebuild the bound tri's frame on the CURRENT surface and re-place
                     // the stored rest offset. whole mode rides Jello's FINAL output verts
                     // (post-lerp, seam-smoothed); cage mode rides skinned interp + sim mirror.
@@ -845,6 +911,7 @@ namespace JelloStudio
                     float minClear = Mathf.Clamp(settingsRef.cageMinClear, 0f, 0.05f);
                     for (int g2 = 0; g2 < G; g2++)
                     {
+                        if (f.gIsFill[g2]) continue;   // no surface reference to clamp against
                         float allow = Mathf.Max(0f, Mathf.Abs(f.gOff[g2].z) - minClear);
                         float need = f.gDnRaw[g2] - allow;
                         float cur = Vector3.Dot(f.gDisp[g2], f.gNrm[g2]);
@@ -869,6 +936,20 @@ namespace JelloStudio
                     float dn2 = Vector3.Dot(f.gDisp[g2], f.gNrm[g2]);
                     if (dn2 < prot) f.gDisp[g2] += f.gNrm[g2] * (prot - dn2);
                 }
+
+                // valley-gap infill: unbound islands between tracked cloth inherit motion by
+                // diffusion from their neighbors (warm-started, converges in a few sweeps)
+                if (f.hasFill)
+                    for (int pass = 0; pass < 4; pass++)
+                        for (int g2 = 0; g2 < G; g2++)
+                        {
+                            if (!f.gIsFill[g2]) continue;
+                            int[] nb = f.gAdj[g2];
+                            if (nb.Length == 0) continue;
+                            Vector3 avg = Vector3.zero;
+                            for (int j = 0; j < nb.Length; j++) avg += f.gDisp[nb[j]];
+                            f.gDisp[g2] = avg / nb.Length;
+                        }
 
                 for (int g2 = 0; g2 < G; g2++)
                 {
