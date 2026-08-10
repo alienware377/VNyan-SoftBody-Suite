@@ -328,6 +328,7 @@ namespace SquishStudio
 
         Vector3[] offset, vel, prevTarget;
         bool primed;
+        bool jiggleWasIdle;
         int[][] nbr;
         float simT;
 
@@ -749,6 +750,24 @@ namespace SquishStudio
             float dampMul = Mathf.Pow(1f - damp, dt * 30f);
             float r2max = 0f;
 
+            // JIGGLE AT ZERO = NO DYNAMICS. The spring/inertia integration below feeds
+            // offset[], which the output stage multiplies by cfg.jiggle — so with the
+            // amplitude at 0 (contact-only setups) every bit of it is discarded. Track
+            // the skinned pose so nothing snaps when it is turned back up, and skip.
+            bool jiggleIdle = cfg.jiggle <= 0.0001f;
+            if (jiggleIdle)
+            {
+                for (int i = 0; i < n; i++)
+                {
+                    int vi0 = idx[i];
+                    if (vi0 < baked.Length) prevTarget[i] = baked[vi0];
+                    if (!jiggleWasIdle) { offset[i] = Vector3.zero; vel[i] = Vector3.zero; }
+                }
+                jiggleWasIdle = true;
+            }
+            else jiggleWasIdle = false;
+
+            if (!jiggleIdle)
             for (int i = 0; i < n; i++)
             {
                 int vi = idx[i];
