@@ -710,7 +710,10 @@ namespace JelloStudio
                     float dm = d.magnitude;
                     if (dm > R) pos[i] = b + d * (R / dm);
                 }
-                // 2. distance constraints (rest = current skinned bake)
+                // 2. distance constraints (rest = current skinned bake).
+                // Skipped wholesale when the stiffness is 0 (the validated setup) —
+                // iterating every edge to multiply by zero is pure waste.
+                if (kStretch > 0.0001f)
                 for (int e = 0; e < eA.Length; e++)
                 {
                     int a = eA[e], b2 = eB[e];
@@ -731,6 +734,7 @@ namespace JelloStudio
                 // 2b. bending (2-ring) constraints — fold resistance so the surface stays
                 // a smooth sheet instead of crumpling
                 float kBend = kStretch * Mathf.Clamp01(cfg.xBend);
+                if (kBend > 0.0001f)
                 for (int e = 0; e < bA.Length; e++)
                 {
                     int a = bA[e], b2 = bB[e];

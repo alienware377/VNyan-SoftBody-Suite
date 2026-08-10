@@ -68,9 +68,12 @@ namespace WobbleStudio
         readonly List<WeightSnapshot> redoStack = new List<WeightSnapshot>();
         const int UNDO_CAP = 40;
 
+        float lastWeightEditT;
+
         void PushUndo(SquishRegion r)
         {
             if (r == null) return;
+            lastWeightEditT = Time.realtimeSinceStartup;
             undoStack.Add(WeightSnapshot.Of(r));
             if (undoStack.Count > UNDO_CAP) undoStack.RemoveAt(0);
             redoStack.Clear();
@@ -85,11 +88,96 @@ namespace WobbleStudio
             return false;
         }
 
+
+        // ----- parameter undo (slider / toggle edits) -----
+        // Weight history alone left the buttons useless in the studios that don't paint,
+        // so every parameter edit is recorded too. Repeated changes to the SAME control
+        // within a moment coalesce into one step, so dragging a slider is one undo.
+        class ParamSnap
+        {
+            public SquishRegion region;
+            public Dictionary<string, float> regF = new Dictionary<string, float>();
+            public Dictionary<string, bool> regB = new Dictionary<string, bool>();
+            public Dictionary<string, float> setF = new Dictionary<string, float>();
+            public Dictionary<string, bool> setB = new Dictionary<string, bool>();
+            public string key; public float time;
+        }
+        readonly List<ParamSnap> pUndo = new List<ParamSnap>();
+        readonly List<ParamSnap> pRedo = new List<ParamSnap>();
+
+        static void GrabFields(object o, Dictionary<string, float> fs, Dictionary<string, bool> bs)
+        {
+            if (o == null) return;
+            System.Reflection.FieldInfo[] fi = o.GetType().GetFields();
+            for (int i = 0; i < fi.Length; i++)
+            {
+                if (fi[i].FieldType == typeof(float)) fs[fi[i].Name] = (float)fi[i].GetValue(o);
+                else if (fi[i].FieldType == typeof(bool)) bs[fi[i].Name] = (bool)fi[i].GetValue(o);
+            }
+        }
+        static void PutFields(object o, Dictionary<string, float> fs, Dictionary<string, bool> bs)
+        {
+            if (o == null) return;
+            System.Reflection.FieldInfo[] fi = o.GetType().GetFields();
+            for (int i = 0; i < fi.Length; i++)
+            {
+                float fv; bool bv;
+                if (fi[i].FieldType == typeof(float) && fs.TryGetValue(fi[i].Name, out fv)) fi[i].SetValue(o, fv);
+                else if (fi[i].FieldType == typeof(bool) && bs.TryGetValue(fi[i].Name, out bv)) fi[i].SetValue(o, bv);
+            }
+        }
+
+        ParamSnap CaptureParams(string key)
+        {
+            ParamSnap s = new ParamSnap();
+            s.key = key; s.time = Time.realtimeSinceStartup; s.region = selRegion;
+            GrabFields(selRegion, s.regF, s.regB);
+            GrabFields(config != null ? config.settings : null, s.setF, s.setB);
+            return s;
+        }
+
+        public void PushParamUndo(string key)
+        {
+            if (suppress || config == null) return;
+            // same control, still mid-interaction -> keep the FIRST value of the drag
+            if (pUndo.Count > 0)
+            {
+                ParamSnap top = pUndo[pUndo.Count - 1];
+                if (top.key == key && top.region == selRegion &&
+                    Time.realtimeSinceStartup - top.time < 0.7f)
+                { top.time = Time.realtimeSinceStartup; return; }
+            }
+            pUndo.Add(CaptureParams(key));
+            if (pUndo.Count > UNDO_CAP) pUndo.RemoveAt(0);
+            pRedo.Clear();
+        }
+
+        void ApplyParams(ParamSnap s)
+        {
+            PutFields(config != null ? config.settings : null, s.setF, s.setB);
+            if (s.region != null && RegionLive(s.region)) PutFields(s.region, s.regF, s.regB);
+            suppress = true;
+            PushRegionToUI();
+            suppress = false;
+            Rebind();
+            SaveConfig();
+        }
+
         void DoUndo()
         {
             // drop snapshots orphaned by a config reload (their regions no longer exist)
             while (undoStack.Count > 0 && !RegionLive(undoStack[undoStack.Count - 1].region))
                 undoStack.RemoveAt(undoStack.Count - 1);
+            if (pUndo.Count > 0 && (undoStack.Count == 0 ||
+                pUndo[pUndo.Count - 1].time >= lastWeightEditT))
+            {
+                ParamSnap ps = pUndo[pUndo.Count - 1]; pUndo.RemoveAt(pUndo.Count - 1);
+                ParamSnap cur = CaptureParams(ps.key); cur.region = ps.region;
+                pRedo.Add(cur);
+                ApplyParams(ps);
+                SetStatus("undo: " + ps.key + " (" + (undoStack.Count + pUndo.Count) + " left)");
+                return;
+            }
             if (undoStack.Count == 0) { SetStatus("nothing to undo"); return; }
             WeightSnapshot s = undoStack[undoStack.Count - 1]; undoStack.RemoveAt(undoStack.Count - 1);
             redoStack.Add(WeightSnapshot.Of(s.region));
@@ -102,6 +190,15 @@ namespace WobbleStudio
         {
             while (redoStack.Count > 0 && !RegionLive(redoStack[redoStack.Count - 1].region))
                 redoStack.RemoveAt(redoStack.Count - 1);
+            if (pRedo.Count > 0)
+            {
+                ParamSnap ps = pRedo[pRedo.Count - 1]; pRedo.RemoveAt(pRedo.Count - 1);
+                ParamSnap cur = CaptureParams(ps.key); cur.region = ps.region;
+                pUndo.Add(cur);
+                ApplyParams(ps);
+                SetStatus("redo: " + ps.key);
+                return;
+            }
             if (redoStack.Count == 0) { SetStatus("nothing to redo"); return; }
             WeightSnapshot s = redoStack[redoStack.Count - 1]; redoStack.RemoveAt(redoStack.Count - 1);
             undoStack.Add(WeightSnapshot.Of(s.region));
@@ -463,7 +560,7 @@ namespace WobbleStudio
             if (s == null) return;
             s.minValue = min; s.maxValue = max;
             sliders[key] = s;
-            s.onValueChanged.AddListener(v => { if (!suppress) { set(v); SetValueLabel(key, v); } });
+            s.onValueChanged.AddListener(v => { if (!suppress) { PushParamUndo(key); set(v); SetValueLabel(key, v); } });
 
             // manual-entry box next to the slider: type a value, hit enter
             InputField inp = FindControl<InputField>("Value_" + key);
