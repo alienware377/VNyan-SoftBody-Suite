@@ -415,6 +415,61 @@ namespace JelloStudio
             return null;
         }
 
+        // ---------- late cloth pass (runs after the LAST body deformer) ----------
+        // Jello sits mid-chain: Wobble/SoftBody feed its input (so their motion is already
+        // in the cage), but Squish runs downstream and renders the final body. Driving the
+        // cloth from here — and folding Squish's contribution onto the cage — means the
+        // garments follow the whole pipeline instead of a mid-chain snapshot.
+        static readonly List<Vector3> lateScratch = new List<Vector3>();
+
+        Vector3[] FinalBodyVerts()
+        {
+            if (smr == null || bakedVerts == null) return null;
+            Transform t = smr.transform.Find(smr.name + "_SquishProxy");
+            if (t == null || !t.gameObject.activeSelf) return null;
+            MeshFilter mfS = t.GetComponent<MeshFilter>();
+            if (mfS == null || mfS.sharedMesh == null) return null;
+            if (mfS.sharedMesh.vertexCount != bakedVerts.Length) return null;
+            mfS.sharedMesh.GetVertices(lateScratch);
+            if (lateScratch.Count != bakedVerts.Length) return null;
+            if (finalVerts == null || finalVerts.Length != bakedVerts.Length)
+                finalVerts = new Vector3[bakedVerts.Length];
+            lateScratch.CopyTo(finalVerts);
+            return finalVerts;
+        }
+
+        public void LateFollowUpdate()
+        {
+            if (!Alive || !framedOnce) return;   // bakedVerts is still all zeros before the first Frame()
+            // difference between the rendered body and our own output = everything the
+            // downstream stage added this frame
+            // a downstream stage disables OUR renderer when it chains onto us; until it
+            // does, its mesh is not derived from our output and subtracting would be wrong
+            bool wantFollow = settingsRef != null && settingsRef.cageDrive;
+            bool chainedDownstream = wantFollow && mr != null && !mr.enabled;
+            Vector3[] fin = chainedDownstream ? FinalBodyVerts() : null;
+            if (fin != null)
+            {
+                if (downExtra == null || downExtra.Length != fin.Length) downExtra = new Vector3[fin.Length];
+                for (int i = 0; i < fin.Length; i++) downExtra[i] = fin[i] - bakedVerts[i];
+                if (cage != null && cage.SimVertCount > 0)
+                {
+                    if (cageExtra == null || cageExtra.Length != cage.SimVertCount)
+                        cageExtra = new Vector3[cage.SimVertCount];
+                    cage.InterpDelta(downExtra, cageExtra);
+                    int exSm = settingsRef != null ? Mathf.Clamp(Mathf.RoundToInt(settingsRef.cageFolSmooth), 0, 60) : 0;
+                    if (exSm > 0) cage.SmoothArray(cageExtra, exSm);
+                }
+            }
+            else { finalVerts = null; downExtra = null; cageExtra = null; }
+
+            UpdateFollowerLifecycle();
+            UpdateFollowers();
+        }
+
+        Vector3[] finalVerts, downExtra, cageExtra;
+        bool framedOnce;
+
         // ---------- cage followers ----------
         void UpdateFollowerLifecycle()
         {
@@ -875,8 +930,14 @@ namespace JelloStudio
                 if (cageOut != null)
                     for (int ci = 0; ci < cageOut.Length; ci++)
                     { float m2 = cageOut[ci].sqrMagnitude; if (m2 > fieldMax) fieldMax = m2; }
-                float folMaxMove = Mathf.Max(0.02f, Mathf.Sqrt(fieldMax) * 2.5f);
-                Vector3[] cb = f.whole ? bakedVerts : cage.simBaked;
+                float extraMax = 0f;
+                if (cageExtra != null)
+                    for (int ci = 0; ci < cageExtra.Length; ci++)
+                    { float m3 = cageExtra[ci].sqrMagnitude; if (m3 > extraMax) extraMax = m3; }
+                // the ceiling has to cover the downstream contribution too, or the very
+                // contact motion this pass exists to carry gets clamped away
+                float folMaxMove = Mathf.Max(0.02f, (Mathf.Sqrt(fieldMax) + Mathf.Sqrt(extraMax)) * 2.5f);
+                Vector3[] cb = f.whole ? (finalVerts != null ? finalVerts : bakedVerts) : cage.simBaked;
                 for (int g2 = 0; g2 < G; g2++)
                 {
                     if (f.gIsFill[g2]) { f.gProt[g2] = 0f; continue; }   // diffused later, warm-started
@@ -886,6 +947,12 @@ namespace JelloStudio
                     int ia = f.gA[g2], ib = f.gB[g2], ic = f.gC[g2];
                     Vector3 A2, B2, C2;
                     if (f.whole) { A2 = cb[ia]; B2 = cb[ib]; C2 = cb[ic]; }
+                    else if (cageExtra != null)
+                    {
+                        A2 = cb[ia] + cageOut[ia] + cageExtra[ia];
+                        B2 = cb[ib] + cageOut[ib] + cageExtra[ib];
+                        C2 = cb[ic] + cageOut[ic] + cageExtra[ic];
+                    }
                     else
                     {
                         A2 = cb[ia] + cageOut[ia];
@@ -1114,6 +1181,7 @@ namespace JelloStudio
             if (colBakeScratch != null) Object.Destroy(colBakeScratch);
             go = null; overlayGO = null; baked = null; display = null; smr = null; colBakeScratch = null;
             sims.Clear(); colMeshSmr.Clear(); colMeshCloud.Clear();
+            framedOnce = false; finalVerts = null; downExtra = null; cageExtra = null;
             cage = null; cageSim = null; cageSrc = null; DestroyCageViz();
             cageToken++; cageBuilding = null;
             if (cageMesh != null) { Object.Destroy(cageMesh); cageMesh = null; }
@@ -1356,15 +1424,12 @@ namespace JelloStudio
             }
 
             for (int i = 0; i < bakedVerts.Length; i++) bakedVerts[i] += disp[i];
+            framedOnce = true;
             display.SetVertices(bakedVerts);
             display.SetNormals(bakedNormals);
             // fixed expanded bounds once — per-frame RecalculateBounds is a full-mesh scan
             if (!dispBoundsSet) { display.bounds = new Bounds(display.bounds.center, display.bounds.size + Vector3.one * 2f); dispBoundsSet = true; }
             if (overlayOn && overlayMode == 1) RefreshSharpColors();   // live jaggedness view
-            // follower lifecycle runs HERE (post-output) so binds measure against the SAME
-            // frame's surface (simBaked fresh, bakedVerts final) — no one-frame skew baked in
-            UpdateFollowerLifecycle();
-            UpdateFollowers();   // replay this frame's surface onto the driven meshes
 
             msSim = Mathf.Lerp(msSim, (float)swDbg.Elapsed.TotalMilliseconds, 0.08f);
             DrawDebug();

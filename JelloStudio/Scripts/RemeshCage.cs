@@ -241,6 +241,16 @@ namespace JelloStudio
         }
 
         // -------- per frame --------
+        // Sample an arbitrary per-render-vertex field onto the cage with the same binding
+        // used for the skinned surface. Used to carry a DOWNSTREAM stage's contribution
+        // (Squish's contact dents) onto the cage the cloth followers ride.
+        public void InterpDelta(Vector3[] delta, Vector3[] outArr)
+        {
+            if (delta == null || outArr == null || outArr.Length != simBaked.Length) return;
+            for (int i = 0; i < simBaked.Length; i++)
+                outArr[i] = delta[bindA[i]] * barA[i] + delta[bindB[i]] * barB[i] + delta[bindC[i]] * barC[i];
+        }
+
         public void InterpBaked(Vector3[] baked, Vector3[] normals)
         {
             for (int i = 0; i < simBaked.Length; i++)

@@ -12,6 +12,18 @@ namespace JelloStudio
     // Jello Studio — mesh-level soft-body deformation with live weight painting.
     // Runs LAST in LateUpdate (order 20000) so the bake sees the final pose of the
     // frame: tracking, Pose Studio, bone physics — everything.
+
+    // Drives the cloth followers after EVERY body deformer has written this frame.
+    // Jello sims at 20600 and Squish renders the final body at 20700, so the garments
+    // are updated at 20800 — that is what lets them follow contact dents, not just the
+    // mid-chain jiggle. Spawned and owned by SquishPlugin.
+    [DefaultExecutionOrder(20800)]
+    public class JelloLateFollow : MonoBehaviour
+    {
+        public SquishPlugin owner;
+        void LateUpdate() { if (owner != null) owner.LateFollowTick(); }
+    }
+
     [DefaultExecutionOrder(20600)]
     public class SquishPlugin : MonoBehaviour, VNyanInterface.IButtonClickedHandler
     {
@@ -349,8 +361,24 @@ namespace JelloStudio
 
         void OnDestroy() { RestoreNative(); DetachAll(); }
 
+        public void LateFollowTick()
+        {
+            if (config == null || config.settings == null || !config.settings.enabled) return;
+            for (int i = 0; i < proxies.Count; i++) proxies[i].LateFollowUpdate();
+        }
+
+        JelloLateFollow lateFollow;
+
+        void EnsureLateFollow()
+        {
+            if (lateFollow != null) return;
+            lateFollow = gameObject.AddComponent<JelloLateFollow>();
+            lateFollow.owner = this;
+        }
+
         void LateUpdate()
         {
+            EnsureLateFollow();
             EnsureAvatar();
             if (boundAvatar == null) return;
             if (config.settings == null || !config.settings.enabled)
