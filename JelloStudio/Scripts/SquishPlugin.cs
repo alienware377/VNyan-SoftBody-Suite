@@ -595,8 +595,6 @@ namespace JelloStudio
             HookRegionSlider("attach", 0f, 1f, (r, v) => r.xAttach = v, r => r.xAttach);
             HookRegionSlider("maxstretch", 0.001f, 0.05f, 2f, (r, v) => r.xMaxStretch = v, r => r.xMaxStretch);
             HookRegionSlider("pressure", 0f, 1.5f, (r, v) => r.xPressure = v, r => r.xPressure);
-            HookRegionSlider("gridmin", 0.002f, 0.15f, (r, v) => { r.xGridMin = v; r.xGridAuto = 0f; SyncGridAutoToggle(); solverDirtyT = 0.6f; }, r => r.xGridMin);
-            HookRegionSlider("gridmax", 0.002f, 0.15f, (r, v) => { r.xGridMax = v; r.xGridAuto = 0f; SyncGridAutoToggle(); solverDirtyT = 0.6f; }, r => r.xGridMax);
             gridAutoToggle = FindControl<Toggle>("Toggle_gridauto");
             if (gridAutoToggle != null) gridAutoToggle.onValueChanged.AddListener(v =>
             {

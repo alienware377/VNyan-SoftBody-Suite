@@ -415,10 +415,12 @@ namespace JelloStudio
                 }
                 float[] sw = edgeLen; edgeLen = tmpEL; tmpEL = sw;
             }
-            // 3) grid bounds: auto-sync to the measured edge range, or take the sliders
-            if (cfg.xGridAuto > 0.5f) { cfg.xGridMin = measMinEdge; cfg.xGridMax = measMaxEdge; }
-            float gMin = Mathf.Clamp(cfg.xGridMin, 0.0002f, 1f);
-            float gMax = Mathf.Clamp(cfg.xGridMax, gMin, 1f);
+            // 3) grid bounds always follow the measured edge range. The cage is
+            // uniform by construction, so this lands on one sensible cell size;
+            // the old manual min/max sliders only ever let it be set WRONG (a
+            // coarse grid clusters the sim into blocks and reads as jaggedness).
+            float gMin = Mathf.Clamp(measMinEdge, 0.0002f, 1f);
+            float gMax = Mathf.Clamp(measMaxEdge, gMin, 1f);
             // 4) per-rep target cell (log-space remap of the edge range onto the grid
             // range) hashed on a power-of-two level pyramid so variable cell sizes
             // still cluster in O(n)
