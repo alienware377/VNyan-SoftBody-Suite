@@ -365,7 +365,9 @@ namespace JelloStudio
                 { "Toggle_cagedrive", "ONE SHARED SIM for everything covering the region: other meshes (clothing etc.) bind to this mesh's remesh cage and replay the SAME deformation, so they cannot clip against the body. Meshes with their own enabled sim and hidden meshes are skipped. Needs the remesh cage ON." },
                 { "Slider_cagefollow", "How far (m) from the cage surface another mesh's vert may sit and still be driven. Full influence within half this range, fading to zero at the range. Changing it re-binds automatically." },
                 { "Toggle_cagewhole", "Bind clothes to the WHOLE body surface instead of just the painted-region cage. Tracks Jello's complete output (sim + seam smoothing) anywhere on the body — use when garments extend past the painted area or a mesh (skirt, bottom) sits outside the region. Re-binds on toggle." },
-                { "Slider_cagefolsm", "Smoothing passes on the CLOTH's copy of the deformation field. The body's 'projection averaging' used to blur the cloth's copy too, cutting garment motion to a fraction — this is now independent. Low = clothes follow the real amplitude; raise it only if garments look jittery." },
+                { "Toggle_clothout", "Anti-clip that only ever moves the CLOTHES. Each driven garment vertex remembers how far it sat off the skin and is never allowed nearer than the minimum gap below, so flesh cannot emerge through it. The body mesh is never modified by this." },
+                { "Slider_cageminclear", "The smallest gap (m) a driven garment may keep from the skin. A couple of millimetres suits skin-tight items; raise it if the surface still grazes through." },
+                { "Slider_cagefolsm","Smoothing passes on the CLOTH's copy of the deformation field. The body's 'projection averaging' used to blur the cloth's copy too, cutting garment motion to a fraction — this is now independent. Low = clothes follow the real amplitude; raise it only if garments look jittery." },
                 { "Slider_cagefit", "FIT: multiplier on the motion driven clothes replay. 1 = exactly the body's deformation; above 1 the cloth moves slightly MORE (helps it stay ahead of the flesh); below 1 it follows more loosely. Close-fitting verts always receive the full OUTWARD push regardless (anti-clip floor)." },
                 { "Slider_cageinflate", "Static outward clearance (m): puffs the DRIVEN part of the cloth out along its normals so it hovers above the flesh instead of coinciding with it. The seam sliders blend the puffed edge back down." },
                 { "Slider_cageinflatedyn", "Dynamic inflate: adds extra outward push proportional to how far the body is currently pushing OUT at that spot. Inward motion is never amplified, so the cloth can't dig in." },
@@ -550,6 +552,19 @@ namespace JelloStudio
                                 : "clothes bind to the region cage again (re-binding…)");
                 });
             }
+            Toggle co = FindControl<Toggle>("Toggle_clothout");
+            if (co != null)
+            {
+                clothOutsideToggle = co;
+                co.onValueChanged.AddListener(v =>
+                {
+                    if (suppress || config.settings == null) return;
+                    config.settings.cageClothOutside = v;
+                    SetStatus(v ? "clothes will be held off the skin (cloth moves, body untouched)"
+                                : "cloth clearance guard off");
+                });
+            }
+            HookSlider("cageminclear", 0f, 0.02f, v => { if (config.settings != null) config.settings.cageMinClear = v; });
             HookSlider("cagefolsharp", 0f, 1f, v => { if (config.settings != null) config.settings.cageFolSharp = v; });
             HookSlider("cagefolsm", 0f, 40f, v => { if (config.settings != null) config.settings.cageFolSmooth = v; });
             HookSlider("cagefit", 0f, 2f, v => { if (config.settings != null) config.settings.cageFitStrength = v; });
@@ -929,6 +944,9 @@ namespace JelloStudio
             Slider rsz;
             if (config.settings != null && sliders.TryGetValue("cagefollow", out rsz) && rsz != null)
             { rsz.value = config.settings.cageFollowRange; SetValueLabel("cagefollow", rsz.value); }
+            if (clothOutsideToggle != null && config.settings != null) clothOutsideToggle.isOn = config.settings.cageClothOutside;
+            if (config.settings != null && sliders.TryGetValue("cageminclear", out rsz) && rsz != null)
+            { rsz.value = config.settings.cageMinClear; SetValueLabel("cageminclear", rsz.value); }
             if (config.settings != null && sliders.TryGetValue("cagefolsharp", out rsz) && rsz != null)
             { rsz.value = config.settings.cageFolSharp; SetValueLabel("cagefolsharp", rsz.value); }
             if (config.settings != null && sliders.TryGetValue("cagefolsm", out rsz) && rsz != null)
@@ -1481,6 +1499,7 @@ namespace JelloStudio
         Toggle remeshToggle;
         Toggle cageDriveToggle;
         Toggle cageWholeToggle;
+        Toggle clothOutsideToggle;
         void SyncGridAutoToggle()
         {
             if (gridAutoToggle == null || selRegion == null) return;
