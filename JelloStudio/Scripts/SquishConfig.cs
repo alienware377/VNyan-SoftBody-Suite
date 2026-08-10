@@ -41,6 +41,12 @@ namespace JelloStudio
                                               // the motion — cloth leads the body out, never digs in
         public bool cageBindWhole = false;    // bind clothes to the WHOLE body surface (not just the
                                               // painted-region cage) and ride Jello's FULL output
+        public bool cageBoneFilter = true;    // garments only bind on verts weighted to the
+                                              // region's picked bones (srcBones, from Squish)
+        public float cageFillMax = 600f;      // gap infill: largest unbound island (in weld
+                                              // groups) that may inherit motion from neighbours
+        public float cageAnchorMin = 150f;    // gap infill: smallest bound area that counts as
+                                              // an anchor surrounding an island
         public bool cageClothOutside = true;  // driven clothes may never come nearer to the skin
                                               // than `cageMinClear` — applied to the CLOTH only
         public float cageMinClear = 0.002f;   // minimum garment-to-skin gap (m)
@@ -100,6 +106,10 @@ namespace JelloStudio
         // painted weights, sparse: vertIndex[i] has weight[i] (0..1)
         public List<int> vertIndex = new List<int>();
         public List<float> weight = new List<float>();
+
+        // bones the region was selected from (mirrored from Squish Studio's picker) —
+        // used to filter which garment verts the cloth tracking may bind
+        public List<string> srcBones = new List<string>();
 
         // ----- motion -----
         public float jiggle = 1.0f;       // overall amplitude multiplier (0 = rigid)

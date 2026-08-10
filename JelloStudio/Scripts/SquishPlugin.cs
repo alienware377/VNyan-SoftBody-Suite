@@ -368,6 +368,9 @@ namespace JelloStudio
                 { "Toggle_cagedrive", "ONE SHARED SIM for everything covering the region: other meshes (clothing etc.) bind to this mesh's remesh cage and replay the SAME deformation, so they cannot clip against the body. Meshes with their own enabled sim and hidden meshes are skipped. Needs the remesh cage ON." },
                 { "Slider_cagefollow", "How far (m) from the cage surface another mesh's vert may sit and still be driven. Full influence within half this range, fading to zero at the range. Changing it re-binds automatically." },
                 { "Toggle_cagewhole", "Bind clothes to the WHOLE body surface instead of just the painted-region cage. Tracks Jello's complete output (sim + seam smoothing) anywhere on the body — use when garments extend past the painted area or a mesh (skirt, bottom) sits outside the region. Re-binds on toggle." },
+                { "Toggle_bonefilter", "Garments only bind on verts weighted to the REGION'S BONES — the ones picked in Squish Studio's vertex-group selector for this region (mirrored automatically). Cleanly excludes waistbands, side panels and anything skinned to other bones. If the region was painted by brush with no bone pick, this does nothing." },
+                { "Slider_fillmax", "Gap infill: the LARGEST unbound patch (approx. vertex count) that may inherit motion from the tracked cloth around it — e.g. the bridge over a cleavage valley. 0 disables infill." },
+                { "Slider_anchormin", "Gap infill: how big a tracked area must be (approx. vertex count) to count as an ANCHOR around a gap. Raising it stops tiny stray tracked specks from legitimising infill next to them." },
                 { "Toggle_clothout", "Anti-clip that only ever moves the CLOTHES. Each driven garment vertex remembers how far it sat off the skin and is never allowed nearer than the minimum gap below, so flesh cannot emerge through it. The body mesh is never modified by this." },
                 { "Slider_cageminclear", "The smallest gap (m) a driven garment may keep from the skin. A couple of millimetres suits skin-tight items; raise it if the surface still grazes through." },
                 { "Slider_cagefolsm","Smoothing passes on the CLOTH's copy of the deformation field. The body's 'projection averaging' used to blur the cloth's copy too, cutting garment motion to a fraction — this is now independent. Low = clothes follow the real amplitude; raise it only if garments look jittery." },
@@ -555,6 +558,9 @@ namespace JelloStudio
                                 : "clothes bind to the region cage again (re-binding…)");
                 });
             }
+            HookToggle(FindControl<Toggle>("Toggle_bonefilter"), v => { if (config.settings != null) config.settings.cageBoneFilter = v; });
+            HookSlider("fillmax", 0f, 2000f, v => { if (config.settings != null) config.settings.cageFillMax = v; });
+            HookSlider("anchormin", 10f, 2000f, v => { if (config.settings != null) config.settings.cageAnchorMin = v; });
             Toggle co = FindControl<Toggle>("Toggle_clothout");
             if (co != null)
             {
@@ -948,6 +954,12 @@ namespace JelloStudio
             if (config.settings != null && sliders.TryGetValue("cagefollow", out rsz) && rsz != null)
             { rsz.value = config.settings.cageFollowRange; SetValueLabel("cagefollow", rsz.value); }
             if (clothOutsideToggle != null && config.settings != null) clothOutsideToggle.isOn = config.settings.cageClothOutside;
+            Toggle bf = FindControl<Toggle>("Toggle_bonefilter");
+            if (bf != null && config.settings != null) bf.isOn = config.settings.cageBoneFilter;
+            if (config.settings != null && sliders.TryGetValue("fillmax", out rsz) && rsz != null)
+            { rsz.value = config.settings.cageFillMax; SetValueLabel("fillmax", rsz.value); }
+            if (config.settings != null && sliders.TryGetValue("anchormin", out rsz) && rsz != null)
+            { rsz.value = config.settings.cageAnchorMin; SetValueLabel("anchormin", rsz.value); }
             if (config.settings != null && sliders.TryGetValue("cageminclear", out rsz) && rsz != null)
             { rsz.value = config.settings.cageMinClear; SetValueLabel("cageminclear", rsz.value); }
             if (config.settings != null && sliders.TryGetValue("cagefolsharp", out rsz) && rsz != null)
@@ -1449,6 +1461,7 @@ namespace JelloStudio
                         if (r.enabled != src.enabled) { r.enabled = src.enabled; changed = true; }
                         if (!SameSelection(r, src))
                         {
+                            r.srcBones = src.srcBones != null ? new List<string>(src.srcBones) : new List<string>();
                             r.vertIndex = new List<int>(src.vertIndex);
                             r.weight = new List<float>(src.weight);
                             changed = true;

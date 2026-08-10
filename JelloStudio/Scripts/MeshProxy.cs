@@ -78,6 +78,7 @@ namespace JelloStudio
         RemeshCage folCage;            // cage the current followers/queue were built against
         bool folGenActive;             // a follower generation exists (whole mode has no cage)
         bool folLastWhole;
+        int folLastBoneFilter, folLastFillMax, folLastAnchor;
         float folLastRange, folRangeT, folRetryT;
         readonly List<SkinnedMeshRenderer> folFailed = new List<SkinnedMeshRenderer>();
         // bind-generation search structures: a CURRENT-POSE grid (rest-space search mis-bound
@@ -424,9 +425,13 @@ namespace JelloStudio
             // cage rebuilt (cage mode) or bind-mode flipped: detach and RETURN — requeueing
             // next frame lets the pending-destroy "_JelloFollow" corpses actually die
             if (folGenActive && (folLastWhole != whole || (!whole && folCage != cage))) { DetachFollowers(); return; }
-            // range slider: debounce the drag; followers keep running until it settles
-            if (folGenActive && Mathf.Abs(range - folLastRange) > 0.0005f)
-            { folRangeT = 0.5f; folLastRange = range; }
+            // bind-affecting knobs: debounce the drag; followers keep running until settled
+            int kFilt = settingsRef.cageBoneFilter ? 1 : 0;
+            int kFill = Mathf.RoundToInt(settingsRef.cageFillMax);
+            int kAnch = Mathf.RoundToInt(settingsRef.cageAnchorMin);
+            if (folGenActive && (Mathf.Abs(range - folLastRange) > 0.0005f ||
+                kFilt != folLastBoneFilter || kFill != folLastFillMax || kAnch != folLastAnchor))
+            { folRangeT = 0.5f; folLastRange = range; folLastBoneFilter = kFilt; folLastFillMax = kFill; folLastAnchor = kAnch; }
             if (folRangeT > 0f)
             {
                 folRangeT -= Time.deltaTime;
@@ -435,6 +440,9 @@ namespace JelloStudio
             if (!folGenActive)
             {
                 folGenActive = true; folCage = cage; folLastWhole = whole; folLastRange = range;
+                folLastBoneFilter = settingsRef.cageBoneFilter ? 1 : 0;
+                folLastFillMax = Mathf.RoundToInt(settingsRef.cageFillMax);
+                folLastAnchor = Mathf.RoundToInt(settingsRef.cageAnchorMin);
                 QueueFollowerCandidates();
             }
             if (folQueue.Count > 0) BindNextFollower(range, whole);   // one mesh per frame spreads the cost
@@ -580,8 +588,52 @@ namespace JelloStudio
             for (int i = 0; i < nGlobal; i++) localOf[i] = -1;
             List<int> rep = new List<int>(), A = new List<int>(), B = new List<int>(), C = new List<int>();
             List<float> WA = new List<float>(), WB = new List<float>(), WC = new List<float>(), FF = new List<float>();
+            // ---- BONE FILTER: only garment verts weighted to the region's bones may bind ----
+            // The bones come straight from Squish Studio's vertex-group picker (mirrored per
+            // region as srcBones), so selecting the region's bones there selects them here.
+            bool[] boneOkG = null;
+            if (settingsRef != null && settingsRef.cageBoneFilter && cfg != null && cfg.regions != null)
+            {
+                HashSet<string> names = new HashSet<string>();
+                for (int ri = 0; ri < cfg.regions.Count; ri++)
+                {
+                    SquishRegion rg = cfg.regions[ri];
+                    if (rg == null || !rg.enabled || rg.srcBones == null) continue;
+                    for (int bi = 0; bi < rg.srcBones.Count; bi++)
+                        if (!string.IsNullOrEmpty(rg.srcBones[bi])) names.Add(rg.srcBones[bi]);
+                }
+                if (names.Count > 0 && r.sharedMesh != null && r.bones != null)
+                {
+                    Transform[] gb = r.bones;
+                    bool[] pick = new bool[gb.Length];
+                    for (int b0 = 0; b0 < gb.Length; b0++)
+                    {
+                        Transform t0 = gb[b0];
+                        if (t0 == null) continue;
+                        if (names.Contains(t0.name)) { pick[b0] = true; continue; }
+                        for (Transform pp = t0.parent; pp != null; pp = pp.parent)   // children of picked bones count too
+                            if (names.Contains(pp.name)) { pick[b0] = true; break; }
+                    }
+                    BoneWeight[] gw = r.sharedMesh.boneWeights;
+                    if (gw != null && gw.Length == pts.Length)
+                    {
+                        boneOkG = new bool[nGlobal];
+                        for (int i = 0; i < gw.Length; i++)
+                        {
+                            BoneWeight w4 = gw[i];
+                            bool ok = (w4.weight0 > 0.05f && w4.boneIndex0 < pick.Length && pick[w4.boneIndex0])
+                                   || (w4.weight1 > 0.05f && w4.boneIndex1 < pick.Length && pick[w4.boneIndex1])
+                                   || (w4.weight2 > 0.05f && w4.boneIndex2 < pick.Length && pick[w4.boneIndex2])
+                                   || (w4.weight3 > 0.05f && w4.boneIndex3 < pick.Length && pick[w4.boneIndex3]);
+                            if (ok) boneOkG[gOfGlobal[i]] = true;   // any member qualifies the group
+                        }
+                    }
+                }
+            }
+
             for (int gg = 0; gg < nGlobal; gg++)
             {
+                if (boneOkG != null && !boneOkG[gg]) continue;
                 Vector3 q = toSrc.MultiplyPoint3x4(pts[gFirst[gg]]);
                 if (q.x < lo.x || q.y < lo.y || q.z < lo.z || q.x > hi.x || q.y > hi.y || q.z > hi.z) continue;
                 Vector3 ns = gNormSum[gg];
@@ -590,13 +642,6 @@ namespace JelloStudio
                 if (!bindGrid.NearestGatedWithin(q, nq, 0.35f, range * 1.25f, out bt, out cp, out bar, out viaGate)) continue;
                 float dist = (q - cp).magnitude;
                 if (dist > range) continue;
-                // PERPENDICULAR/OPPOSITE-FACING EXCLUSION: cloth areas ADJACENT to the region
-                // (waistband continuing down, side panels wrapping away) face across or away
-                // from the surface — the facing gate rejects them and only the ungated
-                // fallback would bind them. Refuse that bind UNLESS the group hugs the
-                // surface (a few mm): ribbons and double-sided shells lying ON the region
-                // keep tracking, everything hanging off it does not.
-                if (!viaGate && nq.sqrMagnitude > 0.5f && dist > 0.006f) continue;
                 float u = Mathf.Clamp01((dist - range * 0.5f) / (range * 0.5f));
                 float fall = 1f - u * u * (3f - 2f * u);   // 1 inside half-range, smooth to 0 at range
                 localOf[gg] = rep.Count;
@@ -627,13 +672,37 @@ namespace JelloStudio
                     if (gb != gc && !adjG[gb].Contains(gc)) { adjG[gb].Add(gc); adjG[gc].Add(gb); }
                     if (ga != gc && !adjG[ga].Contains(gc)) { adjG[ga].Add(gc); adjG[gc].Add(ga); }
                 }
+                int fillMax = settingsRef != null ? Mathf.Max(0, Mathf.RoundToInt(settingsRef.cageFillMax)) : 600;
+                int anchorMin = settingsRef != null ? Mathf.Max(1, Mathf.RoundToInt(settingsRef.cageAnchorMin)) : 150;
+
+                // size the BOUND areas first: only components at least `anchorMin` big count
+                // as anchors — a stray bound speck can't legitimise filling around itself
+                int[] drvComp = new int[nGlobal];
+                for (int i = 0; i < nGlobal; i++) drvComp[i] = -1;
+                List<int> drvSize = new List<int>();
+                List<int> stack = new List<int>();
+                for (int s0 = 0; s0 < nGlobal; s0++)
+                {
+                    if (drvComp[s0] >= 0 || localOf[s0] < 0) continue;
+                    int id = drvSize.Count; drvSize.Add(0);
+                    stack.Clear(); stack.Add(s0); drvComp[s0] = id;
+                    while (stack.Count > 0)
+                    {
+                        int g0 = stack[stack.Count - 1]; stack.RemoveAt(stack.Count - 1);
+                        drvSize[id]++;
+                        List<int> nb = adjG[g0];
+                        for (int j = 0; j < nb.Count; j++)
+                            if (localOf[nb[j]] >= 0 && drvComp[nb[j]] < 0) { drvComp[nb[j]] = id; stack.Add(nb[j]); }
+                    }
+                }
+
                 bool[] seen = new bool[nGlobal];
-                List<int> comp = new List<int>(), stack = new List<int>();
+                List<int> comp = new List<int>();
                 for (int s0 = 0; s0 < nGlobal; s0++)
                 {
                     if (seen[s0] || localOf[s0] >= 0) continue;
                     comp.Clear(); stack.Clear(); stack.Add(s0); seen[s0] = true;
-                    int drivenTouch = 0;
+                    int anchoredTouch = 0;
                     while (stack.Count > 0)
                     {
                         int g0 = stack[stack.Count - 1]; stack.RemoveAt(stack.Count - 1);
@@ -642,12 +711,13 @@ namespace JelloStudio
                         for (int j = 0; j < nb.Count; j++)
                         {
                             int b0 = nb[j];
-                            if (localOf[b0] >= 0) { drivenTouch++; continue; }
+                            if (localOf[b0] >= 0)
+                            { if (drvSize[drvComp[b0]] >= anchorMin) anchoredTouch++; continue; }
                             if (!seen[b0]) { seen[b0] = true; stack.Add(b0); }
                         }
                     }
-                    // small/medium island, meaningfully SURROUNDED by tracked cloth
-                    if (comp.Count <= 600 && drivenTouch >= 6 && drivenTouch * 6 >= comp.Count)
+                    // small/medium island, meaningfully surrounded by LARGE tracked areas
+                    if (fillMax > 0 && comp.Count <= fillMax && anchoredTouch >= 6 && anchoredTouch * 6 >= comp.Count)
                         for (int j = 0; j < comp.Count; j++)
                         {
                             localOf[comp[j]] = rep.Count;
