@@ -219,6 +219,9 @@ namespace JelloStudio
         void Rebind()
         {
             DetachAll();
+            // the remeshed cage is no longer optional — the direct-mesh path survives only as
+            // an internal fallback for when a cage genuinely cannot be built
+            if (config.settings != null) config.settings.useRemesh = 1f;
             MeshProxy.settingsRef = config.settings;
             MeshProxy.configRef = config;
             needHiddenApply = true;
@@ -467,10 +470,10 @@ namespace JelloStudio
             HookSlider("groupthr", 0.01f, 1f, v => groupThreshold = v);
             HookRegionSlider("jiggle", 0f, 2f, (r, v) => r.jiggle = v, r => r.jiggle);
             HookRegionSlider("stiffness", 0.5f, 30f, (r, v) => r.stiffness = v, r => r.stiffness);
-            HookRegionSlider("damping", 0f, 1f, (r, v) => r.damping = v, r => r.damping);
+            HookRegionSlider("damping", 0f, 0.5f, (r, v) => r.damping = v, r => r.damping);
             HookRegionSlider("bounce", 0f, 2f, (r, v) => r.bounce = v, r => r.bounce);
             HookRegionSlider("maxoff", 0.005f, 0.25f, (r, v) => r.maxOffset = v, r => r.maxOffset);
-            HookRegionSlider("gravity", 0f, 2f, (r, v) => r.gravity = v, r => r.gravity);
+            HookRegionSlider("gravity", 0f, 1f, (r, v) => r.gravity = v, r => r.gravity);
             HookRegionSlider("cloth", 0f, 1f, (r, v) => r.clothRipple = v, r => r.clothRipple);
             HookRegionSlider("clothsize", 0f, 1f, (r, v) => r.clothSize = v, r => r.clothSize);
             HookRegionSlider("jello", 0f, 1f, (r, v) => r.jello = v, r => r.jello);
@@ -487,13 +490,13 @@ namespace JelloStudio
             HookRegionSlider("turbsize", 0f, 1f, (r, v) => r.turbSize = v, r => r.turbSize);
             HookRegionSlider("cellulite", 0f, 1f, (r, v) => r.cellulite = v, r => r.cellulite);
             HookRegionSlider("cellsize", 0f, 1f, (r, v) => r.celluliteSize = v, r => r.celluliteSize);
-            HookRegionSlider("iter", 1f, 30f, (r, v) => r.xIter = v, r => r.xIter);
+            HookRegionSlider("iter", 1f, 10f, (r, v) => r.xIter = v, r => r.xIter);
             HookRegionSlider("stretchk", 0f, 1f, (r, v) => r.xStretch = v, r => r.xStretch);
             HookRegionSlider("attach", 0f, 1f, (r, v) => r.xAttach = v, r => r.xAttach);
-            HookRegionSlider("maxstretch", 0.001f, 0.2f, 2f, (r, v) => r.xMaxStretch = v, r => r.xMaxStretch);
-            HookRegionSlider("pressure", 0f, 5f, (r, v) => r.xPressure = v, r => r.xPressure);
-            HookRegionSlider("gridmin", 0.0002f, 1f, (r, v) => { r.xGridMin = v; r.xGridAuto = 0f; SyncGridAutoToggle(); solverDirtyT = 0.6f; }, r => r.xGridMin);
-            HookRegionSlider("gridmax", 0.0002f, 1f, (r, v) => { r.xGridMax = v; r.xGridAuto = 0f; SyncGridAutoToggle(); solverDirtyT = 0.6f; }, r => r.xGridMax);
+            HookRegionSlider("maxstretch", 0.001f, 0.05f, 2f, (r, v) => r.xMaxStretch = v, r => r.xMaxStretch);
+            HookRegionSlider("pressure", 0f, 1.5f, (r, v) => r.xPressure = v, r => r.xPressure);
+            HookRegionSlider("gridmin", 0.002f, 0.15f, (r, v) => { r.xGridMin = v; r.xGridAuto = 0f; SyncGridAutoToggle(); solverDirtyT = 0.6f; }, r => r.xGridMin);
+            HookRegionSlider("gridmax", 0.002f, 0.15f, (r, v) => { r.xGridMax = v; r.xGridAuto = 0f; SyncGridAutoToggle(); solverDirtyT = 0.6f; }, r => r.xGridMax);
             gridAutoToggle = FindControl<Toggle>("Toggle_gridauto");
             if (gridAutoToggle != null) gridAutoToggle.onValueChanged.AddListener(v =>
             {
@@ -501,25 +504,25 @@ namespace JelloStudio
                 selRegion.xGridAuto = v ? 1f : 0f;
                 if (v) solverDirtyT = 0.1f;   // rebuild measures the mesh and syncs the sliders
             });
-            HookRegionSlider("blend", 0.001f, 0.2f, (r, v) => { r.xSigma = v; solverDirtyT = 0.6f; }, r => r.xSigma);
-            HookRegionSlider("corrclamp", 0.0005f, 0.1f, (r, v) => r.xCorr = v, r => r.xCorr);
+            HookRegionSlider("blend", 0.0005f, 0.03f, (r, v) => { r.xSigma = v; solverDirtyT = 0.6f; }, r => r.xSigma);
+            HookRegionSlider("corrclamp", 0.0005f, 0.08f, (r, v) => r.xCorr = v, r => r.xCorr);
             HookRegionSlider("colrelax", 0.05f, 1f, (r, v) => r.xColRelax = v, r => r.xColRelax);
-            HookRegionSlider("compress", 0f, 1f, (r, v) => r.xCompress = v, r => r.xCompress);
-            HookRegionSlider("bendmul", 0f, 2f, (r, v) => r.xBend = v, r => r.xBend);
-            HookRegionSlider("tension", 0f, 1f, (r, v) => r.xTension = v, r => r.xTension);
-            HookRegionSlider("smoothp", 0f, 100f, (r, v) => r.xSmoothPasses = v, r => r.xSmoothPasses);
+            HookRegionSlider("compress", 0f, 0.5f, (r, v) => r.xCompress = v, r => r.xCompress);
+            HookRegionSlider("bendmul", 0f, 1f, (r, v) => r.xBend = v, r => r.xBend);
+            HookRegionSlider("tension", 0f, 0.5f, (r, v) => r.xTension = v, r => r.xTension);
+            HookRegionSlider("smoothp", 0f, 20f, (r, v) => r.xSmoothPasses = v, r => r.xSmoothPasses);
             HookSlider("remeshsize", 0.002f, 0.05f, v => { if (config.settings == null) return; config.settings.remeshSize = v; if (config.settings.useRemesh > 0.5f) solverDirtyT = 0.8f; });
-            HookSlider("remeshpasses", 1f, 10f, v => { if (config.settings == null) return; config.settings.remeshPasses = v; if (config.settings.useRemesh > 0.5f) solverDirtyT = 0.8f; });
-            HookSlider("projavg", 0f, 200f, v => { if (config.settings != null) config.settings.projAvg = v; });
-            HookSlider("proxysmooth", 0f, 200f, v => { if (config.settings != null) config.settings.proxySmooth = v; });
-            HookSlider("seamlevel", 0f, 100f, v => { if (config.settings != null) config.settings.seamLevel = v; });
-            HookSlider("seamrange", 0f, 0.2f, v => { if (config.settings != null) config.settings.seamRange = v; });
-            HookSlider("seammax", 0f, 0.2f, v => { if (config.settings != null) config.settings.seamMaxStretch = v; });
-            HookSlider("boost", 0f, 5f, v => { if (config.settings != null) config.settings.boostStrength = v; });
+            HookSlider("remeshpasses", 1f, 4f, v => { if (config.settings == null) return; config.settings.remeshPasses = v; if (config.settings.useRemesh > 0.5f) solverDirtyT = 0.8f; });
+            HookSlider("projavg", 0f, 30f, v => { if (config.settings != null) config.settings.projAvg = v; });
+            HookSlider("proxysmooth", 0f, 60f, v => { if (config.settings != null) config.settings.proxySmooth = v; });
+            HookSlider("seamlevel", 0f, 40f, v => { if (config.settings != null) config.settings.seamLevel = v; });
+            HookSlider("seamrange", 0f, 0.08f, v => { if (config.settings != null) config.settings.seamRange = v; });
+            HookSlider("seammax", 0f, 0.05f, v => { if (config.settings != null) config.settings.seamMaxStretch = v; });
+            HookSlider("boost", 0f, 2f, v => { if (config.settings != null) config.settings.boostStrength = v; });
             HookSlider("boostspread", 0f, 60f, v => { if (config.settings != null) config.settings.boostSpread = v; });
-            HookSlider("boostmax", 0.001f, 0.2f, v => { if (config.settings != null) config.settings.boostMax = v; });
-            HookSlider("slapsens", 0f, 3f, v => { if (config.settings != null) config.settings.slapSens = v; });
-            HookSlider("slappower", 0f, 3f, v => { if (config.settings != null) config.settings.slapPower = v; });
+            HookSlider("boostmax", 0.001f, 0.05f, v => { if (config.settings != null) config.settings.boostMax = v; });
+            HookSlider("slapsens", 0f, 2f, v => { if (config.settings != null) config.settings.slapSens = v; });
+            HookSlider("slappower", 0f, 2f, v => { if (config.settings != null) config.settings.slapPower = v; });
             remeshToggle = FindControl<Toggle>("Toggle_remesh");
             if (remeshToggle != null) remeshToggle.onValueChanged.AddListener(v =>
             {
@@ -539,7 +542,7 @@ namespace JelloStudio
                         : "needs the remesh cage — turn on 'Sim on remeshed proxy' too")
                     : "cage followers off — other meshes released");
             });
-            HookSlider("cagefollow", 0.005f, 0.15f, v => { if (config.settings != null) config.settings.cageFollowRange = v; });
+            HookSlider("cagefollow", 0.005f, 0.08f, v => { if (config.settings != null) config.settings.cageFollowRange = v; });
             Toggle cw = FindControl<Toggle>("Toggle_cagewhole");
             if (cw != null)
             {
@@ -567,9 +570,9 @@ namespace JelloStudio
             HookSlider("cageminclear", 0f, 0.02f, v => { if (config.settings != null) config.settings.cageMinClear = v; });
             HookSlider("cagefolsharp", 0f, 1f, v => { if (config.settings != null) config.settings.cageFolSharp = v; });
             HookSlider("cagefolsm", 0f, 40f, v => { if (config.settings != null) config.settings.cageFolSmooth = v; });
-            HookSlider("cagefit", 0f, 2f, v => { if (config.settings != null) config.settings.cageFitStrength = v; });
-            HookSlider("cageinflate", 0f, 0.05f, v => { if (config.settings != null) config.settings.cageInflate = v; });
-            HookSlider("cageinflatedyn", 0f, 2f, v => { if (config.settings != null) config.settings.cageInflateDyn = v; });
+            HookSlider("cagefit", 0.25f, 1.5f, v => { if (config.settings != null) config.settings.cageFitStrength = v; });
+            HookSlider("cageinflate", 0f, 0.02f, v => { if (config.settings != null) config.settings.cageInflate = v; });
+            HookSlider("cageinflatedyn", 0f, 1f, v => { if (config.settings != null) config.settings.cageInflateDyn = v; });
             WireButton("Button_ShowRemesh", () =>
             {
                 bool any = false;
