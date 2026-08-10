@@ -1085,11 +1085,20 @@ namespace JelloStudio
                         cagePrev = new Vector3[cage.simDisp.Length];
                         cageHeldValid = false;
                     }
-                    // followers ride the UNBLURRED field, with their own light smoothing pass
-                    // count so cloth keeps its amplitude while the body stays smooth
-                    Vector3[] folSrc = cageRaw != null && cageRaw.Length == cage.simDisp.Length ? cageRaw : cage.simDisp;
-                    int folSm = settingsRef != null ? Mathf.Clamp(Mathf.RoundToInt(settingsRef.cageFolSmooth), 0, 60) : 4;
-                    if (folSm > 0 && folSrc == cageRaw) cage.SmoothArray(cageRaw, folSm);
+                    // Cloth field = the body's own (smoothed) field blended toward the raw
+                    // one. Raw carries the full contact amplitude but also its sharp local
+                    // spikes: replayed per weld-group on a garment those spikes SHRED it, so
+                    // the default is the body's field exactly and sharpness is opt-in.
+                    Vector3[] folSrc = cage.simDisp;
+                    float sharp = settingsRef != null ? Mathf.Clamp01(settingsRef.cageFolSharp) : 0f;
+                    if (sharp > 0.001f && cageRaw != null && cageRaw.Length == cage.simDisp.Length)
+                    {
+                        int folSm = settingsRef != null ? Mathf.Clamp(Mathf.RoundToInt(settingsRef.cageFolSmooth), 0, 60) : 4;
+                        if (folSm > 0) cage.SmoothArray(cageRaw, folSm);
+                        for (int ci = 0; ci < cageRaw.Length; ci++)
+                            cageRaw[ci] = Vector3.Lerp(cage.simDisp[ci], cageRaw[ci], sharp);
+                        folSrc = cageRaw;
+                    }
                     if (halfRateLerp && cageHeldValid)
                     {
                         System.Array.Copy(cageHeld, cagePrev, cageHeld.Length);

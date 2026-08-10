@@ -550,6 +550,7 @@ namespace JelloStudio
                                 : "clothes bind to the region cage again (re-binding…)");
                 });
             }
+            HookSlider("cagefolsharp", 0f, 1f, v => { if (config.settings != null) config.settings.cageFolSharp = v; });
             HookSlider("cagefolsm", 0f, 40f, v => { if (config.settings != null) config.settings.cageFolSmooth = v; });
             HookSlider("cagefit", 0f, 2f, v => { if (config.settings != null) config.settings.cageFitStrength = v; });
             HookSlider("cageinflate", 0f, 0.05f, v => { if (config.settings != null) config.settings.cageInflate = v; });
@@ -928,6 +929,8 @@ namespace JelloStudio
             Slider rsz;
             if (config.settings != null && sliders.TryGetValue("cagefollow", out rsz) && rsz != null)
             { rsz.value = config.settings.cageFollowRange; SetValueLabel("cagefollow", rsz.value); }
+            if (config.settings != null && sliders.TryGetValue("cagefolsharp", out rsz) && rsz != null)
+            { rsz.value = config.settings.cageFolSharp; SetValueLabel("cagefolsharp", rsz.value); }
             if (config.settings != null && sliders.TryGetValue("cagefolsm", out rsz) && rsz != null)
             { rsz.value = config.settings.cageFolSmooth; SetValueLabel("cagefolsm", rsz.value); }
             if (config.settings != null && sliders.TryGetValue("cagefit", out rsz) && rsz != null)

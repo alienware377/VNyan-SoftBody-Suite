@@ -70,7 +70,9 @@ namespace SquishStudio
         public static SquishSettings settingsRef;   // plugin-global settings (clip guard options)
         public static SquishConfig configRef;
         GameObject avatarRef;
-        Vector3[] clipPush, clipPrev;               // per-frame correction (+ last frame, rate limit)
+        Vector3[] clipPush, clipPrev, clipTmp;      // per-frame correction (+ last frame, rate limit)
+        float[] clipNear;                           // nearest bound garment distance per vert
+        int[][] clipAdj;                            // weld-group adjacency (correction smoothing)
 
         public bool Alive { get { return smr != null && go != null; } }
         public int VertexCount { get { return bakedVerts != null ? bakedVerts.Length : 0; } }
@@ -1251,6 +1253,24 @@ namespace SquishStudio
         Bounds paintBoundsWorld;
         float[] clipPaint;      // max paint weight per body vert (weld-aware)
 
+        void EnsureClipAdj()
+        {
+            if (clipAdj != null || display == null || weldMembers == null) return;
+            int g = weldMembers.Length;
+            List<int>[] adj = new List<int>[g];
+            for (int i = 0; i < g; i++) adj[i] = new List<int>(6);
+            int[] tris = display.triangles;
+            for (int t = 0; t + 2 < tris.Length; t += 3)
+            {
+                int a = weldOf[tris[t]], b = weldOf[tris[t + 1]], c = weldOf[tris[t + 2]];
+                if (a != b && !adj[a].Contains(b)) { adj[a].Add(b); adj[b].Add(a); }
+                if (b != c && !adj[b].Contains(c)) { adj[b].Add(c); adj[c].Add(b); }
+                if (a != c && !adj[a].Contains(c)) { adj[a].Add(c); adj[c].Add(a); }
+            }
+            clipAdj = new int[g][];
+            for (int i = 0; i < g; i++) clipAdj[i] = adj[i].ToArray();
+        }
+
         // union paint weight per body vert, taken as the MAX over each weld group so seam
         // duplicates can't leave a group unprotected; plus a world AABB of the painted flesh
         void BuildClipPaint(float range)
@@ -1299,7 +1319,10 @@ namespace SquishStudio
                 SkinnedMeshRenderer r = rends[i];
                 if (r == null || r == smr || r.sharedMesh == null) continue;
                 if (!r.gameObject.activeInHierarchy) continue;
-                if (!r.enabled && !r.forceRenderingOff) continue;   // genuinely hidden outfit piece
+                // A disabled renderer is an outfit variant the user is NOT wearing. Guarding
+                // against invisible alternates makes contradictory constraints (two skirts in
+                // different places both "containing" the same flesh) and shreds the body.
+                if (!r.enabled) continue;
                 bool isBody = false;
                 if (configRef != null && configRef.meshes != null)
                     for (int m = 0; m < configRef.meshes.Count; m++)
@@ -1489,7 +1512,11 @@ namespace SquishStudio
             else System.Array.Clear(clipPush, 0, clipPush.Length);
             if (clipPrev == null || clipPrev.Length != clipPush.Length) clipPrev = new Vector3[clipPush.Length];
             bool any = false;
-            float maxCorr = Mathf.Max(0.005f, range);   // never teleport a vertex
+            // a correction is a nudge, never a teleport: a few mm past the rest fit is all a
+            // guard should ever need, and a large cap turns one bad binding into a spike
+            float maxCorr = Mathf.Clamp(clear + 0.008f, 0.002f, 0.02f);
+            if (clipNear == null || clipNear.Length != bakedVerts.Length) clipNear = new float[bakedVerts.Length];
+            for (int i = 0; i < clipNear.Length; i++) clipNear[i] = float.MaxValue;
 
             for (int ti = clipTargets.Count - 1; ti >= 0; ti--)
             {
@@ -1523,9 +1550,35 @@ namespace SquishStudio
                     // CLAMP rather than abandon: an absolute give-up test switched the guard
                     // off exactly when penetration was deepest, which popped
                     if (depth > maxCorr) depth = maxCorr;
-                    Vector3 push = N * (-depth * t.bW[k] * strength);
-                    if (push.sqrMagnitude > clipPush[vi].sqrMagnitude) clipPush[vi] = push;   // deepest garment wins
+                    // the NEAREST garment governs this vertex. "Deepest push wins" let a
+                    // far-away layer override the one actually against the skin.
+                    float near = Mathf.Abs(t.bRest[k]);
+                    if (near >= clipNear[vi]) continue;
+                    clipNear[vi] = near;
+                    clipPush[vi] = N * (-depth * t.bW[k] * strength);
                     any = true;
+                }
+            }
+            // smooth the correction field over the surface: independent per-vertex pushes
+            // read as pitting/spikes on a dense mesh
+            EnsureClipAdj();
+            if (clipAdj != null)
+            {
+                if (clipTmp == null || clipTmp.Length != clipPush.Length) clipTmp = new Vector3[clipPush.Length];
+                for (int pass = 0; pass < 2; pass++)
+                {
+                    for (int g = 0; g < clipAdj.Length; g++)
+                    {
+                        int rep = weldMembers[g][0];
+                        int[] nb = clipAdj[g];
+                        if (nb.Length < 2) { clipTmp[rep] = clipPush[rep]; continue; }
+                        Vector3 avg = Vector3.zero;
+                        for (int j = 0; j < nb.Length; j++) avg += clipPush[weldMembers[nb[j]][0]];
+                        avg /= nb.Length;
+                        clipTmp[rep] = Vector3.Lerp(clipPush[rep], avg, 0.5f);
+                    }
+                    for (int g = 0; g < clipAdj.Length; g++)
+                    { int rep = weldMembers[g][0]; clipPush[rep] = clipTmp[rep]; }
                 }
             }
             // rate limit: ease each correction toward its target instead of snapping, so a
