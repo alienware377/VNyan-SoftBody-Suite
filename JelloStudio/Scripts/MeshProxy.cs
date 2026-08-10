@@ -63,6 +63,7 @@ namespace JelloStudio
             public int[] gA, gB, gC;            // bound tri verts: CAGE indices, or SOURCE RENDER indices (whole)
             public float[] gwA, gwB, gwC, gFall;
             public Vector3[] gOff;              // rest offset in the bound tri's local frame (WRAP bind)
+            public Vector3[] gOffRest;          // ...and as a plain vector, for long-lever damping
             public int[][] gAdj;                // adjacency among driven groups
             public float[] gSeam;               // metric distance to the driven-area boundary
             public int[] gBand;                 // groups sorted by gSeam (active band = prefix)
@@ -748,6 +749,7 @@ namespace JelloStudio
             // skinned body, SAME frame, sim removed). Per frame the group rides the tri
             // absolutely, so sim, blendshapes and skinning divergence are all tracked 1:1.
             f.gOff = new Vector3[G];
+            f.gOffRest = new Vector3[G];
             Vector3[] refN = whole ? bakedNormals : cage.simNormals;
             for (int g2 = 0; g2 < G; g2++)
             {
@@ -762,6 +764,7 @@ namespace JelloStudio
                 // is applied per frame, so offsets stay consistent.
                 if (Vector3.Dot(n3, refN[f.gA[g2]] + refN[f.gB[g2]] + refN[f.gC[g2]]) < 0f) { n3 = -n3; e2 = -e2; }
                 Vector3 d3 = q2 - cpB;
+                f.gOffRest[g2] = d3;
                 f.gOff[g2] = new Vector3(Vector3.Dot(d3, e1), Vector3.Dot(d3, e2), Vector3.Dot(d3, n3));
             }
 
@@ -868,6 +871,11 @@ namespace JelloStudio
                 float inf = settingsRef != null ? Mathf.Clamp(settingsRef.cageInflate, 0f, 0.1f) : 0f;
                 float dyn = settingsRef != null ? Mathf.Clamp(settingsRef.cageInflateDyn, 0f, 3f) : 0f;
                 int G = f.gRep.Length;
+                float fieldMax = 0f;
+                if (cageOut != null)
+                    for (int ci = 0; ci < cageOut.Length; ci++)
+                    { float m2 = cageOut[ci].sqrMagnitude; if (m2 > fieldMax) fieldMax = m2; }
+                float folMaxMove = Mathf.Max(0.02f, Mathf.Sqrt(fieldMax) * 2.5f);
                 Vector3[] cb = f.whole ? bakedVerts : cage.simBaked;
                 for (int g2 = 0; g2 < G; g2++)
                 {
@@ -894,7 +902,17 @@ namespace JelloStudio
                     if (Vector3.Dot(n2, nrf) < 0f) { n2 = -n2; e2 = -e2; }
                     Vector3 cp2 = A2 * f.gwA[g2] + B2 * f.gwB[g2] + C2 * f.gwC[g2];
                     Vector3 off = f.gOff[g2];
-                    Vector3 wrapSrc = cp2 + e1 * off.x + e2 * off.y + n2 * off.z;
+                    // A wrap re-orients the stored offset by the bound triangle's frame.
+                    // That is exact for cloth ON the surface, but for a vert bound far
+                    // away the offset is a long lever: a degree of triangle wobble becomes
+                    // centimetres of motion, and a frame flip becomes a spike. So rotate
+                    // the offset only for close cloth and fade to pure translation as the
+                    // rest distance grows.
+                    Vector3 rotated = e1 * off.x + e2 * off.y + n2 * off.z;
+                    float offLen = f.gOffRest[g2].magnitude;
+                    float wRot = 1f - Mathf.Clamp01((offLen - 0.02f) / 0.06f);
+                    wRot = wRot * wRot * (3f - 2f * wRot);
+                    Vector3 wrapSrc = cp2 + Vector3.Lerp(f.gOffRest[g2], rotated, wRot);
                     Vector3 dlRaw = M.MultiplyPoint3x4(wrapSrc) - f.verts[f.gRep[g2]];
                     Vector3 nl = M.MultiplyVector(n2).normalized;
 
@@ -925,6 +943,8 @@ namespace JelloStudio
                         float add = inf * Mathf.Max(f.gFall[g2], wClip);
                         dl += nl * add; prot += add;
                     }
+                    float dlM = dl.magnitude;
+                    if (dlM > folMaxMove) { dl *= folMaxMove / dlM; prot = Mathf.Min(prot, folMaxMove); }
                     f.gNrm[g2] = nl; f.gProt[g2] = prot; f.gDnRaw[g2] = dn;
                     f.gDisp[g2] = dl;
                 }
@@ -1005,6 +1025,23 @@ namespace JelloStudio
                     if (pSlope > 0f) prot = Mathf.Min(prot, f.gSeam[g2] * pSlope);
                     float dn2 = Vector3.Dot(f.gDisp[g2], f.gNrm[g2]);
                     if (dn2 < prot) f.gDisp[g2] += f.gNrm[g2] * (prot - dn2);
+                }
+
+                // CLOTH FIELD SMOOTHING: diffuse the finished per-group motion over the
+                // garment itself. This used to be gated behind 'sharpness', so at the
+                // default the slider did nothing at all.
+                int clothSm = settingsRef != null ? Mathf.Clamp(Mathf.RoundToInt(settingsRef.cageFolSmooth), 0, 60) : 0;
+                for (int pass = 0; pass < clothSm; pass++)
+                {
+                    for (int g2 = 0; g2 < G; g2++)
+                    {
+                        int[] nb = f.gAdj[g2];
+                        if (nb.Length < 2) { f.gDisp2[g2] = f.gDisp[g2]; continue; }
+                        Vector3 avg = Vector3.zero;
+                        for (int j = 0; j < nb.Length; j++) avg += f.gDisp[nb[j]];
+                        f.gDisp2[g2] = Vector3.Lerp(f.gDisp[g2], avg / nb.Length, 0.5f);
+                    }
+                    for (int g2 = 0; g2 < G; g2++) f.gDisp[g2] = f.gDisp2[g2];
                 }
 
                 // valley-gap infill: unbound islands between tracked cloth inherit motion by
