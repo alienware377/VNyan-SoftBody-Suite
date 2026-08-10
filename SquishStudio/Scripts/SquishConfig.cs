@@ -64,6 +64,10 @@ namespace SquishStudio
         public List<int> vertIndex = new List<int>();
         public List<float> weight = new List<float>();
 
+        // bones this region was selected from (the vertex-group picker / bone-based apply).
+        // Consumers (Jello's cloth tracking) use it to filter garment verts to the same bones.
+        public List<string> srcBones = new List<string>();
+
         // ----- motion -----
         public float jiggle = 1.0f;       // overall amplitude multiplier (0 = rigid)
         public float stiffness = 8.0f;    // spring back to the skinned pose (higher = tighter)

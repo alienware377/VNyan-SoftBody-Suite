@@ -1018,6 +1018,7 @@ namespace SquishStudio
             if (selProxy == null || selRegion == null || groupSel.Count == 0) { SetStatus("tick at least one group"); return; }
             PushUndo(selRegion);
             lastGroupPick = new List<string>(groupSel);
+            selRegion.srcBones = new List<string>(lastGroupPick);   // consumers filter cloth by these
             MeshProxy.SelectFromBonesOn(selProxy.smr, selRegion, lastGroupPick, groupThreshold, groupChildren);
             AfterWeightEdit(selRegion);
             Destroy(groupPanel); groupPanel = null;
@@ -1477,6 +1478,9 @@ namespace SquishStudio
                     CopyRegionParams(src, reg);
                     reg.vertIndex = trial.vertIndex;
                     reg.weight = trial.weight;
+                    reg.srcBones = applyMethod == 0 ? new List<string>(lastGroupPick)
+                                 : applyMethod == 2 ? new List<string>(bonesPer[s])
+                                 : new List<string>(src.srcBones);
                     meshTotal += reg.vertIndex.Count;
                 }
                 if (meshTotal > 0 && sm != null) { sm.enabled = true; anyApplied = true; }
