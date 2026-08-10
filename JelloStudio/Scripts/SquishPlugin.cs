@@ -515,7 +515,7 @@ namespace JelloStudio
             HookRegionSlider("tension", 0f, 0.5f, (r, v) => r.xTension = v, r => r.xTension);
             HookRegionSlider("smoothp", 0f, 20f, (r, v) => r.xSmoothPasses = v, r => r.xSmoothPasses);
             HookSlider("remeshsize", 0.002f, 0.15f, v => { if (config.settings == null) return; config.settings.remeshSize = v; if (config.settings.useRemesh > 0.5f) solverDirtyT = 0.8f; });
-            HookSlider("remeshpasses", 1f, 10f, v => { if (config.settings == null) return; config.settings.remeshPasses = v; if (config.settings.useRemesh > 0.5f) solverDirtyT = 0.8f; });
+            HookSlider("remeshpasses", 5f, 20f, v => { if (config.settings == null) return; config.settings.remeshPasses = v; if (config.settings.useRemesh > 0.5f) solverDirtyT = 0.8f; });
             HookSlider("projavg", 0f, 30f, v => { if (config.settings != null) config.settings.projAvg = v; });
             HookSlider("proxysmooth", 0f, 60f, v => { if (config.settings != null) config.settings.proxySmooth = v; });
             HookSlider("seamlevel", 0f, 40f, v => { if (config.settings != null) config.settings.seamLevel = v; });
