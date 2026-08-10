@@ -41,6 +41,9 @@ namespace JelloStudio
                                               // the motion — cloth leads the body out, never digs in
         public bool cageBindWhole = false;    // bind clothes to the WHOLE body surface (not just the
                                               // painted-region cage) and ride Jello's FULL output
+        public bool cageClothOutside = true;  // driven clothes may never come nearer to the skin
+                                              // than `cageMinClear` — applied to the CLOTH only
+        public float cageMinClear = 0.002f;   // minimum garment-to-skin gap (m)
         public float cageFolSharp = 0f;       // 0 = clothes ride exactly the body's smoothed field
                                               // (safe); 1 = the raw, full-amplitude field
         public float cageFolSmooth = 4f;      // smoothing passes on the CLOTH's copy of the field

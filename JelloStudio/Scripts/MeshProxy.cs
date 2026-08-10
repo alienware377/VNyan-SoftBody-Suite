@@ -69,6 +69,7 @@ namespace JelloStudio
             public Vector3[] gDisp, gDisp2;     // per-frame scratch
             public Vector3[] gNrm;              // per-frame bound-tri normal (anti-clip enforcement)
             public float[] gProt;               // per-frame protected outward component (anti-clip floor)
+            public float[] gDnRaw;              // full-wrap normal component (clearance reference)
         }
         readonly List<Follower> followers = new List<Follower>();
         readonly List<SkinnedMeshRenderer> folQueue = new List<SkinnedMeshRenderer>();  // bind 1/frame
@@ -606,7 +607,7 @@ namespace JelloStudio
             f.gwA = WA.ToArray(); f.gwB = WB.ToArray(); f.gwC = WC.ToArray(); f.gFall = FF.ToArray();
             f.verts = new Vector3[pts.Length];
             f.gDisp = new Vector3[G]; f.gDisp2 = new Vector3[G];
-            f.gNrm = new Vector3[G]; f.gProt = new float[G];
+            f.gNrm = new Vector3[G]; f.gProt = new float[G]; f.gDnRaw = new float[G];
 
             // WRAP offsets: each group's rest position expressed in its bound tri's local
             // frame, measured on the CLEAN current-pose surface (bindPts: skinned bra vs
@@ -788,7 +789,7 @@ namespace JelloStudio
                         float add = inf * Mathf.Max(f.gFall[g2], wClip);
                         dl += nl * add; prot += add;
                     }
-                    f.gNrm[g2] = nl; f.gProt[g2] = prot;
+                    f.gNrm[g2] = nl; f.gProt[g2] = prot; f.gDnRaw[g2] = dn;
                     f.gDisp[g2] = dl;
                 }
 
@@ -831,6 +832,25 @@ namespace JelloStudio
                                 if (dm > allowed && dm > 1e-9f) f.gDisp[gg] *= allowed / dm;
                             }
                         }
+                    }
+                }
+
+                // ---- CLOTH-SIDE ANTI-CLIP (the body is never touched) ----
+                // Each group knows how far it rested OUTSIDE the body (gOff.z) and what the
+                // full wrap would have done (gDnRaw). A garment may drift closer to the skin
+                // than its rest gap, but never nearer than `minClear` — so the flesh cannot
+                // emerge through it, and the fix is applied entirely to the garment.
+                if (settingsRef != null && settingsRef.cageClothOutside)
+                {
+                    float minClear = Mathf.Clamp(settingsRef.cageMinClear, 0f, 0.05f);
+                    for (int g2 = 0; g2 < G; g2++)
+                    {
+                        float allow = Mathf.Max(0f, Mathf.Abs(f.gOff[g2].z) - minClear);
+                        float need = f.gDnRaw[g2] - allow;
+                        float cur = Vector3.Dot(f.gDisp[g2], f.gNrm[g2]);
+                        if (cur >= need) continue;
+                        float add = Mathf.Min(need - cur, 0.03f);   // never teleport a vert
+                        f.gDisp[g2] += f.gNrm[g2] * add;
                     }
                 }
 
