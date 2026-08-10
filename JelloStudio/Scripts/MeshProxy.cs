@@ -421,7 +421,7 @@ namespace JelloStudio
             bool want = settingsRef != null && settingsRef.cageDrive &&
                         (whole || (cage != null && settingsRef.useRemesh > 0.5f));
             if (!want) { if (folGenActive || followers.Count > 0) DetachFollowers(); return; }
-            float range = Mathf.Clamp(settingsRef.cageFollowRange, 0.005f, 0.3f);
+            float range = Mathf.Clamp(settingsRef.cageFollowRange, 0.005f, 0.5f);
             // cage rebuilt (cage mode) or bind-mode flipped: detach and RETURN — requeueing
             // next frame lets the pending-destroy "_JelloFollow" corpses actually die
             if (folGenActive && (folLastWhole != whole || (!whole && folCage != cage))) { DetachFollowers(); return; }

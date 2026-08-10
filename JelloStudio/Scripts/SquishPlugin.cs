@@ -545,7 +545,7 @@ namespace JelloStudio
                         : "needs the remesh cage — turn on 'Sim on remeshed proxy' too")
                     : "cage followers off — other meshes released");
             });
-            HookSlider("cagefollow", 0.005f, 0.08f, v => { if (config.settings != null) config.settings.cageFollowRange = v; });
+            HookSlider("cagefollow", 0.005f, 0.5f, v => { if (config.settings != null) config.settings.cageFollowRange = v; });
             Toggle cw = FindControl<Toggle>("Toggle_cagewhole");
             if (cw != null)
             {
