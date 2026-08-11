@@ -301,6 +301,149 @@ namespace JelloStudio
             if (show) { window.transform.SetAsLastSibling(); RefreshMeshList(); }
         }
 
+
+        // ---------------- presets + per-avatar auto-load ----------------
+        PresetFile presets;
+        string presetPath;
+        Dropdown presetDropdown;
+        InputField presetNameInput;
+        Toggle presetAutoToggle;
+        string lastAutoKey = "~none~";
+
+        void EnsurePresets()
+        {
+            if (presets != null) return;
+            presetPath = Path.Combine(Application.persistentDataPath, "jellostudio.presets.json");
+            presets = PresetStore.Load(presetPath);
+        }
+
+        List<string> PresetNames()
+        {
+            EnsurePresets();
+            List<string> names = new List<string>(presets.presets.Keys);
+            names.Sort(StringComparer.OrdinalIgnoreCase);
+            return names;
+        }
+
+        void RefreshPresetList()
+        {
+            if (presetDropdown == null) return;
+            List<string> names = PresetNames();
+            if (names.Count == 0) names.Add("(no presets)");
+            suppress = true;
+            presetDropdown.ClearOptions();
+            presetDropdown.AddOptions(names);
+            presetDropdown.value = 0;
+            presetDropdown.RefreshShownValue();
+            if (presetAutoToggle != null) presetAutoToggle.isOn = presets.autoLoad;
+            suppress = false;
+        }
+
+        string SelectedPresetName()
+        {
+            if (presetDropdown == null) return null;
+            List<string> names = PresetNames();
+            int v = presetDropdown.value;
+            return (v >= 0 && v < names.Count) ? names[v] : null;
+        }
+
+        void OnPresetSave()
+        {
+            EnsurePresets();
+            string name = presetNameInput != null ? presetNameInput.text.Trim() : "";
+            if (name.Length == 0) name = SelectedPresetName();
+            if (string.IsNullOrEmpty(name)) { SetStatus("type a preset name first"); return; }
+            presets.presets[name] = PresetStore.Clone(config);
+            PresetStore.Save(presetPath, presets);
+            RefreshPresetList();
+            SetStatus("preset '" + name + "' saved");
+        }
+
+        void ApplyPreset(SquishConfig src, string label)
+        {
+            config = PresetStore.Clone(src);
+            Rebind();
+            RefreshMeshList();
+            PushRegionToUI();
+            SaveConfig();
+            SetStatus("preset '" + label + "' applied");
+        }
+
+        void OnPresetLoad()
+        {
+            EnsurePresets();
+            string name = SelectedPresetName();
+            SquishConfig src;
+            if (string.IsNullOrEmpty(name) || !presets.presets.TryGetValue(name, out src))
+            { SetStatus("no preset selected"); return; }
+            ApplyPreset(src, name);
+        }
+
+        void OnPresetDelete()
+        {
+            EnsurePresets();
+            string name = SelectedPresetName();
+            if (string.IsNullOrEmpty(name) || !presets.presets.ContainsKey(name)) { SetStatus("no preset selected"); return; }
+            presets.presets.Remove(name);
+            for (int i = presets.rules.Count - 1; i >= 0; i--)
+                if (presets.rules[i] != null && presets.rules[i].preset == name) presets.rules.RemoveAt(i);
+            PresetStore.Save(presetPath, presets);
+            RefreshPresetList();
+            SetStatus("preset '" + name + "' deleted");
+        }
+
+        // Bind the selected preset to whatever avatar is loaded right now.
+        void OnPresetBindAvatar()
+        {
+            EnsurePresets();
+            string name = SelectedPresetName();
+            if (string.IsNullOrEmpty(name) || !presets.presets.ContainsKey(name)) { SetStatus("save/select a preset first"); return; }
+            if (boundAvatar == null) { SetStatus("load an avatar first"); return; }
+
+            string fuzzy, exact, how;
+            PresetStore.Identify(boundAvatar, out fuzzy, out exact, out how);
+            PresetRule r = new PresetRule();
+            r.preset = name;
+            if (PresetStore.NameIsUsable(fuzzy)) { r.key = fuzzy; r.fuzzy = true; r.note = "matched by " + how; }
+            else
+            {
+                // nothing deterministic in the name OR the model info: pin to this exact
+                // avatar rather than fuzzy-matching a bare number against every model
+                r.key = exact; r.fuzzy = false; r.note = "this model only (no usable name/model info)";
+            }
+            for (int i = presets.rules.Count - 1; i >= 0; i--)
+                if (presets.rules[i] != null && presets.rules[i].key == r.key && presets.rules[i].fuzzy == r.fuzzy)
+                    presets.rules.RemoveAt(i);
+            presets.rules.Add(r);
+            PresetStore.Save(presetPath, presets);
+            lastAutoKey = exact;   // don't immediately re-apply over what the user has now
+            SetStatus(r.fuzzy
+                ? "'" + name + "' will auto-load for models named like '" + r.key + "'"
+                : "'" + name + "' will auto-load for THIS model only (" + r.note + ")");
+        }
+
+        // Called when the bound avatar changes.
+        void AutoLoadPresetFor(GameObject avatar)
+        {
+            EnsurePresets();
+            if (!presets.autoLoad || avatar == null || presets.rules.Count == 0) return;
+            string fuzzy, exact, how;
+            PresetStore.Identify(avatar, out fuzzy, out exact, out how);
+            if (exact == lastAutoKey) return;             // already handled this avatar
+            lastAutoKey = exact;
+            for (int i = 0; i < presets.rules.Count; i++)
+            {
+                PresetRule r = presets.rules[i];
+                if (!PresetStore.Matches(r, fuzzy, exact)) continue;
+                SquishConfig src;
+                if (!presets.presets.TryGetValue(r.preset, out src)) continue;
+                ApplyPreset(src, r.preset);
+                Debug.Log("[Jello] auto-loaded preset '" + r.preset + "' for '" + exact
+                    + "' (" + (r.fuzzy ? "fuzzy '" + r.key + "' via " + how : "exact pin") + ")");
+                return;
+            }
+        }
+
         void EnsureAvatar()
         {
             GameObject av = null;
@@ -314,6 +457,7 @@ namespace JelloStudio
             if (ReferenceEquals(av, boundAvatar)) return;
             boundAvatar = av;
             boundAnimator = av.GetComponentInChildren<Animator>();
+            AutoLoadPresetFor(av);   // per-model tuning, before anything binds
             Rebind();
             Debug.Log("[Jello] bound to avatar '" + av.name + "'");
         }
@@ -702,6 +846,22 @@ namespace JelloStudio
             HookSlider("cagefit", 0.25f, 1.5f, v => { if (config.settings != null) config.settings.cageFitStrength = v; });
             HookSlider("cageinflate", 0f, 0.02f, v => { if (config.settings != null) config.settings.cageInflate = v; });
             HookSlider("cageinflatedyn", 0f, 1f, v => { if (config.settings != null) config.settings.cageInflateDyn = v; });
+            EnsurePresets();
+            presetDropdown = FindControl<Dropdown>("Dropdown_Preset");
+            if (presetDropdown != null) FixDropdown(presetDropdown);
+            presetNameInput = FindControl<InputField>("Input_presetname");
+            presetAutoToggle = FindControl<Toggle>("Toggle_presetauto");
+            if (presetAutoToggle != null) presetAutoToggle.onValueChanged.AddListener(v =>
+            {
+                if (suppress || presets == null) return;
+                presets.autoLoad = v; PresetStore.Save(presetPath, presets);
+                SetStatus(v ? "presets will auto-load when a model loads" : "preset auto-load off");
+            });
+            WireButton("Button_PresetSave", OnPresetSave);
+            WireButton("Button_PresetLoad", OnPresetLoad);
+            WireButton("Button_PresetBind", OnPresetBindAvatar);
+            WireButton("Button_PresetDelete", OnPresetDelete);
+            RefreshPresetList();
             WireButton("Button_ShowRemesh", () =>
             {
                 bool any = false;

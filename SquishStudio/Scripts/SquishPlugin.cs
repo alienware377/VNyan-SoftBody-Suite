@@ -518,19 +518,18 @@ namespace SquishStudio
                 {
                     if (suppress) return;
                     config.settings.halfRate = v;
-                    if (v) { config.settings.halfRateLerp = false; config.settings.asyncSim = false; suppress = true; if (tHL != null) tHL.isOn = false; if (tAS != null) tAS.isOn = false; suppress = false; }
+                    if (v && config.settings.halfRateLerp) { config.settings.halfRateLerp = false; suppress = true; if (tHL != null) tHL.isOn = false; suppress = false; }
                 });
                 if (tHL != null) tHL.onValueChanged.AddListener(v =>
                 {
                     if (suppress) return;
                     config.settings.halfRateLerp = v;
-                    if (v) { config.settings.halfRate = false; config.settings.asyncSim = false; suppress = true; if (tHR != null) tHR.isOn = false; if (tAS != null) tAS.isOn = false; suppress = false; }
+                    if (v && config.settings.halfRate) { config.settings.halfRate = false; suppress = true; if (tHR != null) tHR.isOn = false; suppress = false; }
                 });
                 if (tAS != null) tAS.onValueChanged.AddListener(v =>
                 {
                     if (suppress) return;
                     config.settings.asyncSim = v;
-                    if (v) { config.settings.halfRate = false; config.settings.halfRateLerp = false; suppress = true; if (tHR != null) tHR.isOn = false; if (tHL != null) tHL.isOn = false; suppress = false; }
                 });
                 suppress = true;
                 if (tHR != null) tHR.isOn = config.settings.halfRate;

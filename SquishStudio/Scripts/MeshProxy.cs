@@ -761,14 +761,27 @@ namespace SquishStudio
 
             frameFlip = !frameFlip;
             bool useAsync = asyncSim && !debugDraw && !asyncBroken && simEnabled;
-            bool hrAny = !useAsync && (halfRate || halfRateLerp);
+            bool hrAny = halfRate || halfRateLerp;
+            // ASYNC AND HALF-RATE ARE ORTHOGONAL: async decides WHERE the physics runs,
+            // half-rate decides HOW OFTEN. Combined, the worker is only kicked on compute
+            // frames (half the jobs) and the newest finished result is shown meanwhile.
+            bool computeFrame = !hrAny || frameFlip;
             if (useAsync)
             {
-                // ASYNC: show LAST frame's worker result (1 frame of physics latency),
-                // capture this frame's inputs, kick the next job. Worker was joined at
-                // Frame() start, so clouds and sim arrays are safe to touch here.
+                // show the freshest worker result (1 frame of physics latency); with lerp
+                // on, ease toward it instead of snapping when a new one lands
                 if (asyncOut != null && asyncOut.Length == disp.Length)
-                    System.Array.Copy(asyncOut, disp, disp.Length);
+                {
+                    if (halfRateLerp)
+                    {
+                        if (heldDisp == null || heldDisp.Length != disp.Length) heldDisp = new Vector3[disp.Length];
+                        for (int li = 0; li < disp.Length; li++)
+                            heldDisp[li] = Vector3.Lerp(heldDisp[li], asyncOut[li], 0.5f);
+                        System.Array.Copy(heldDisp, disp, disp.Length);
+                    }
+                    else System.Array.Copy(asyncOut, disp, disp.Length);
+                }
+                if (!computeFrame) goto asyncDone;   // held frame: nothing new to kick
                 UpdateColliderClouds();
                 Vector3 aDown = go.transform.InverseTransformDirection(worldDown);
                 if (asyncBaked == null || asyncBaked.Length != bakedVerts.Length)
@@ -783,10 +796,12 @@ namespace SquishStudio
                     sim.CaptureFrameInputs(go.transform);
                     asyncAwake[r] = sim.cfg.enabled && sim.CheckAwake(bakedVerts, go.transform, SimsAsList(), dt);
                 }
-                asyncPdt = dt; asyncLocalDown = aDown; asyncSubsteps = substeps;
+                asyncPdt = hrAny ? Mathf.Min(dt * 2f, 0.05f) : dt;   // spans the held frame
+                asyncLocalDown = aDown; asyncSubsteps = substeps;
                 System.Array.Clear(asyncOut, 0, asyncOut.Length);
                 asyncDone.Reset(); asyncKicked = true;
                 System.Threading.ThreadPool.QueueUserWorkItem(AsyncJob);
+                asyncDone: ;
             }
             else if (simEnabled && hrAny && !frameFlip && heldValid && heldDisp != null && heldDisp.Length == disp.Length)
             {
