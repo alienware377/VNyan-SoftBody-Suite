@@ -15,7 +15,7 @@ namespace WobbleStudio
     [DefaultExecutionOrder(19000)]
     public class SquishPlugin : MonoBehaviour, VNyanInterface.IButtonClickedHandler
     {
-        const string BUTTON_NAME = "Wobble Studio";
+        const string BUTTON_NAME = "SB3 Wobble Studio";
         const string CONFIG_FILE = "wobblestudio.json";
 
         public GameObject windowPrefab;

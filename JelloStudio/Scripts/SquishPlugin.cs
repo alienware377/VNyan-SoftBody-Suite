@@ -27,7 +27,7 @@ namespace JelloStudio
     [DefaultExecutionOrder(20600)]
     public class SquishPlugin : MonoBehaviour, VNyanInterface.IButtonClickedHandler
     {
-        const string BUTTON_NAME = "Jello Studio";
+        const string BUTTON_NAME = "SB2 Jello Studio";
         const string CONFIG_FILE = "jellostudio.json";
 
         public GameObject windowPrefab;

@@ -15,7 +15,7 @@ namespace SquishStudio
     [DefaultExecutionOrder(20700)]   // FINAL stage: runs after SoftBody (20500) and Jello (20600)
     public class SquishPlugin : MonoBehaviour, VNyanInterface.IButtonClickedHandler
     {
-        const string BUTTON_NAME = "Squish Studio";
+        const string BUTTON_NAME = "SB1 Squish Studio";
         const string CONFIG_FILE = "squishstudio.json";
 
         public GameObject windowPrefab;
