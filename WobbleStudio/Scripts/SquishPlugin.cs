@@ -328,6 +328,7 @@ namespace WobbleStudio
             }
 
             MeshProxy.halfRate = config.settings.halfRate;
+            MeshProxy.asyncSim = config.settings.asyncSim;
             MeshProxy.halfRateLerp = config.settings.halfRateLerp;
             float dt = Mathf.Min(Time.deltaTime, config.settings.maxDeltaTime);
             if (dt <= 0f) return;
