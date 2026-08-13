@@ -283,6 +283,7 @@ namespace WobbleStudio
 
         public void Detach()
         {
+            CollectAsync();
             if (smr != null) smr.forceRenderingOff = false;
             if (go != null) { go.SetActive(false); Object.Destroy(go); }        // hide NOW (Destroy is end-of-frame)
             if (overlayGO != null) { overlayGO.SetActive(false); Object.Destroy(overlayGO); }
@@ -296,6 +297,7 @@ namespace WobbleStudio
         public void Frame(float dt, int substeps, Vector3 worldDown, bool simEnabled)
         {
             if (!Alive) { return; }
+            CollectAsync();   // never tear arrays out from under a running worker
             smr.BakeMesh(baked);
             baked.GetVertices(scratch);
             if (scratch.Count != bakedVerts.Length)
@@ -315,7 +317,39 @@ namespace WobbleStudio
 
             frameFlip = !frameFlip;
             bool hrAny = halfRate || halfRateLerp;
-            if (simEnabled && hrAny && !frameFlip && heldValid && heldDisp != null && heldDisp.Length == disp.Length)
+            bool useAsync = asyncSim && !asyncBroken && simEnabled;
+            bool computeFrame = !hrAny || frameFlip;
+            if (useAsync)
+            {
+                // show the freshest worker result; with lerp on, ease toward it
+                if (asyncOut != null && asyncOut.Length == disp.Length)
+                {
+                    if (halfRateLerp)
+                    {
+                        if (heldDisp == null || heldDisp.Length != disp.Length) heldDisp = new Vector3[disp.Length];
+                        for (int li = 0; li < disp.Length; li++)
+                            heldDisp[li] = Vector3.Lerp(heldDisp[li], asyncOut[li], 0.5f);
+                        System.Array.Copy(heldDisp, disp, disp.Length);
+                    }
+                    else System.Array.Copy(asyncOut, disp, disp.Length);
+                }
+                if (computeFrame)
+                {
+                    Vector3 aDown = go.transform.InverseTransformDirection(worldDown);
+                    if (asyncBaked == null || asyncBaked.Length != bakedVerts.Length)
+                    { asyncBaked = new Vector3[bakedVerts.Length]; asyncNormals = new Vector3[bakedVerts.Length]; }
+                    if (asyncOut == null || asyncOut.Length != disp.Length) asyncOut = new Vector3[disp.Length];
+                    System.Array.Copy(bakedVerts, asyncBaked, bakedVerts.Length);
+                    System.Array.Copy(bakedNormals, asyncNormals, bakedNormals.Length);
+                    for (int r = 0; r < sims.Count; r++) sims[r].CaptureFrameInputs(go.transform);
+                    asyncPdt = hrAny ? Mathf.Min(dt * 2f, 0.05f) : dt;
+                    asyncLocalDown = aDown; asyncSubsteps = substeps;
+                    System.Array.Clear(asyncOut, 0, asyncOut.Length);
+                    asyncDone.Reset(); asyncKicked = true;
+                    System.Threading.ThreadPool.QueueUserWorkItem(AsyncJob);
+                }
+            }
+            else if (simEnabled && hrAny && !frameFlip && heldValid && heldDisp != null && heldDisp.Length == disp.Length)
             {
                 // HELD frame: reuse last computed jiggle offsets (fresh skinning still
                 // flows through — only the offset field is one frame old)
@@ -355,6 +389,43 @@ namespace WobbleStudio
             display.SetNormals(bakedNormals);
             // fixed expanded bounds once — per-frame RecalculateBounds is a full-mesh scan
             if (!dispBoundsSet) { display.bounds = new Bounds(display.bounds.center, display.bounds.size + Vector3.one * 2f); dispBoundsSet = true; }
+        }
+
+        public static bool asyncSim;                 // physics on a worker thread
+        // inputs are captured main-side, the worker writes asyncOut, and the main thread
+        // shows it the NEXT frame (one frame of physics latency). Joined before anything
+        // touches sim arrays.
+        readonly System.Threading.ManualResetEventSlim asyncDone = new System.Threading.ManualResetEventSlim(true);
+        Vector3[] asyncBaked, asyncNormals, asyncOut;
+        bool asyncKicked, asyncBroken;
+        float asyncPdt; Vector3 asyncLocalDown; int asyncSubsteps;
+
+        void CollectAsync()
+        {
+            if (!asyncKicked) return;
+            if (!asyncDone.Wait(100))
+            {
+                asyncBroken = true;
+                Debug.LogWarning("[Wobble] async physics worker timed out — reverting to synchronous");
+            }
+            asyncKicked = false;
+        }
+
+        void AsyncJob(object state)
+        {
+            try
+            {
+                float sdt = asyncPdt / Mathf.Max(1, asyncSubsteps);
+                for (int s2 = 0; s2 < asyncSubsteps; s2++)
+                    for (int r = 0; r < sims.Count; r++)
+                        if (sims[r].cfg.enabled)
+                            sims[r].StepDynamics(asyncBaked, asyncNormals, sdt, asyncLocalDown, null);
+                for (int r = 0; r < sims.Count; r++)
+                    if (sims[r].cfg.enabled)
+                        sims[r].FieldAndWrite(asyncBaked, asyncNormals, asyncOut, asyncPdt, SimsAsList(), null);
+            }
+            catch (System.Exception) { }
+            finally { asyncDone.Set(); }
         }
 
         public static bool halfRate;                 // set by the plugin from settings

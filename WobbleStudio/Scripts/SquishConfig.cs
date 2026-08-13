@@ -17,7 +17,8 @@ namespace WobbleStudio
         public bool enabled = true;
         public int substeps = 2;          // physics substeps per frame
         public bool halfRate = false;     // compute physics every 2nd frame (held between) — lighter on slow PCs
-        public bool halfRateLerp = false; // half-rate, but held frames BLEND between ticks (smoother)
+        public bool halfRateLerp = false;
+        public bool asyncSim = false;    // run the physics on a worker thread (1 frame latency) // half-rate, but held frames BLEND between ticks (smoother)
         public float maxDeltaTime = 0.033f;
 
         // ----- native bone physics override -----

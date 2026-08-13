@@ -258,6 +258,29 @@ namespace WobbleStudio
         }
 
         // ==================== dynamics (substepped) ====================
+        // Unity Transforms may only be read on the main thread, so a worker-thread step
+        // needs its collider geometry captured beforehand. Call this from the main thread
+        // each frame; the sim then uses the snapshot whenever `proxy` is null.
+        Vector3[] capA, capB; float[] capR; bool capValid;
+
+        public void CaptureFrameInputs(Transform proxy)
+        {
+            int ncol = colCfg != null ? colCfg.Length : 0;
+            if (capA == null || capA.Length != ncol)
+            { capA = new Vector3[ncol]; capB = new Vector3[ncol]; capR = new float[ncol]; }
+            if (proxy == null) { capValid = false; return; }
+            for (int c = 0; c < ncol; c++)
+            {
+                Transform ct = colTr != null && c < colTr.Length ? colTr[c] : null;
+                if (ct == null || colCfg[c] == null) { capR[c] = 0f; continue; }
+                capA[c] = proxy.InverseTransformPoint(ct.position);
+                capR[c] = colCfg[c].radius / Mathf.Max(0.0001f, proxy.lossyScale.x);
+                capB[c] = colCfg[c].length > 0f
+                    ? proxy.InverseTransformPoint(ct.position + ct.forward * colCfg[c].length) : capA[c];
+            }
+            capValid = true;
+        }
+
         public void StepDynamics(Vector3[] baked, Vector3[] normals, float dt, Vector3 localDown, Transform proxy)
         {
             if (n == 0) return;
@@ -479,10 +502,16 @@ namespace WobbleStudio
                 Vector3 cp0 = Vector3.zero, cp1 = Vector3.zero; float rad = 0f;
                 if (!isMesh)
                 {
-                    cp0 = proxy.InverseTransformPoint(ct.position);
-                    rad = colCfg[c].radius / Mathf.Max(0.0001f, proxy.lossyScale.x);
-                    cp1 = colCfg[c].length > 0f
-                        ? proxy.InverseTransformPoint(ct.position + ct.forward * colCfg[c].length) : cp0;
+                    if (proxy != null)
+                    {
+                        cp0 = proxy.InverseTransformPoint(ct.position);
+                        rad = colCfg[c].radius / Mathf.Max(0.0001f, proxy.lossyScale.x);
+                        cp1 = colCfg[c].length > 0f
+                            ? proxy.InverseTransformPoint(ct.position + ct.forward * colCfg[c].length) : cp0;
+                    }
+                    else if (capValid && capR != null && c < capR.Length)
+                    { cp0 = capA[c]; cp1 = capB[c]; rad = capR[c]; }
+                    else continue;   // off-thread with no snapshot: skip rather than touch a Transform
                 }
 
                 for (int i = 0; i < n; i++)
@@ -671,15 +700,22 @@ namespace WobbleStudio
                         else
                         {
                             Transform ct = colTr != null ? colTr[c] : null;
-                            if (ct == null) continue;
-                            Vector3 cp0 = proxy.InverseTransformPoint(ct.position);
-                            float rad = colCfg[c].radius / Mathf.Max(0.0001f, proxy.lossyScale.x);
-                            Vector3 cp = cp0;
-                            if (colCfg[c].length > 0f)
+                            Vector3 cp0; float rad; Vector3 seg;
+                            if (proxy != null)
                             {
-                                Vector3 b2 = proxy.InverseTransformPoint(ct.position + ct.forward * colCfg[c].length);
-                                cp = ClosestOnSegment(cp0, b2, p);
+                                if (ct == null) continue;
+                                cp0 = proxy.InverseTransformPoint(ct.position);
+                                rad = colCfg[c].radius / Mathf.Max(0.0001f, proxy.lossyScale.x);
+                                seg = colCfg[c].length > 0f
+                                    ? proxy.InverseTransformPoint(ct.position + ct.forward * colCfg[c].length) : cp0;
                             }
+                            else
+                            {
+                                if (!capValid || capR == null || c >= capR.Length || capR[c] <= 0f) continue;
+                                cp0 = capA[c]; rad = capR[c]; seg = capB[c];
+                            }
+                            Vector3 cp = cp0;
+                            if (colCfg[c].length > 0f) cp = ClosestOnSegment(cp0, seg, p);
                             Vector3 d = p - cp; float dist = d.magnitude;
                             if (dist < rad && dist > 1e-6f)
                             { Vector3 push = d / dist * (rad - dist); colCur[i] += push; p += push; }
