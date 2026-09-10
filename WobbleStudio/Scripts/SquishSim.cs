@@ -87,7 +87,8 @@ namespace WobbleStudio
         bool jiggleWasIdle;
         float[] swayF; float swayFT, swayArm;
         Vector3[] jelloPrev; bool jelloPrevOk;
-        Vector3 jelloPrevV, ropePos;
+        Vector3 jelloPrevV, ropePos, ropeVel;
+        Vector3[] ropePrev; bool ropePrevOk;
         int[][] nbr;
         float simT;
 
@@ -421,12 +422,45 @@ namespace WobbleStudio
                 }
                 float jm = jelloPos.magnitude; if (jm > 0.1f) jelloPos *= 0.1f / jm;
 
-                Vector3 ropeTarget = -jelloPrevV * 0.06f;
-                float rk = 1f - Mathf.Exp(-Mathf.Max(0.05f, cfg.ropePullEase) * 6f * dt);
-                ropePos += (ropeTarget - ropePos) * rk;
-                float rm = ropePos.magnitude; if (rm > 0.12f) ropePos *= 0.12f / rm;
             }
             else { jelloPos = Vector3.zero; jelloVel = Vector3.zero; }
+
+            // ROPE PULL — the same trailing swing the jell-o spring gives while you move, but
+            // damped right at the edge of wobbling, so it follows the body and then simply
+            // settles instead of ringing once the motion stops.
+            if (cfg.ropePull > 0.001f)
+            {
+                Vector3 rmv = dc;
+                if (ropePrev == null || ropePrev.Length != n) { ropePrev = new Vector3[n]; ropePrevOk = false; }
+                Vector3 rsurf = Vector3.zero;
+                int rstep = Mathf.Max(1, n / 48); int rcnt = 0;
+                for (int i = 0; i < n; i += rstep)
+                {
+                    Vector3 pnow = baked[idx[i]];
+                    if (ropePrevOk) rsurf += pnow - ropePrev[i];
+                    ropePrev[i] = pnow; rcnt++;
+                }
+                if (rcnt > 0) rsurf /= rcnt;
+                ropePrevOk = true;
+                if (rsurf.sqrMagnitude > 0.04f) rsurf = Vector3.zero;
+                rmv += rsurf;
+
+                // 1.6 puts the default right around the feel that was liked by hand
+                // (jell-o size ~0.65, speed ~1.58) with the ease slider left at 1.
+                float rOmega = 2f * Mathf.PI * Mathf.Lerp(6f, 1.5f, Mathf.Clamp01(cfg.jelloSize))
+                             * 1.6f * Mathf.Max(0.05f, cfg.ropePullEase);
+                if (!teleport) ropeVel -= rmv * (26f * (rOmega / 14f));
+                int rst = SpringSteps(rOmega, dt);
+                float rdt = dt / rst;
+                for (int q = 0; q < rst; q++)
+                {
+                    ropeVel += -rOmega * rOmega * ropePos * rdt;
+                    ropeVel *= Mathf.Exp(-2f * rOmega * rdt);   // critical: settles, never rings
+                    ropePos += ropeVel * rdt;
+                }
+                float rm = ropePos.magnitude; if (rm > 0.12f) ropePos *= 0.12f / rm;
+            }
+            else { ropePos = Vector3.zero; ropeVel = Vector3.zero; ropePrevOk = false; }
 
             if (cfg.sway > 0.001f)
             {
