@@ -282,6 +282,16 @@ namespace WobbleStudio
             capValid = true;
         }
 
+
+        // Advance a spring in slices small enough to stay stable. The old one-step update
+        // amplified itself whenever omega * dt grew (VNyan running slow in the background),
+        // so the wobble only really showed when the window was NOT focused.
+        static int SpringSteps(float omega, float dt)
+        {
+            int steps = Mathf.CeilToInt(omega * dt / 0.25f);
+            return Mathf.Clamp(steps, 1, 16);
+        }
+
         public void StepDynamics(Vector3[] baked, Vector3[] normals, float dt, Vector3 localDown, Transform proxy)
         {
             if (n == 0) return;
@@ -359,10 +369,15 @@ namespace WobbleStudio
                     for (int i = 0; i < n; i++)
                         jelloF[i] = Mathf.Cos(Mathf.PI * (baked[idx[i]] - jcc).magnitude / jelloRMax);
                 }
-                if (!teleport) jelloVel -= dc * 14f;
-                jelloVel += -jelloOmega * jelloOmega * jelloPos * dt;
-                jelloVel *= Mathf.Exp(-2.0f * dt);
-                jelloPos += jelloVel * dt;
+                if (!teleport) jelloVel -= dc * 26f;
+                int jst = SpringSteps(jelloOmega, dt);
+                float jdt = dt / jst;
+                for (int q = 0; q < jst; q++)
+                {
+                    jelloVel += -jelloOmega * jelloOmega * jelloPos * jdt;
+                    jelloVel *= Mathf.Exp(-2.0f * jdt);
+                    jelloPos += jelloVel * jdt;
+                }
                 float jm = jelloPos.magnitude; if (jm > 0.1f) jelloPos *= 0.1f / jm;
             }
             else { jelloPos = Vector3.zero; jelloVel = Vector3.zero; }
@@ -391,9 +406,14 @@ namespace WobbleStudio
                 Vector3 lat = dc - localDown * Vector3.Dot(dc, localDown);
                 if (!teleport) swayVel -= lat * 10f;
                 float swOmega = 2f * Mathf.PI * 0.9f * Mathf.Max(0.05f, cfg.swaySpeed);
-                swayVel += -swOmega * swOmega * swayPos * dt;
-                swayVel *= Mathf.Exp(-Mathf.Max(0.02f, cfg.swayDamp) * 6f * dt);
-                swayPos += swayVel * dt;
+                int sst = SpringSteps(swOmega, dt);
+                float sdt = dt / sst;
+                for (int q = 0; q < sst; q++)
+                {
+                    swayVel += -swOmega * swOmega * swayPos * sdt;
+                    swayVel *= Mathf.Exp(-Mathf.Max(0.02f, cfg.swayDamp) * 6f * sdt);
+                    swayPos += swayVel * sdt;
+                }
                 float sm = swayPos.magnitude; if (sm > 0.10f) swayPos *= 0.10f / sm;
             }
             else { swayPos = Vector3.zero; swayVel = Vector3.zero; }
@@ -405,9 +425,14 @@ namespace WobbleStudio
                 if (fwd.sqrMagnitude < 0.01f) fwd = Vector3.Cross(localDown, Vector3.forward);
                 if (!teleport) twistVel -= Vector3.Dot(Vector3.Cross(localDown, lat), fwd.normalized) * 40f;
                 float twOmega = 2f * Mathf.PI * 1.4f * Mathf.Max(0.05f, cfg.twistSpeed);
-                twistVel += -twOmega * twOmega * twist * dt;
-                twistVel *= Mathf.Exp(-Mathf.Max(0.02f, cfg.twistDamp) * 6f * dt);
-                twist += twistVel * dt;
+                int tst = SpringSteps(twOmega, dt);
+                float tdt = dt / tst;
+                for (int q = 0; q < tst; q++)
+                {
+                    twistVel += -twOmega * twOmega * twist * tdt;
+                    twistVel *= Mathf.Exp(-Mathf.Max(0.02f, cfg.twistDamp) * 6f * tdt);
+                    twist += twistVel * tdt;
+                }
                 // clamp the SWING, not the spring: pinning the angle alone used to park it
                 // at one end so it never came back the other way
                 if (twist > 0.6f) { twist = 0.6f; if (twistVel > 0f) twistVel = 0f; }
@@ -772,7 +797,7 @@ namespace WobbleStudio
             if (cfg.stretch > 0.001f)
             {
                 float spd = lastCentroidVel.magnitude;
-                if (spd > 0.05f) { stretchDir = lastCentroidVel / spd; stretchAmt = Mathf.Min(spd * cfg.stretch * 0.12f, 0.5f); }
+                if (spd > 0.01f) { stretchDir = lastCentroidVel / spd; stretchAmt = Mathf.Min(spd * cfg.stretch * 0.6f, 1.2f); }
             }
             float turbF = Mathf.Lerp(60f, 8f, Mathf.Clamp01(cfg.turbSize));
 
