@@ -75,6 +75,15 @@ namespace SquishStudio
         int[][] clipAdj;                            // weld-group adjacency (correction smoothing)
 
         public bool Alive { get { return smr != null && go != null; } }
+
+        // set by the plugin when this mesh is on the shared hidden list: the proxy's
+        // display copy must not render, no matter what the chain hand-off does
+        public bool suppressRender;
+        public void SetRendererVisible(bool vis)
+        {
+            suppressRender = !vis;
+            if (mr != null) mr.enabled = vis;
+        }
         public int VertexCount { get { return bakedVerts != null ? bakedVerts.Length : 0; } }
         public Vector3[] BakedVerts { get { return bakedVerts; } }
         public Transform Root { get { return go != null ? go.transform : null; } }
@@ -700,6 +709,7 @@ namespace SquishStudio
         public void Frame(float dt, int substeps, Vector3 worldDown, bool simEnabled)
         {
             if (!Alive) { return; }
+            if (mr != null && mr.enabled == suppressRender) mr.enabled = !suppressRender;
             swDbg.Restart();
             CollectAsync();   // join last frame's worker before touching sim state
             if (simEnabled) ApplyEvacBones(dt);   // move driver bones BEFORE baking
@@ -994,7 +1004,7 @@ namespace SquishStudio
             {
                 if (overlayGO != null) Object.Destroy(overlayGO);
                 overlayGO = null; overlayMR = null;
-                if (mr != null) mr.enabled = true;            // hand rendering back to the textured mesh
+                if (mr != null) mr.enabled = !suppressRender;  // hand rendering back (unless list-hidden)
                 return;
             }
             if (!Alive) return;

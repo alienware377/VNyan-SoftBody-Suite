@@ -129,6 +129,7 @@ namespace SoftBodyStudio
                 if (solverDirtyT <= 0f) { Rebind(); PushRegionToUI(); SetStatus("solver rebuilt (grid/blend changed)"); }
             }
 
+            PollSharedHidden();
             if (needHiddenApply && boundAvatar != null) { needHiddenApply = false; ApplyHiddenMeshes(); }
 
             // live mirror of Squish Studio's regions (file watch, cheap mtime check)
@@ -1410,6 +1411,94 @@ namespace SoftBodyStudio
             suppress = true; gridAutoToggle.isOn = selRegion.xGridAuto > 0.5f; suppress = false;
         }
         bool needHiddenApply;
+        readonly HashSet<string> hidByList = new HashSet<string>();   // meshes this plugin hid via the shared list
+
+        // ---- shared hidden-mesh list ----
+        // ONE file shared by Weight Studio and every soft-body studio, so all plugins
+        // agree on what's hidden. The file is the source of truth; the config list is a
+        // mirror kept for the sim/proxy code. Old per-plugin entries migrate INTO the
+        // file once (flag file marks it done), so deletions made elsewhere stay deleted.
+        float sharedHiddenPollT;
+        DateTime sharedHiddenStamp;
+        bool sharedHiddenMigrated;
+
+        // Root AppData so every plugin can share it even when installed alone.
+        // Migrates the old WeightStudio\hidden_meshes.txt copy once if present.
+        static string SharedHiddenPath()
+        {
+            string p = Path.Combine(Application.persistentDataPath, "hidden_meshes.txt");
+            try
+            {
+                string old = Path.Combine(Path.Combine(Application.persistentDataPath, "WeightStudio"), "hidden_meshes.txt");
+                if (!File.Exists(p) && File.Exists(old)) File.Copy(old, p);
+            }
+            catch { }
+            return p;
+        }
+
+        static List<string> LoadSharedHidden()
+        {
+            var list = new List<string>();
+            try
+            {
+                string p = SharedHiddenPath();
+                if (File.Exists(p))
+                    foreach (string raw in File.ReadAllLines(p))
+                    {
+                        string nm = raw.Trim();
+                        if (nm.Length > 0 && !list.Contains(nm)) list.Add(nm);
+                    }
+            }
+            catch { }
+            return list;
+        }
+
+        void SaveSharedHidden(List<string> names)
+        {
+            try
+            {
+                File.WriteAllLines(SharedHiddenPath(), names.ToArray());
+                sharedHiddenStamp = File.GetLastWriteTimeUtc(SharedHiddenPath());
+            }
+            catch { }
+        }
+
+        void SyncSharedHidden()
+        {
+            if (config == null || config.settings == null) return;
+            List<string> file = LoadSharedHidden();
+            if (!sharedHiddenMigrated)
+            {
+                sharedHiddenMigrated = true;
+                string flag = SharedHiddenPath() + "." + CONFIG_FILE + ".migrated";
+                if (!File.Exists(flag))
+                {
+                    bool grew = false;
+                    if (config.settings.hiddenMeshes != null)
+                        foreach (string nm in config.settings.hiddenMeshes)
+                            if (!string.IsNullOrEmpty(nm) && !file.Contains(nm)) { file.Add(nm); grew = true; }
+                    if (grew) SaveSharedHidden(file);
+                    try { File.WriteAllText(flag, "1"); } catch { }
+                }
+            }
+            config.settings.hiddenMeshes = file;
+            try { sharedHiddenStamp = File.GetLastWriteTimeUtc(SharedHiddenPath()); } catch { }
+        }
+
+        void PollSharedHidden()
+        {
+            sharedHiddenPollT += Time.deltaTime;
+            if (sharedHiddenPollT < 2f) return;
+            sharedHiddenPollT = 0f;
+            try
+            {
+                string p = SharedHiddenPath();
+                if (boundAvatar != null && File.Exists(p) && File.GetLastWriteTimeUtc(p) != sharedHiddenStamp)
+                    needHiddenApply = true;
+            }
+            catch { }
+        }
+
         void ToggleSharpOverlay()
         {
             sharpOn = !sharpOn;
@@ -1438,15 +1527,30 @@ namespace SoftBodyStudio
         public void ApplyHiddenMeshes()
         {
             if (boundAvatar == null || config.settings == null) return;
+            SyncSharedHidden();
             if (config.settings.hiddenMeshes == null) config.settings.hiddenMeshes = new List<string>();
             SkinnedMeshRenderer[] rends = boundAvatar.GetComponentsInChildren<SkinnedMeshRenderer>(true);
             for (int i = 0; i < rends.Length; i++)
             {
                 if (rends[i] == null) continue;
-                bool hide = config.settings.hiddenMeshes.Contains(rends[i].name);
-                MeshProxy px = FindProxyFor(rends[i].name);
-                if (px != null) px.SetRendererVisible(!hide);
-                else rends[i].enabled = !hide;
+                string nm = rends[i].name;
+                bool hide = config.settings.hiddenMeshes.Contains(nm);
+                MeshProxy px = FindProxyFor(nm);
+                // Only ever touch meshes the LIST governs: hide listed ones, and re-show
+                // a mesh only if WE hid it via the list earlier. Anything else (sim
+                // proxies, other plugins, the avatar's own state) is left alone.
+                if (hide)
+                {
+                    if (px != null) px.SetRendererVisible(false);
+                    else rends[i].enabled = false;
+                    hidByList.Add(nm);
+                }
+                else if (hidByList.Contains(nm))
+                {
+                    if (px != null) px.SetRendererVisible(true);
+                    else rends[i].enabled = true;
+                    hidByList.Remove(nm);
+                }
             }
         }
 
@@ -1481,6 +1585,7 @@ namespace SoftBodyStudio
                 RtButton("H_" + nm, (hidden ? "[hidden]  " : "[shown]   ") + nm, pad, y, w - 2 * pad, rowH, () =>
                 {
                     if (!config.settings.hiddenMeshes.Remove(nm)) config.settings.hiddenMeshes.Add(nm);
+                    SaveSharedHidden(config.settings.hiddenMeshes);
                     ApplyHiddenMeshes();
                     SaveConfigQuiet();
                     Destroy(hidePanel); hidePanel = null;
