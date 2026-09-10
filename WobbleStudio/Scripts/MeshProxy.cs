@@ -36,6 +36,15 @@ namespace WobbleStudio
         public float overlayOpacity = 0.75f;
 
         public bool Alive { get { return smr != null && go != null; } }
+
+        // set by the plugin when this mesh is on the shared hidden list: the proxy's
+        // display copy must not render, no matter what the chain hand-off does
+        public bool suppressRender;
+        public void SetRendererVisible(bool vis)
+        {
+            suppressRender = !vis;
+            if (mr != null) mr.enabled = vis;
+        }
         public int VertexCount { get { return bakedVerts != null ? bakedVerts.Length : 0; } }
         public Vector3[] BakedVerts { get { return bakedVerts; } }
         public Transform Root { get { return go != null ? go.transform : null; } }
@@ -297,6 +306,7 @@ namespace WobbleStudio
         public void Frame(float dt, int substeps, Vector3 worldDown, bool simEnabled)
         {
             if (!Alive) { return; }
+            if (mr != null && mr.enabled == suppressRender) mr.enabled = !suppressRender;
             CollectAsync();   // never tear arrays out from under a running worker
             smr.BakeMesh(baked);
             baked.GetVertices(scratch);

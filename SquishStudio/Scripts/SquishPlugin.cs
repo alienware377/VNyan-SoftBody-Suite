@@ -612,6 +612,7 @@ namespace SquishStudio
             HookRegionSlider("evacall", 0f, 2f, (r, v) => r.evacAllBones = v, r => r.evacAllBones);
             HookRegionSlider("evacblob", 0f, 2f, (r, v) => r.evacBlob = v, r => r.evacBlob);
 
+            BuildSections();
             window.SetActive(false);
         }
 
@@ -817,6 +818,212 @@ namespace SquishStudio
             Button b = FindControl<Button>(name);
             if (b != null) b.onClick.AddListener(act);
         }
+
+        // ---------------- collapsible sections ----------------
+        // The window is one long list of rows, so sections are found at runtime: a "Hdr_*"
+        // label starts one and everything until the next belongs to it. The header becomes a
+        // button with a little triangle, and sections that simply switch off at zero also get
+        // a tick box, which remembers the slider values it zeroed so they come back untouched.
+        class UiSection
+        {
+            public string label;
+            public Text hdr;
+            public Toggle onBox;
+            public RectTransform boxRt;
+            public readonly List<RectTransform> rows = new List<RectTransform>();
+            public readonly List<float> rowY = new List<float>();
+            public readonly List<string> keys = new List<string>();
+            public readonly Dictionary<string, float> muted = new Dictionary<string, float>();
+            public float hdrY, height;
+            public bool open = true;
+        }
+        readonly List<UiSection> sections = new List<UiSection>();
+        RectTransform sectionContent;
+        float sectionContentH;
+
+        // sections that mean "off" when their sliders sit at zero — these get a tick box
+        static bool SectionCanMute(string label)
+        {
+            string l = label.ToLowerInvariant();
+            return l.Contains("boost") || l.Contains("slap") || l.Contains("clothes")
+                || l.Contains("seam") || l.Contains("wave") || l.Contains("jiggle mode")
+                || l.Contains("surface") || l.Contains("advanced") || l.Contains("clip");
+        }
+
+        void BuildSections()
+        {
+            sections.Clear();
+            if (window == null) return;
+            Transform content = FindDeep(window.transform, "Content");
+            if (content == null) return;
+            sectionContent = content as RectTransform;
+            if (sectionContent != null) sectionContentH = sectionContent.sizeDelta.y;
+
+            List<RectTransform> kids = new List<RectTransform>();
+            for (int i = 0; i < content.childCount; i++)
+            {
+                RectTransform rt = content.GetChild(i) as RectTransform;
+                if (rt != null) kids.Add(rt);
+            }
+            // visual order: anchoredPosition y runs negative downwards
+            kids.Sort(delegate (RectTransform a, RectTransform b)
+            { return b.anchoredPosition.y.CompareTo(a.anchoredPosition.y); });
+
+            UiSection cur = null;
+            for (int i = 0; i < kids.Count; i++)
+            {
+                RectTransform rt = kids[i];
+                if (rt.name.StartsWith("Hdr_"))
+                {
+                    cur = new UiSection();
+                    cur.label = rt.name.Substring(4);
+                    cur.hdr = rt.GetComponent<Text>();
+                    cur.hdrY = rt.anchoredPosition.y;
+                    sections.Add(cur);
+                    continue;
+                }
+                if (cur == null) continue;   // rows above the first header stay put
+                cur.rows.Add(rt);
+                cur.rowY.Add(rt.anchoredPosition.y);
+                if (rt.name.StartsWith("Slider_")) cur.keys.Add(rt.name.Substring(7));
+            }
+
+            for (int s = 0; s < sections.Count; s++)
+            {
+                UiSection sec = sections[s];
+                float bottom = sec.hdrY;
+                for (int r = 0; r < sec.rows.Count; r++)
+                {
+                    float b = sec.rowY[r] - sec.rows[r].rect.height;
+                    if (b < bottom) bottom = b;
+                }
+                sec.height = sec.hdrY - bottom;
+
+                if (sec.hdr != null)
+                {
+                    UiSection captured = sec;
+                    Button btn = sec.hdr.gameObject.GetComponent<Button>();
+                    if (btn == null) btn = sec.hdr.gameObject.AddComponent<Button>();
+                    btn.transition = Selectable.Transition.None;
+                    btn.onClick.AddListener(delegate { ToggleSection(captured); });
+                    sec.hdr.text = "▼ " + sec.hdr.text;
+                }
+                if (SectionCanMute(sec.label) && sec.keys.Count > 0) MakeSectionBox(sec);
+            }
+            RelayoutSections();
+        }
+
+        void MakeSectionBox(UiSection sec)
+        {
+            if (sec.hdr == null || sectionContent == null) return;
+            GameObject go = new GameObject("SecOn_" + sec.label,
+                typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Toggle));
+            RectTransform rt = go.GetComponent<RectTransform>();
+            rt.SetParent(sectionContent, false);
+            rt.anchorMin = new Vector2(0f, 1f);
+            rt.anchorMax = new Vector2(0f, 1f);
+            rt.pivot = new Vector2(0f, 1f);
+            rt.sizeDelta = new Vector2(16f, 16f);
+            RectTransform hrt = sec.hdr.rectTransform;
+            rt.anchoredPosition = new Vector2(hrt.anchoredPosition.x + hrt.rect.width - 22f,
+                                              hrt.anchoredPosition.y - 2f);
+            Image bg = go.GetComponent<Image>();
+            bg.color = new Color(1f, 1f, 1f, 0.22f);
+
+            GameObject ck = new GameObject("Check", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            RectTransform crt = ck.GetComponent<RectTransform>();
+            crt.SetParent(rt, false);
+            crt.anchorMin = new Vector2(0.18f, 0.18f);
+            crt.anchorMax = new Vector2(0.82f, 0.82f);
+            crt.offsetMin = Vector2.zero; crt.offsetMax = Vector2.zero;
+            ck.GetComponent<Image>().color = new Color(0.55f, 1f, 0.65f, 1f);
+
+            Toggle t = go.GetComponent<Toggle>();
+            t.targetGraphic = bg;
+            t.graphic = ck.GetComponent<Image>();
+            t.isOn = !SectionIsZero(sec);   // unticked when it is already doing nothing
+            sec.onBox = t;
+            sec.boxRt = rt;
+            UiSection captured = sec;
+            t.onValueChanged.AddListener(delegate (bool on) { SetSectionOn(captured, on); });
+
+            sec.rows.Add(rt);
+            sec.rowY.Add(rt.anchoredPosition.y);
+        }
+
+        bool SectionIsZero(UiSection sec)
+        {
+            for (int i = 0; i < sec.keys.Count; i++)
+            {
+                Slider s;
+                if (sliders.TryGetValue(sec.keys[i], out s) && s != null && Mathf.Abs(s.value) > 0.0001f)
+                    return false;
+            }
+            return true;
+        }
+
+        void SetSectionOn(UiSection sec, bool on)
+        {
+            if (suppress) return;
+            if (!on)
+            {
+                sec.muted.Clear();
+                for (int i = 0; i < sec.keys.Count; i++)
+                {
+                    Slider s;
+                    if (!sliders.TryGetValue(sec.keys[i], out s) || s == null) continue;
+                    sec.muted[sec.keys[i]] = s.value;
+                    s.value = Mathf.Clamp(0f, s.minValue, s.maxValue);
+                }
+                SetStatus(sec.label.Trim() + " turned off");
+            }
+            else
+            {
+                foreach (KeyValuePair<string, float> kv in sec.muted)
+                {
+                    Slider s;
+                    if (sliders.TryGetValue(kv.Key, out s) && s != null) s.value = kv.Value;
+                }
+                sec.muted.Clear();
+                SetStatus(sec.label.Trim() + " back on");
+            }
+        }
+
+        void ToggleSection(UiSection sec)
+        {
+            sec.open = !sec.open;
+            if (sec.hdr != null && sec.hdr.text.Length > 2)
+                sec.hdr.text = (sec.open ? "▼ " : "▶ ") + sec.hdr.text.Substring(2);
+            RelayoutSections();
+        }
+
+        // rows keep their built positions; a shut section just pulls everything below it up
+        void RelayoutSections()
+        {
+            float shift = 0f;
+            for (int s = 0; s < sections.Count; s++)
+            {
+                UiSection sec = sections[s];
+                if (sec.hdr != null)
+                {
+                    RectTransform h = sec.hdr.rectTransform;
+                    h.anchoredPosition = new Vector2(h.anchoredPosition.x, sec.hdrY + shift);
+                }
+                for (int r = 0; r < sec.rows.Count; r++)
+                {
+                    RectTransform rt = sec.rows[r];
+                    if (rt == null) continue;
+                    bool vis = sec.open || rt == sec.boxRt;   // the tick box stays visible
+                    if (rt.gameObject.activeSelf != vis) rt.gameObject.SetActive(vis);
+                    if (vis) rt.anchoredPosition = new Vector2(rt.anchoredPosition.x, sec.rowY[r] + shift);
+                }
+                if (!sec.open) shift += Mathf.Max(0f, sec.height - 24f);
+            }
+            if (sectionContent != null)
+                sectionContent.sizeDelta = new Vector2(sectionContent.sizeDelta.x,
+                    Mathf.Max(60f, sectionContentH - shift));
+        }
+
         T FindControl<T>(string name) where T : Component
         {
             if (window == null) return null;
