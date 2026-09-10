@@ -86,6 +86,7 @@ namespace WobbleStudio
         bool primed;
         bool jiggleWasIdle;
         float[] swayF; float swayFT, swayArm;
+        Vector3[] jelloPrev; bool jelloPrevOk;
         int[][] nbr;
         float simT;
 
@@ -308,7 +309,7 @@ namespace WobbleStudio
                 for (int i = 0; i < n; i++)
                 { float r = (baked[idx[i]] - c0).magnitude; if (r > rMax) rMax = r; }
                 for (int i = 0; i < n; i++)
-                    jelloF[i] = Mathf.Cos(Mathf.PI * (baked[idx[i]] - c0).magnitude / rMax);
+                    jelloF[i] = 0.5f + 0.5f * Mathf.Cos(Mathf.PI * (baked[idx[i]] - c0).magnitude / rMax);
                 jelloC0 = c0; jelloRMax = rMax;
                 BuildClusters(baked, rMax);
                 primed = true;
@@ -367,9 +368,25 @@ namespace WobbleStudio
                                                  Mathf.PerlinNoise(41.3f, tt) - 0.5f) * (1.8f * jr * jelloRMax);
                     Vector3 jcc = jelloC0 + jdrift;
                     for (int i = 0; i < n; i++)
-                        jelloF[i] = Mathf.Cos(Mathf.PI * (baked[idx[i]] - jcc).magnitude / jelloRMax);
+                        jelloF[i] = 0.5f + 0.5f * Mathf.Cos(Mathf.PI * Mathf.Min(1f, (baked[idx[i]] - jcc).magnitude / jelloRMax));
                 }
-                if (!teleport) jelloVel -= dc * 26f;
+                // sampled surface motion — catches rotation, which the centroid does not
+                Vector3 surf = Vector3.zero;
+                {
+                    int step = Mathf.Max(1, n / 48);
+                    if (jelloPrev == null || jelloPrev.Length != n) { jelloPrev = new Vector3[n]; jelloPrevOk = false; }
+                    int cnt = 0;
+                    for (int i = 0; i < n; i += step)
+                    {
+                        Vector3 pnow = baked[idx[i]];
+                        if (jelloPrevOk) surf += pnow - jelloPrev[i];
+                        jelloPrev[i] = pnow; cnt++;
+                    }
+                    if (cnt > 0) surf /= cnt;
+                    jelloPrevOk = true;
+                    if (surf.sqrMagnitude > 0.04f) surf = Vector3.zero;   // a jump, not motion
+                }
+                if (!teleport) jelloVel -= (dc + surf) * 26f;
                 int jst = SpringSteps(jelloOmega, dt);
                 float jdt = dt / jst;
                 for (int q = 0; q < jst; q++)
