@@ -309,7 +309,10 @@ namespace WobbleStudio
                 for (int i = 0; i < n; i++)
                 { float r = (baked[idx[i]] - c0).magnitude; if (r > rMax) rMax = r; }
                 for (int i = 0; i < n; i++)
-                    jelloF[i] = 0.5f + 0.5f * Mathf.Cos(Mathf.PI * (baked[idx[i]] - c0).magnitude / rMax);
+                {
+                    float rr = Mathf.Clamp01((baked[idx[i]] - c0).magnitude / rMax);
+                    jelloF[i] = Mathf.Lerp(1f, 0.55f + 0.45f * Mathf.Cos(Mathf.PI * rr), 0.35f);
+                }
                 jelloC0 = c0; jelloRMax = rMax;
                 BuildClusters(baked, rMax);
                 primed = true;
@@ -368,7 +371,10 @@ namespace WobbleStudio
                                                  Mathf.PerlinNoise(41.3f, tt) - 0.5f) * (1.8f * jr * jelloRMax);
                     Vector3 jcc = jelloC0 + jdrift;
                     for (int i = 0; i < n; i++)
-                        jelloF[i] = 0.5f + 0.5f * Mathf.Cos(Mathf.PI * Mathf.Min(1f, (baked[idx[i]] - jcc).magnitude / jelloRMax));
+                    {
+                        float rr = Mathf.Clamp01((baked[idx[i]] - jcc).magnitude / jelloRMax);
+                        jelloF[i] = Mathf.Lerp(1f, 0.55f + 0.45f * Mathf.Cos(Mathf.PI * rr), 0.35f);
+                    }
                 }
                 // sampled surface motion — catches rotation, which the centroid does not
                 Vector3 surf = Vector3.zero;
@@ -386,7 +392,8 @@ namespace WobbleStudio
                     jelloPrevOk = true;
                     if (surf.sqrMagnitude > 0.04f) surf = Vector3.zero;   // a jump, not motion
                 }
-                if (!teleport) jelloVel -= (dc + surf) * 26f;
+                float jKick = 26f * (jelloOmega / 14f);   // keeps the swing the same size at any speed
+                if (!teleport) jelloVel -= (dc + surf) * jKick;
                 int jst = SpringSteps(jelloOmega, dt);
                 float jdt = dt / jst;
                 for (int q = 0; q < jst; q++)
