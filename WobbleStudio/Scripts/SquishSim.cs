@@ -87,6 +87,7 @@ namespace WobbleStudio
         bool jiggleWasIdle;
         float[] swayF; float swayFT, swayArm;
         Vector3[] jelloPrev; bool jelloPrevOk;
+        Vector3 jelloPrevV, ropePos;
         int[][] nbr;
         float simT;
 
@@ -392,8 +393,24 @@ namespace WobbleStudio
                     jelloPrevOk = true;
                     if (surf.sqrMagnitude > 0.04f) surf = Vector3.zero;   // a jump, not motion
                 }
+                // Two different feels come out of the same motion, so they are driven apart:
+                //  ROPE PULL trails the movement itself, which is why steady bouncing used to
+                //  look like a weight swinging on a rope.
+                //  JELL-O answers CHANGES in movement, so it rings all through a bounce rather
+                //  than only when the motion suddenly stops.
+                Vector3 mv = dc + surf;
+                float idt = 1f / Mathf.Max(1e-4f, dt);
+                Vector3 vel = mv * idt;
+                Vector3 acc = (vel - jelloPrevV) * idt;
+                jelloPrevV = vel;
+                if (acc.sqrMagnitude > 40000f) acc = Vector3.zero;   // a jump, not motion
+
                 float jKick = 26f * (jelloOmega / 14f);   // keeps the swing the same size at any speed
-                if (!teleport) jelloVel -= (dc + surf) * jKick;
+                if (!teleport)
+                {
+                    jelloVel -= mv * (jKick * 0.35f);            // a little of the old follow
+                    jelloVel -= acc * (0.0016f * jKick * dt);    // and the real springy part
+                }
                 int jst = SpringSteps(jelloOmega, dt);
                 float jdt = dt / jst;
                 for (int q = 0; q < jst; q++)
@@ -403,6 +420,11 @@ namespace WobbleStudio
                     jelloPos += jelloVel * jdt;
                 }
                 float jm = jelloPos.magnitude; if (jm > 0.1f) jelloPos *= 0.1f / jm;
+
+                Vector3 ropeTarget = -jelloPrevV * 0.06f;
+                float rk = 1f - Mathf.Exp(-Mathf.Max(0.05f, cfg.ropePullEase) * 6f * dt);
+                ropePos += (ropeTarget - ropePos) * rk;
+                float rm = ropePos.magnitude; if (rm > 0.12f) ropePos *= 0.12f / rm;
             }
             else { jelloPos = Vector3.zero; jelloVel = Vector3.zero; }
 
@@ -839,6 +861,8 @@ namespace WobbleStudio
                     outOff += nrm * (clothH[i] * cfg.clothRipple * 1.5f * w[i]);
                 if (cfg.jello > 0.001f)
                     outOff += jelloPos * (cfg.jello * 1.6f * jelloF[i] * w[i]);
+                if (cfg.ropePull > 0.001f)
+                    outOff += ropePos * (cfg.ropePull * 1.4f * jelloF[i] * w[i]);
                 if (cfg.sway > 0.001f)
                     outOff += swayPos * (cfg.sway * 1.8f * w[i] * (swayF != null && i < swayF.Length ? swayF[i] : 1f));
                 if (cfg.twistJiggle > 0.001f)
