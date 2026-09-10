@@ -68,7 +68,14 @@ namespace WobbleStudio
         public float clothRipple = 0.3f;  // neighbour-spring wave propagation (cloth-like)
         public float clothSize = 0.5f;    // spread speed/size of the cloth waves
         public float jello = 0.25f;       // whole-region resonant wobble (jell-o)
-        public float jelloSize = 0.5f;    // wobble frequency scale (bigger = slower/larger)
+        public float jelloSize = 0.5f;
+        public float jelloSpeed = 1f;        // how fast the jell-o wobble oscillates
+        public float jelloRandomSize = 0f;   // how far the wobble centre wanders
+        public float jelloRandomSpeed = 0.5f;// how quickly it wanders
+        public float swaySpeed = 1f;         // pendulum swing rate
+        public float swayDamp = 0.35f;       // how quickly the swing settles
+        public float twistSpeed = 1f;        // twist oscillation rate
+        public float twistDamp = 0.35f;      // how quickly the twisting settles    // wobble frequency scale (bigger = slower/larger)
         public float jelloRandom = 0f;    // wanders the jell-o wobble centre around (random-looking)
         public float liquid = 0.0f;       // motion-spawned travelling surface waves
         public float liquidSize = 0.5f;   // wavelength of the liquid ripples
