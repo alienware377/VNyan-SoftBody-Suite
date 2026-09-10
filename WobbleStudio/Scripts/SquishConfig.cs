@@ -69,6 +69,8 @@ namespace WobbleStudio
         public float clothSize = 0.5f;    // spread speed/size of the cloth waves
         public float jello = 0.25f;       // whole-region resonant wobble (jell-o)
         public float jelloSize = 0.5f;
+        public float ropePull = 0f;          // the area trails the body like a weight on a rope
+        public float ropePullEase = 1f;      // how quickly it catches back up
         public float jelloSpeed = 1f;        // how fast the jell-o wobble oscillates
         public float jelloRandomSize = 0f;   // how far the wobble centre wanders
         public float jelloRandomSpeed = 0.5f;// how quickly it wanders

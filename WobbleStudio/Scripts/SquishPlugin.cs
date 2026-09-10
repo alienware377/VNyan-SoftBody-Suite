@@ -516,6 +516,8 @@ namespace WobbleStudio
             HookRegionSlider("jellospeed", 0.05f, 3f, (r, v) => r.jelloSpeed = v, r => r.jelloSpeed);
             HookRegionSlider("jellorand", 0f, 1f, (r, v) => r.jelloRandomSize = v, r => r.jelloRandomSize);
             HookRegionSlider("jellorandsp", 0f, 1f, (r, v) => r.jelloRandomSpeed = v, r => r.jelloRandomSpeed);
+            HookRegionSlider("ropepull", 0f, 2f, (r, v) => r.ropePull = v, r => r.ropePull);
+            HookRegionSlider("ropeease", 0.05f, 3f, (r, v) => r.ropePullEase = v, r => r.ropePullEase);
             HookRegionSlider("liquid", 0f, 1f, (r, v) => r.liquid = v, r => r.liquid);
             HookRegionSlider("liquidsize", 0f, 1f, (r, v) => r.liquidSize = v, r => r.liquidSize);
             HookRegionSlider("wavespeed", 0.1f, 3f, (r, v) => r.waveSpeed = v, r => r.waveSpeed);
