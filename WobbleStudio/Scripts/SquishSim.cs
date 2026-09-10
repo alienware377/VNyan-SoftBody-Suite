@@ -85,6 +85,7 @@ namespace WobbleStudio
         Vector3[] offset, vel, prevTarget;
         bool primed;
         bool jiggleWasIdle;
+        float[] swayF; float swayFT, swayArm;
         int[][] nbr;
         float simT;
 
@@ -316,7 +317,7 @@ namespace WobbleStudio
             float damp = Mathf.Clamp01(cfg.damping);
             float clothC2 = Mathf.Lerp(40f, 400f, Mathf.Clamp01(cfg.clothSize)) * Mathf.Max(0.05f, cfg.waveSpeed);
             float clothDampMul = Mathf.Exp(-2.5f * dt);
-            float jelloOmega = 2f * Mathf.PI * Mathf.Lerp(6f, 1.5f, Mathf.Clamp01(cfg.jelloSize)) * Mathf.Max(0.05f, cfg.waveSpeed);
+            float jelloOmega = 2f * Mathf.PI * Mathf.Lerp(6f, 1.5f, Mathf.Clamp01(cfg.jelloSize)) * Mathf.Max(0.05f, cfg.jelloSpeed);
 
             Vector3 centroid = Vector3.zero, prevCentroid = Vector3.zero;
             for (int i = 0; i < n; i++) { centroid += baked[idx[i]]; prevCentroid += prevTarget[i]; }
@@ -346,11 +347,12 @@ namespace WobbleStudio
                 // drift) so the jell-o mode stops looking like a fixed standing wave.
                 // Refreshing the falloff field once per frame (simT throttle: StepDynamics
                 // is substepped) — n cosines, cheap.
-                if (cfg.jelloRandom > 0.001f && jelloRMax > 1e-4f && simT - jelloFT > 0.014f)
+                float jrAmt = Mathf.Clamp01(Mathf.Max(cfg.jelloRandomSize, cfg.jelloRandom));
+                if (jrAmt > 0.001f && jelloRMax > 1e-4f && simT - jelloFT > 0.014f)
                 {
                     jelloFT = simT;
-                    float jr = Mathf.Clamp01(cfg.jelloRandom);
-                    float tt = simT * (0.2f + 0.6f * jr);
+                    float jr = jrAmt;
+                    float tt = simT * (0.2f + 0.6f * Mathf.Clamp01(cfg.jelloRandomSpeed) * 2f);
                     Vector3 jdrift = new Vector3(Mathf.PerlinNoise(tt, 13.7f) - 0.5f, 0f,
                                                  Mathf.PerlinNoise(41.3f, tt) - 0.5f) * (1.8f * jr * jelloRMax);
                     Vector3 jcc = jelloC0 + jdrift;
@@ -367,13 +369,32 @@ namespace WobbleStudio
 
             if (cfg.sway > 0.001f)
             {
+                // Hinge at the HIGHEST point of the painted area and let the rest hang from
+                // it: every vertex moves sideways in proportion to how far it sits below the
+                // hinge, so the whole area swings as one weighted piece instead of sliding.
+                if (swayF == null || swayF.Length != n || simT - swayFT > 0.25f)
+                {
+                    swayFT = simT;
+                    if (swayF == null || swayF.Length != n) swayF = new float[n];
+                    float top = float.MinValue, bot = float.MaxValue;
+                    for (int i = 0; i < n; i++)
+                    {
+                        float h = Vector3.Dot(baked[idx[i]], -localDown);
+                        if (h > top) top = h;
+                        if (h < bot) bot = h;
+                    }
+                    float span = Mathf.Max(0.01f, top - bot);
+                    for (int i = 0; i < n; i++)
+                        swayF[i] = Mathf.Clamp01((top - Vector3.Dot(baked[idx[i]], -localDown)) / span);
+                    swayArm = span;
+                }
                 Vector3 lat = dc - localDown * Vector3.Dot(dc, localDown);
                 if (!teleport) swayVel -= lat * 10f;
-                float swOmega = 2f * Mathf.PI * 1.3f * Mathf.Max(0.05f, cfg.waveSpeed);
+                float swOmega = 2f * Mathf.PI * 0.9f * Mathf.Max(0.05f, cfg.swaySpeed);
                 swayVel += -swOmega * swOmega * swayPos * dt;
-                swayVel *= Mathf.Exp(-1.6f * dt);
+                swayVel *= Mathf.Exp(-Mathf.Max(0.02f, cfg.swayDamp) * 6f * dt);
                 swayPos += swayVel * dt;
-                float sm = swayPos.magnitude; if (sm > 0.08f) swayPos *= 0.08f / sm;
+                float sm = swayPos.magnitude; if (sm > 0.10f) swayPos *= 0.10f / sm;
             }
             else { swayPos = Vector3.zero; swayVel = Vector3.zero; }
 
@@ -383,11 +404,14 @@ namespace WobbleStudio
                 Vector3 fwd = Vector3.Cross(localDown, Vector3.right);
                 if (fwd.sqrMagnitude < 0.01f) fwd = Vector3.Cross(localDown, Vector3.forward);
                 if (!teleport) twistVel -= Vector3.Dot(Vector3.Cross(localDown, lat), fwd.normalized) * 40f;
-                float twOmega = 2f * Mathf.PI * 2.0f * Mathf.Max(0.05f, cfg.waveSpeed);
+                float twOmega = 2f * Mathf.PI * 1.4f * Mathf.Max(0.05f, cfg.twistSpeed);
                 twistVel += -twOmega * twOmega * twist * dt;
-                twistVel *= Mathf.Exp(-1.8f * dt);
+                twistVel *= Mathf.Exp(-Mathf.Max(0.02f, cfg.twistDamp) * 6f * dt);
                 twist += twistVel * dt;
-                twist = Mathf.Clamp(twist, -0.6f, 0.6f);
+                // clamp the SWING, not the spring: pinning the angle alone used to park it
+                // at one end so it never came back the other way
+                if (twist > 0.6f) { twist = 0.6f; if (twistVel > 0f) twistVel = 0f; }
+                else if (twist < -0.6f) { twist = -0.6f; if (twistVel < 0f) twistVel = 0f; }
             }
             else { twist = 0f; twistVel = 0f; }
 
@@ -767,7 +791,7 @@ namespace WobbleStudio
                 if (cfg.jello > 0.001f)
                     outOff += jelloPos * (cfg.jello * 1.6f * jelloF[i] * w[i]);
                 if (cfg.sway > 0.001f)
-                    outOff += swayPos * (cfg.sway * 1.4f * w[i]);
+                    outOff += swayPos * (cfg.sway * 1.8f * w[i] * (swayF != null && i < swayF.Length ? swayF[i] : 1f));
                 if (cfg.twistJiggle > 0.001f)
                     outOff += Vector3.Cross(localDown, target - lastCentroid) * (twist * cfg.twistJiggle * w[i]);
                 if (cfg.pulse > 0.001f)
