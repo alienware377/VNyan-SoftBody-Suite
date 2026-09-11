@@ -7,106 +7,113 @@
   nested, or unusual bone layouts are fine.
 - Plugins must be enabled in VNyan: **Settings → Misc → Allow 3rd-party plugins**.
 
-## Installing the plugins
+> **Where is my VNyan folder?** VNyan doesn't come with an installer — it runs from
+> wherever you unzipped it (or wherever Steam / the itch app put it). Your VNyan folder is
+> simply **the folder with `VNyan.exe` inside it**. Everything below says
+> `<your VNyan folder>` for that.
 
-### Option A — installer (recommended)
+## Option A — installer (recommended)
 
-1. Download the all-in-one release zip and unzip it anywhere.
+1. Download **`VNyan-SoftBody-Suite-v2.0.0.zip`** and unzip it anywhere.
 2. Close VNyan and double-click **`install.bat`**.
-3. The installer finds VNyan at `C:\Program Files\VNyan` automatically, or lets you
-   **browse to your VNyan folder** if you installed it somewhere else (itch.io app,
-   portable drive, custom path...).
-4. Admin rights are requested **only if your VNyan folder is write-protected** (e.g. the
-   default Program Files location). Portable/user-folder installs never see a UAC prompt.
-5. Start VNyan — done.
+3. The installer **looks for VNyan by itself** — a VNyan that's open, the log VNyan keeps
+   from the last time it ran, your Steam libraries, and the itch app.
+   - Found it? It shows you where and asks you to confirm.
+   - Didn't find it, or you said no? It asks you to **open your VNyan folder** — the one
+     with `VNyan.exe` inside. (Picking a folder just inside or around it works too.)
+4. If the old separate **Squish / Wobble / Jello Studio** plugins are installed, it offers to
+   move them to `<your VNyan folder>\RetiredPlugins\`. Please say yes: VNyan loads every
+   folder in `Items\Assemblies`, so if they stay the body gets moved twice. They're moved,
+   never deleted.
+5. Admin rights are requested **only if your VNyan folder is write-protected**. Most VNyan
+   folders never see a Windows admin prompt.
+6. Start VNyan — done.
 
-### Option B — manual copy
-
-1. Download the latest release zip(s) from the Releases page.
-2. Close VNyan.
-3. For each studio you want, create a folder under VNyan's plugin directory and copy the
-   two files in:
+For scripts or unattended installs:
 
 ```
-C:\Program Files\VNyan\Items\Assemblies\SquishStudio\
-    SquishStudio.dll
-    SquishStudio.vnobj
-
-C:\Program Files\VNyan\Items\Assemblies\WobbleStudio\
-    WobbleStudio.dll
-    WobbleStudio.vnobj
-
-C:\Program Files\VNyan\Items\Assemblies\JelloStudio\
-    JelloStudio.dll
-    JelloStudio.vnobj
+powershell -ExecutionPolicy Bypass -File install.ps1 -Target "D:\Apps\VNyan" -Yes
+powershell -ExecutionPolicy Bypass -File install.ps1 -ListFound
 ```
 
-   (If VNyan is installed elsewhere, use that path. If VNyan lives in Program Files you
-   will need admin rights for the copy.)
+`-ListFound` only prints the VNyan folders the search finds.
 
-4. Start VNyan and load your avatar. Each studio registers a window under the VNyan
-   plugins menu.
-5. Open a studio window and flip its **On** toggle (top-right). The toggle state persists.
+## Option B — manual copy
 
-> **Which studios do I need?**
-> Start with **Squish Studio** alone (collision + region painting). Add **Jello Studio**
-> for the soft-body jiggle layer. Add **Wobble Studio** if you want the stylized wave /
-> jell-o / cloth modes underneath. They chain automatically in the right order.
+1. Close VNyan.
+2. Copy the two files from the zip's `SoftBodySuite` folder into:
+
+```
+<your VNyan folder>\Items\Assemblies\SoftBodySuite\
+    SoftBodySuite.dll
+    SoftBodySuite.vnobj
+```
+
+3. **Upgrading from v1?** Move these folders **out of** `Items\Assemblies` (for example into
+   `<your VNyan folder>\RetiredPlugins\`) — renaming them isn't enough, VNyan loads every
+   folder in there:
+
+```
+Items\Assemblies\SquishStudio\
+Items\Assemblies\WobbleStudio\
+Items\Assemblies\JelloStudio\
+```
+
+4. Start VNyan, load your avatar, and open **Soft Body Suite** from the plugins menu. Tick
+   **On** at the top of the window.
+
+If your VNyan folder is write-protected, Windows will ask for admin rights for the copy.
 
 ## Updating
 
-Replace the `.dll` and `.vnobj` in the plugin's folder with the new versions while VNyan
-is closed. Settings are stored separately (see below) and survive updates.
+Run the new `install.bat`, or replace the two files while VNyan is closed. Settings are
+stored separately (see below) and survive updates.
 
 ## Where settings live
 
-Each studio saves its configuration as JSON in VNyan's data folder:
-
 ```
 %USERPROFILE%\AppData\LocalLow\Suvidriel\VNyan\
-    squishstudio.json
-    wobblestudio.json
-    jellostudio.json
+    softbodysuite.json            regions, colliders and every slider
+    softbodysuite.presets.json    presets and auto-load rules
+    softbodysuite.migration.log   what was brought over from v1 (first start only)
 ```
 
-Back these up along with the plugins if you want to preserve painted regions, colliders,
-and slider values. **Squish Studio owns regions and colliders** — the other studios mirror
-them automatically from `squishstudio.json`.
+**Coming from v1:** the first time the suite starts and finds no `softbodysuite.json`, it
+reads `squishstudio.json`, `jellostudio.json` and `wobblestudio.json` and brings everything
+over. The old files aren't changed, so going back to v1.2.0 still works. Presets saved in
+the old Jello Studio aren't carried over — save them again in the suite.
+
+Back these files up if you want to keep your painted regions, colliders and presets.
 
 ## Uninstalling / temporarily disabling
 
-Delete (or rename to `.bak`) the plugin's folder contents under
-`Items\Assemblies\<StudioName>\` while VNyan is closed. Renaming to `.bak` lets you
-re-enable later by renaming back.
+Close VNyan and move `<your VNyan folder>\Items\Assemblies\SoftBodySuite\` somewhere outside
+`Items\Assemblies`. Move it back to re-enable.
 
 ## Building from source
 
-The runtime DLL is plain C# compiled against VNyan's bundled Unity assemblies:
+The runtime DLL is plain C# 5 compiled against VNyan's bundled assemblies (Framework `csc`
+works). The output **must** be named `SoftBodySuite.dll` — the `.vnobj` looks the scripts up
+by that assembly name.
 
 ```
 csc.exe -noconfig -target:library -optimize+
   -reference:<VNyan>\VNyan_Data\Managed\netstandard.dll
   -reference:<VNyan>\VNyan_Data\Managed\System.dll
   -reference:<VNyan>\VNyan_Data\Managed\System.Core.dll
-  -reference:<VNyan>\VNyan_Data\Managed\UnityEngine.CoreModule.dll
-  -reference:<VNyan>\VNyan_Data\Managed\UnityEngine.InputLegacyModule.dll
-  -reference:<VNyan>\VNyan_Data\Managed\UnityEngine.AnimationModule.dll
-  -reference:<VNyan>\VNyan_Data\Managed\UnityEngine.UI.dll
-  -reference:<VNyan>\VNyan_Data\Managed\UnityEngine.UIModule.dll
-  -reference:<VNyan>\VNyan_Data\Managed\UnityEngine.TextRenderingModule.dll
-  -reference:<VNyan>\VNyan_Data\Managed\UnityEngine.PhysicsModule.dll
   -reference:<VNyan>\VNyan_Data\Managed\VNyanInterface.dll
   -reference:<VNyan>\VNyan_Data\Managed\Newtonsoft.Json.dll
-  -out:<StudioName>.dll  Scripts\*.cs
+  -reference:<VNyan>\VNyan_Data\Managed\UnityEngine*.dll   (every UnityEngine module)
+  -out:SoftBodySuite.dll  SoftBodySuite\Scripts\*.cs
 ```
 
-The `.vnobj` is a Unity AssetBundle containing the UI window prefab. Build it with
-**Unity 2022.3 LTS**: make an empty project, drop the compiled DLL into `Assets/Plugins/`,
-the studio's `Editor/SquishBuild.cs` into `Assets/Editor/` (plus the studio's `.shader`
-file into `Assets/` where present), then run:
+The `.vnobj` is a Unity AssetBundle holding the window prefab. Build it with
+**Unity 2022.3 LTS**: make an empty project, put `SoftBodySuite.dll`, `VNyanInterface.dll`
+and `Newtonsoft.Json.dll` in `Assets/Plugins/` and `SoftBodySuite/Editor/SuiteBuild.cs` in
+`Assets/Editor/`, then run:
 
 ```
-Unity.exe -batchmode -quit -projectPath <project> -executeMethod SquishBuild.Build
+Unity.exe -batchmode -quit -projectPath <project> -executeMethod SuiteBuild.Build
 ```
 
-The bundle is written to `AssetBundles\<StudioName>.vnobj`.
+The bundle is written to `AssetBundles\SoftBodySuite.vnobj`.
