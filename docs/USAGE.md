@@ -1,130 +1,175 @@
 # Usage Guide
 
-Every control in every studio has a **`?` chip** — click it for an in-app explanation.
-This guide covers the workflow and what the important sections do.
+Most controls have a **`?` chip** — click it for an in-app explanation. This guide covers
+the workflow and what the important sections do.
 
-## The chain (how the studios cooperate)
+## The window
+
+Open **Soft Body Suite** from VNyan's plugins menu. The **On** tick at the top is the master
+switch. Below it is one long list of sections, all closed at first — **click a section title
+to open or close it**:
+
+| Section | What's in it |
+|---|---|
+| Mesh & Region | Which mesh to simulate, and its regions |
+| Weight painting | Brush, bone-group picking, copying regions to other meshes |
+| Colliders | What can press into the body (hands, arms, props) |
+| **Wobble** ☐ | Stylized motion stage |
+| **Jell-o** ☐ | Soft-body cage stage |
+| **Squish** ☐ | Collision stage |
+| **Clothes** ☐ | Clothes fitting, done once at the end |
+| Performance and native bones | Substeps, frame-rate savers, spring bones |
+| Presets | Save / load / auto-load everything |
+
+The four stage sections have a **tick in their title** that turns that stage on or off. The
+footer has **Reload** (re-read from disk), **Save** and **Close** (the plugin keeps running).
+
+## The chain
 
 ```
 skinned avatar mesh
-   └─ Wobble Studio   (order 19000)  — stylized jiggle/waves
-        └─ Jello Studio (order 20600) — soft-body cage simulation
-             └─ Squish Studio (order 20700, FINAL) — collision squish + evacuation
+   └─ Wobble    — stylized jiggle / waves
+        └─ Jell-o  — soft-body cage simulation
+             └─ Squish  — collision squish + evacuation
+                  └─ Clothes — fitted once, after everything else
 ```
 
-Each stage reads the previous stage's output mesh and only the **final** enabled stage
-renders. Chaining is automatic — enable any subset and they wire themselves. Regions and
-colliders are authored once in **Squish Studio** and mirror to the others within ~2 s.
+Each stage hands its result straight to the next one in the same frame, and only the last
+running stage draws. Turn any stage off and the others close the gap by themselves.
 
-## 1. Paint a region (Squish Studio)
+## 1. Mesh & Region
 
-1. Pick your body **Mesh** in the dropdown and click *Enable soft-body on mesh*.
-2. Create/select a **Region**, then either:
-   - **Paint** — brush weights directly on the model (radius/strength sliders, blur), or
-   - **Select from bones** — pick bone(s) from the multi-select list to auto-weight the
-     region from skinning (supports unions of several bones).
-3. The **overlay** shows painted weight as a heatmap. Paint generously past the area you
-   want to move — weights taper the motion smoothly at the boundary.
+1. Pick your body **Mesh** and click *Enable squish on mesh*.
+2. Add a **Region** (*+ Region*) and give it a name.
+3. A region is painted **once**, but each stage keeps **its own values** for it — so the
+   Wobble, Jell-o and Squish sliders always edit the region picked here.
+
+## 2. Weight painting
+
+- **Paint mode** — brush weights directly on the model with the left mouse button
+  (radius / strength sliders, *Blur weights* to soften the edges, Ctrl+Z to undo).
+- **Pick vertex groups…** — pick bone(s) from a multi-select list to fill the region from
+  the skinning (tick *Also include child bones* for whole branches).
+- The **overlay** shows the paint as colors: blue = 0, red = 1. Paint generously past the
+  area you want to move — weights taper the motion smoothly at the boundary.
 
 ### Copy regions to other meshes
 
-Clothing/accessory meshes covering the same body part should jiggle with it. Click
-**Apply to other meshes** and pick a method:
+Click **Apply region to other meshes…** and pick a method:
 
-- **Auto: same bones as the painted area** (default) — the plugin reads which bones
-  actually skin your painted verts (full multi-weight data, strongest first) and selects
-  the matching verts on each target mesh. The **weight-share ≥ %** stepper controls how
-  dominant a bone must be to count.
-- **By bone group** — reuses your last manual bone-group pick.
+- **Auto: same bones as the painted area** (default) — reads which bones actually skin
+  your painted verts and selects the matching verts on each target mesh. The
+  **weight-share ≥ %** stepper controls how dominant a bone must be to count.
+- **By bone group** — reuses your last bone-group pick.
 - **By surface transfer** — projects the painted area through space onto each target
   (**projection radius** stepper); best when skeletons/skinning differ.
 
-Tick target meshes (**All meshes**/**None**), optionally **Copy ALL regions of this
-mesh** to move every region in one click (Auto/surface methods). Copies carry all sim
-params + colliders; existing paint on a target is only overwritten when the method
-actually found vertices there, and every overwrite is undoable (Ctrl+Z).
+Tick the target meshes, and optionally **Copy ALL regions of this mesh**. Copies carry every
+stage's values and the colliders; every overwrite is undoable (Ctrl+Z).
 
-A successful apply auto-saves, so Squish sims the new regions instantly and Wobble /
-Jello mirror them within ~2 s (including a background rebuild of the remeshed sim
-cage). One caveat: a mesh that's *brand-new* to Wobble/Jello arrives there disabled —
-enable it once in that studio's mesh dropdown and it stays in sync from then on.
+## 3. Colliders
 
-## 2. Colliders (Squish Studio)
+Colliders are shared by all three stages.
 
-- **Mesh collider** (recommended): pick a skinned mesh (your body, or *(all meshes)*) —
-  arm/hand/finger bone chains are auto-reduced to smooth capsules, with merged hand
-  "mitts" so fingers can't slip between capsules. Painted verts are excluded so a region
-  never collides with itself.
-- **Bone collider**: a single sphere/capsule on any bone (pick from the bone dropdown,
-  set radius/length). Good for props.
-- **F10** shows every active collider as translucent capsules + logs perf numbers.
+- **Mesh collider** (recommended): pick a skinned mesh (your body, or *(all meshes)*) and
+  click *+ Add* — arm/hand/finger bones are turned into smooth capsules, with merged hand
+  "mitts" so fingers can't slip between them. Painted verts are left out so a region never
+  collides with itself.
+- **Bone collider**: pick any bone, set a radius, *+ Add*. Good for props.
+- **Show / hide colliders** (or **F10**) draws every active collider as a see-through capsule.
 
-## 3. Make it squish (Squish Studio)
+## 4. Wobble
 
-Key sliders:
+Stylized motion, all per region:
 
-- **Squish depth / Max dent** — how deep a press dents before the flesh "gives way".
-- **Evacuate: move bones** — past the dent limit, the region's own driver bones translate
-  away from the press (auto-detected; only whole chains move, so messy rigs can't fight).
-- **Evacuate: ALL bones (nested too)** — nested child bones also evacuate individually
-  for deeper, more local get-out-of-the-way.
-- **Evacuate: shift blob** — whole-region water-balloon shift.
-- **Self squish** — regions press each other (e.g. chest vs arm regions).
+- **Motion** — jiggle level, stiffness, damping, drag, max deform.
+- **Gravity** — how much the region sags.
+- **Waves and ripples** — cloth ripple, **jell-o wobble** (with random size and speed),
+  **rope pull** (a trailing swing when you move that settles without a wobbly tail; *ease*
+  softens it), liquid ripple.
+- **Extra jiggle modes** — sway (pendulum), twist, pulse (breathe), squash and stretch,
+  turbulence.
+- **Surface** — cellulite.
 
-## 4. Make it jiggle (Jello Studio)
+## 5. Jell-o
 
-Enable **Sim on remeshed proxy mesh (all regions)**. The plugin duplicates your painted
-regions, remeshes the copy to uniform triangles in the background (~2 s), simulates that
-cage, and projects the deformation back — your mesh's actual topology never touches the
-solver, which is where the smoothness comes from.
+Tick **Simulate on a remeshed cage**. The plugin copies your painted regions, remeshes the
+copy into even triangles in the background (~2 s), simulates that cage, and projects the
+movement back — your mesh's real topology never touches the solver, which is where the
+smoothness comes from. **Show / hide sim cage** lets you see it.
 
-### Cage also drives other meshes (anti-clip)
+A recipe that works well as a starting point:
 
-Turn on **Cage also drives other meshes** to make clothing/accessory meshes covering the
-region ride the SAME cage sim instead of running their own: every mesh vert within **Cage
-follow range** of the cage surface binds to it (normal-gated, so a bra's inner face can't
-grab the wrong breast wall) and replays the identical deformation each frame. One shared
-sim means the body and its clothing can never diverge — no more clipping between them.
-Meshes that have their own enabled sim, hidden meshes, and meshes driven by another studio
-are skipped automatically; binding happens one mesh per frame and logs what it grabbed
-(`[Jello] cage follower ...`). Meshes bound while the avatar held an extreme pose get one
-automatic re-try a few seconds later.
-
-The recipe that works well as a starting point:
-
-- Interior kept loose: *jiggle 1*, solver iterations 1, most stiffness sliders at 0
-- **Projection averaging range** ≈ 9 (the big smoothness knob)
-- **Seam smoothing level** ≈ 20, **range** ≈ 0.018 m (the painted↔unpainted boundary)
+- Interior kept loose: solver iterations 1, most stiffness sliders at 0
+- **Softness (projection averaging)** ≈ 9 (the big smoothness knob)
+- **Seam smoothing level** ≈ 20, **range** ≈ 0.018 m (the painted ↔ unpainted boundary)
 - **Seam max stretch** ≈ 0.01–0.05 (limits how fast movement ramps up away from the seam)
 - **Max stretch** small (≈ 0.01–0.06) to leash the interior
 
-Wobble Studio's modes (jell-o, waves, cloth, liquid, sway, pulse, turbulence + the
-**jell-o randomizer**) layer *underneath* Jello/Squish and are all per-region sliders.
+## 6. Squish
 
-## 5. Performance options
+- **Squish level / depth** — how strongly and how deep a press dents.
+- **Bulge** — flesh flows out around the fingers/arm.
+- **Region self-squish** — regions press into each other.
+- **Max dent before give-way** — past this, the flesh stops denting and moves instead:
+  - **Evacuate: move bones** — the region's own driver bones slide away from the press
+    (auto-detected; only whole chains move, so messy rigs can't fight).
+  - **Evacuate: ALL bones** — nested child bones also move, for deeper local give.
+  - **Evacuate: shift blob** — whole-region water-balloon shift, no bones needed.
 
-- **Sleep gate** (Squish, automatic): the collision pipeline only runs while a collider is
-  near a region. Idle cost is near zero.
-- **Half-rate physics**: compute every 2nd frame, hold the result. Cheapest.
-- **Half-rate + smooth blend (lerp)**: same cost, held frames blend between ticks.
-- **Async physics (worker thread)** (Squish): the entire sim runs on a background thread —
-  best FPS during contact, one frame of physics latency.
-- The three rate options are mutually exclusive and untick each other.
-- Suggested slower-PC setup: Squish **async ON**, Jello + Wobble **half-rate lerp ON**.
+## 7. Clothes
 
-## 6. Native bone physics
+Runs **once, after all three stages**, on the finished body.
 
-Spring/dynamic bones driving the same body parts fight the mesh simulation. Every studio
-has **Disable spring/dynamic bones** (scoped to painted regions by default) — leave it on
-unless you know you want both.
+- **Move the clothes onto the body** — clothing near the painted regions (within **Cloth
+  follow range**) binds to the body and replays exactly the same movement every frame, so
+  body and clothes can't drift apart. Garments take their resting fit from the body
+  *without* the wobble swing, so toggling things mid-motion can't bake a clip in.
+  - *Bind to the WHOLE body surface*, *Only cloth on the region bones*, *Keep clothes off
+    the skin*, **inflate** and **min cloth gap** fine-tune the fit.
+- **Tuck the body back in** (optional) — instead of moving the clothes, pushes flesh back
+  inside the garment covering it. It reshapes the body, so prefer moving the clothes; use
+  this for garments that aren't moved onto the body.
+
+## 8. Performance and native bones
+
+- **Substeps per stage** — more = steadier physics, more cost.
+- **Frame-rate savers**, per stage:
+  - **Half-rate physics** — compute every 2nd frame and hold the result. Cheapest.
+  - **Half-rate + smooth blend** — same cost, held frames blend between ticks.
+  - **Async physics (worker thread)** (Wobble, Squish) — the sim runs on a background
+    thread; best FPS, one frame of physics delay.
+  - The options for one stage are mutually exclusive and untick each other.
+  - Suggested slower-PC setup: Squish **async** on, Jell-o + Wobble **half-rate + smooth**.
+- **Disable spring/dynamic bones** — native bone physics on the same body parts fights the
+  mesh simulation. Leave it on (scoped to painted regions) unless you want both.
+- **Sharpness overlay** paints jagged spots red; **Hide meshes…** hides meshes while you work.
+
+## 9. Presets
+
+A preset holds **everything** — regions, colliders, all three stages, clothes and
+performance settings — in one go.
+
+- Type a name, then **Save preset**. **Load preset** / **Delete preset** act on the one
+  picked in the list.
+- **Auto-load for this model** — remembers the loaded model by its file name.
+- **Model name includes…** + **Auto-load when name includes** — type any part of a name
+  (for example `Luna`), and every model whose name contains it gets the preset.
+- **Auto-load presets on model change** — the switch for all of the above.
+- **Manage presets…** opens a small window: rename a preset (type, then **Enter** — its
+  auto-load rules follow the new name), **Load**, **Delete** (click twice to confirm).
+- **Manage auto-load…** opens another: an on/off tick per rule, editable name text
+  (**Enter** saves), click the preset name to switch it to the next preset, **Delete**
+  (click twice). It also shows what the current model is called, and marks rules that can
+  never match.
+
+Text boxes in those windows save on **Enter** only — clicking away puts the old text back.
 
 ## Troubleshooting tools
 
-- **F10** — collider visualisation + per-frame `bake+chain` / `sim+write` ms in the log.
-- **F11** — dumps the displaced mesh, rest mesh, and per-node field CSVs to
-  `AppData\LocalLow\Suvidriel\VNyan\<studio>debug\` for offline analysis.
-- **Sharpness overlay** — paints polygon-angle acuteness (red = jagged) live on the model.
-- **Show / hide remeshed mesh** (Jello) — displays the sim cage floating just above the
-  skin, colored by paint weight.
-- The VNyan log (`AppData\LocalLow\Suvidriel\VNyan\Player.log`) reports chain wiring,
-  cage builds, collider construction, and any instability resets.
+- **F10** — collider capsules + per-frame timings in the log.
+- **F11** — dumps the displaced mesh, rest mesh and per-node field CSVs to
+  `AppData\LocalLow\Suvidriel\VNyan\squishdebug\` (and `jellodebug\`) for offline analysis.
+- **Sharpness overlay** — polygon-angle jaggedness (red = jagged), live on the model.
+- The VNyan log (`AppData\LocalLow\Suvidriel\VNyan\Player.log`) reports the chain wiring,
+  cage builds, colliders, which model was recognized and which preset auto-loaded.
