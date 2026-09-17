@@ -14,7 +14,7 @@
 
 ## Option A — installer (recommended)
 
-1. Download **`VNyan-SoftBody-Suite-v2.0.0.zip`** and unzip it anywhere.
+1. Download **`VNyan-SoftBody-Suite-v2.0.1.zip`** and unzip it anywhere.
 2. Close VNyan and double-click **`install.bat`**.
 3. The installer **looks for VNyan by itself** — a VNyan that's open, the log VNyan keeps
    from the last time it ran, your Steam libraries, and the itch app.

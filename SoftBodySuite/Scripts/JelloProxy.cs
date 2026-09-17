@@ -2104,6 +2104,24 @@ namespace SoftBodySuite.Jello
                 Newtonsoft.Json.JsonConvert.SerializeObject(src));
             reg.name = "(cage) " + src.name;
             reg.enabled = true;
+            // The clone above is a JSON round-trip, and StageRegion.colliders is
+            // [JsonIgnore] (SuiteConfig.cs:35) — Sync() wires it as a REFERENCE to the
+            // painted region's list (SuiteConfig.cs:186) rather than duplicating it per
+            // stage, so it deliberately does not serialise. That means the round-trip
+            // hands back a region with NO colliders, and the merge loop below only adds
+            // them from OTHER regions (it skips `src` by design, on the assumption the
+            // clone already carried them). With a single painted region — or with the
+            // colliders on the first enabled one, which is the ordinary case — the cage
+            // sim was therefore built with an empty collider list and its collision did
+            // nothing at all.
+            //
+            // Copy them across explicitly, deep, so the cage sim cannot mutate the
+            // painted region's own list.
+            reg.colliders = new List<SquishCollider>();
+            for (int sc = 0; sc < src.colliders.Count; sc++)
+                if (src.colliders[sc] != null)
+                    reg.colliders.Add(Newtonsoft.Json.JsonConvert.DeserializeObject<SquishCollider>(
+                        Newtonsoft.Json.JsonConvert.SerializeObject(src.colliders[sc])));
             reg.vertIndex = new List<int>(); reg.weight = new List<float>();
             for (int i = 0; i < c.SimVertCount; i++) { reg.vertIndex.Add(i); reg.weight.Add(c.simWeight[i]); }
             for (int r = 0; r < cfg.regions.Count; r++)
@@ -2133,9 +2151,13 @@ namespace SoftBodySuite.Jello
             cage = c; cageSim = sim; cageSrc = src; sims.Add(sim);
             cageHeldValid = false;   // fresh cage: don't lerp followers from the old field
             ResolveColliderMeshes(avatarRef);
+            // The collider count is on this line because it silently read ZERO for a long
+            // time: the synthetic region above is a JSON clone, and colliders are
+            // [JsonIgnore], so the cage sim was built with none and its collision did
+            // nothing while every other number here looked perfectly healthy.
             Debug.Log("[Jello] remesh cage LIVE: " + c.SimVertCount + " verts, edge=" + c.usedEdge.ToString("0.0000")
                 + " m, built in " + (cageSw != null ? cageSw.ElapsedMilliseconds : 0) + " ms (union of all regions); valley gate: "
-                + c.gateUsed + " gated / " + c.gateFallback + " fallback");
+                + c.gateUsed + " gated / " + c.gateFallback + " fallback; colliders: " + reg.colliders.Count);
         }
 
         public void ToggleCageViz()
