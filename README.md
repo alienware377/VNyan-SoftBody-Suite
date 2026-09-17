@@ -47,7 +47,7 @@ keep working — and the clothes keep following.
 
 ## Quick Start
 
-1. Download **`VNyan-SoftBody-Suite-v2.0.0.zip`** from
+1. Download **`VNyan-SoftBody-Suite-v2.0.1.zip`** from
    [Releases](https://github.com/alienware377/VNyan-SoftBody-Suite/releases), unzip it,
    close VNyan and run **`install.bat`**. It looks for VNyan by itself and asks you to
    confirm — or asks you to **open your VNyan folder** (the one with `VNyan.exe` inside).
