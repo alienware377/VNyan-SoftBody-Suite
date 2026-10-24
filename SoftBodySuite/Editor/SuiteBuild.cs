@@ -14,7 +14,7 @@ public static class SuiteBuild
     {
         const string windowPrefabPath = "Assets/SoftBodySuiteWindow.prefab";
         const string starterPrefabPath = "Assets/SoftBodySuiteStarter.prefab";
-        const string bundleName = "softbodysuite_bundle";
+        const string bundleName = "softfleshfield_bundle";
         const string outDir = "AssetBundles";
 
         GameObject windowAsset = BuildWindowPrefab(windowPrefabPath);
@@ -22,6 +22,9 @@ public static class SuiteBuild
         GameObject go = new GameObject("VNyanTemp");
         SoftBodySuite.SquishPlugin plugin = go.AddComponent<SoftBodySuite.SquishPlugin>();
         plugin.windowPrefab = windowAsset;
+        // referenced from the prefab, so the bundle carries it as a dependency
+        plugin.gpuProbe = AssetDatabase.LoadAssetAtPath<ComputeShader>("Assets/GpuProbe.compute");
+        if (plugin.gpuProbe == null) Debug.LogWarning("[SuiteBuild] Assets/GpuProbe.compute did not import");
         PrefabUtility.SaveAsPrefabAsset(go, starterPrefabPath);
         Object.DestroyImmediate(go);
         AssetDatabase.SaveAssets();
@@ -39,7 +42,7 @@ public static class SuiteBuild
 
         if (manifest == null) { Debug.LogError("[SuiteBuild] bundle build failed"); EditorApplication.Exit(2); return; }
         string built = Path.Combine(outDir, bundleName);
-        string final = Path.Combine(outDir, "SoftBodySuite.vnobj");
+        string final = Path.Combine(outDir, "SoftFleshField.vnobj");
         if (File.Exists(final)) File.Delete(final);
         File.Copy(built, final);
         Debug.Log("[SuiteBuild] wrote " + final);
@@ -133,6 +136,11 @@ public static class SuiteBuild
         float cW = outerW - sbW - 2f * cX;
         float y = 6f;
 
+        // ---------- overall jiggle (every stage at once) ----------
+        Header(c, "Overall jiggle (all stages)", cX, cW, ref y);
+        SliderRow(c, "jigstrength", "Jiggle strength", cX, cW, ref y);
+        SliderRow(c, "jigsettle", "Jiggle settle time", cX, cW, ref y);
+
         // ---------- mesh & region ----------
         Header(c, "— Mesh & Region —", cX, cW, ref y);
         MakeText(c, "Lbl_Mesh", "Mesh", cX, y, 70f, 30f, 12, TextAnchor.MiddleLeft, FontStyle.Normal);
@@ -148,6 +156,15 @@ public static class SuiteBuild
         MakeToggle(c, "Toggle_RegionEnabled", "Enabled", cX + 2f * (b3 + gap), y, b3, 24f); y += 30f;
         MakeText(c, "Lbl_RName", "Name", cX, y, 70f, 26f, 12, TextAnchor.MiddleLeft, FontStyle.Normal);
         MakeInput(c, "Input_RegionName", "region name", cX + 76f, y, cW - 76f, 26f); y += 32f;
+        SubHeader(c, "Region settings presets", cX, cW, ref y);
+        MakeDropdown(c, "Dropdown_RegPreset", cX, y, cW, 28f); y += 32f;
+        MakeInput(c, "Input_RegPresetName", "new region preset name", cX, y, cW, 24f); y += 28f;
+        MakeButton(c, "Button_RegPresetSave", "Save this region", cX, y, b3, 26f);
+        MakeButton(c, "Button_RegPresetApply", "Apply here", cX + b3 + gap, y, b3, 26f);
+        MakeButton(c, "Button_RegPresetDelete", "Delete preset", cX + 2f * (b3 + gap), y, b3, 26f); y += 30f;
+        MakeText(c, "Lbl_CopyFrom", "Copy from", cX, y, 70f, 28f, 12, TextAnchor.MiddleLeft, FontStyle.Normal);
+        MakeDropdown(c, "Dropdown_CopyRegion", cX + 76f, y, cW - 76f - b3 - gap, 28f);
+        MakeButton(c, "Button_CopyRegion", "Copy here", cX + cW - b3, y, b3, 26f); y += 32f;
 
         // ---------- painting ----------
         Header(c, "— Weight painting —", cX, cW, ref y);
@@ -166,6 +183,7 @@ public static class SuiteBuild
         MakeButton(c, "Button_PickGroups", "Pick vertex groups… (multi-select)", cX, y, b2, 24f);
         MakeButton(c, "Button_ClearWeights", "Clear weights", cX + b2 + gap, y, b2, 24f); y += 30f;
         MakeButton(c, "Button_ApplyMulti", "Apply region to other meshes…", cX, y, cW, 26f); y += 32f;
+        MakeButton(c, "Button_NormalizeWeights", "Normalize weights (strongest = 100%)", cX, y, cW, 24f); y += 30f;
         MakeToggle(c, "Toggle_GravityPose", "Gravity only when the parent bone leaves rest", cX, y, cW, 24f); y += 28f;
         MakeText(c, "Lbl_RefBone", "Ref bone", cX, y, 70f, 28f, 12, TextAnchor.MiddleLeft, FontStyle.Normal);
         MakeDropdown(c, "Dropdown_RefBone", cX + 76f, y, cW - 76f, 28f); y += 34f;
@@ -273,6 +291,11 @@ public static class SuiteBuild
         MakeToggle(c, "Toggle_bonefilter", "Only cloth on the region bones", cX, y, cW, 22f); y += 26f;
         MakeToggle(c, "Toggle_clothout", "Keep clothes off the skin (cloth only)", cX, y, cW, 22f); y += 26f;
         SliderRow(c, "cagefollow", "Cloth follow range (m)", cX, cW, ref y);
+        SliderRow(c, "cagefolx", "Follow zone: side (m)", cX, cW, ref y);
+        SliderRow(c, "cagefoly", "Follow zone: up/down (m)", cX, cW, ref y);
+        SliderRow(c, "cagefolz", "Follow zone: forward (m)", cX, cW, ref y);
+        SliderRow(c, "cagerigid", "Floating parts: move as one", cX, cW, ref y);
+        SliderRow(c, "cagefloat", "Floating if further than (m)", cX, cW, ref y);
         SliderRow(c, "cagefit", "Follow strength (fit)", cX, cW, ref y);
         SliderRow(c, "cageinflate", "Inflate driven clothes (m)", cX, cW, ref y);
         SliderRow(c, "cageinflatedyn", "Dynamic inflate (x outward)", cX, cW, ref y);
@@ -281,6 +304,13 @@ public static class SuiteBuild
         SliderRow(c, "cageminclear", "Min cloth gap (m)", cX, cW, ref y);
         SliderRow(c, "cagefolsharp", "Cloth field sharpness", cX, cW, ref y);
         SliderRow(c, "cagefolsm", "Cloth field smoothing", cX, cW, ref y);
+        SubHeader(c, "Skin guard (push cloth out of the skin)", cX, cW, ref y);
+        MakeToggle(c, "Toggle_skinguard", "Push clothes out of the skin", cX, y, cW, 22f); y += 26f;
+        SliderRow(c, "sggap", "Guard: closest to skin (m)", cX, cW, ref y);
+        SliderRow(c, "sgreach", "Guard: watch cloth within (m)", cX, cW, ref y);
+        SliderRow(c, "sgsoft", "Guard: softness (spread)", cX, cW, ref y);
+        SliderRow(c, "sgstr", "Guard: strength", cX, cW, ref y);
+        SliderRow(c, "sgsunk", "Guard: fix cloth sunk in skin (m)", cX, cW, ref y);
         SubHeader(c, "Tuck the body back in", cX, cW, ref y);
         MakeToggle(c, "Toggle_clipguard", "Tuck flesh back inside the clothes", cX, y, cW, 24f); y += 26f;
         SliderRow(c, "clipclear", "Tuck: extra clearance (m)", cX, cW, ref y);

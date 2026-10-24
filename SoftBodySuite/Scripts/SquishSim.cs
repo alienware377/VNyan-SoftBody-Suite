@@ -18,6 +18,9 @@ namespace SoftBodySuite.Squish
 
         // active capsules this frame (proxy-local) + broadphase (midpoint, reach^2)
         public Vector3[] ca, cb; public float[] cr; int nc;
+        // bone name of each LIVE capsule (same index as ca/cb/cr). The field's Lift uses it
+        // to tell a hand or arm pressing in from the torso the breast is attached to.
+        public string[] cbone;
         Vector3[] cm; float[] re2;
         Vector3 gC; float gR2;   // bounding sphere over ALL active capsules (global reject)
         public int nd { get { return nc; } }
@@ -59,6 +62,7 @@ namespace SoftBodySuite.Squish
         void EndBuild()
         {
             ca = new Vector3[caps.Count]; cb = new Vector3[caps.Count]; cr = new float[caps.Count];
+            cbone = new string[caps.Count];
             cm = new Vector3[caps.Count]; re2 = new float[caps.Count];
             buildInfo = caps.Count + " capsules — " + bsb;
             bsb = null; usedBones = null;
@@ -219,6 +223,7 @@ namespace SoftBodySuite.Squish
                 }
                 if (!near) continue;
                 ca[nc] = a; cb[nc] = b; cr[nc] = r;
+                if (cbone != null && nc < cbone.Length) cbone[nc] = c.bone.name;
                 cm[nc] = (a + b) * 0.5f;
                 float reach = (b - a).magnitude * 0.5f + r + radius + 0.02f;
                 re2[nc] = reach * reach;
@@ -671,7 +676,9 @@ namespace SoftBodySuite.Squish
             float stiff = Mathf.Max(0.5f, cfg.stiffness);
             float damp = Mathf.Clamp01(cfg.damping);
             float clothC2 = Mathf.Lerp(40f, 400f, Mathf.Clamp01(cfg.clothSize)) * Mathf.Max(0.05f, cfg.waveSpeed);
-            float clothDampMul = Mathf.Exp(-2.5f * dt);
+            // overall settle time: every decay below runs decayMul times faster (1 = as tuned)
+            float dmul = SoftBodySuite.JiggleGlobal.decayMul;
+            float clothDampMul = Mathf.Exp(-2.5f * dt * dmul);
             float jelloOmega = 2f * Mathf.PI * Mathf.Lerp(6f, 1.5f, Mathf.Clamp01(cfg.jelloSize)) * Mathf.Max(0.05f, cfg.waveSpeed);
 
             Vector3 centroid = Vector3.zero, prevCentroid = Vector3.zero;
@@ -700,7 +707,7 @@ namespace SoftBodySuite.Squish
             {
                 if (!teleport) jelloVel -= dc * 14f;
                 jelloVel += -jelloOmega * jelloOmega * jelloPos * dt;
-                jelloVel *= Mathf.Exp(-2.0f * dt);
+                jelloVel *= Mathf.Exp(-2.0f * dt * dmul);
                 jelloPos += jelloVel * dt;
                 float jm = jelloPos.magnitude; if (jm > 0.1f) jelloPos *= 0.1f / jm;
             }
@@ -712,7 +719,7 @@ namespace SoftBodySuite.Squish
                 if (!teleport) swayVel -= lat * 10f;
                 float swOmega = 2f * Mathf.PI * 1.3f * Mathf.Max(0.05f, cfg.waveSpeed);
                 swayVel += -swOmega * swOmega * swayPos * dt;
-                swayVel *= Mathf.Exp(-1.6f * dt);
+                swayVel *= Mathf.Exp(-1.6f * dt * dmul);
                 swayPos += swayVel * dt;
                 float sm = swayPos.magnitude; if (sm > 0.08f) swayPos *= 0.08f / sm;
             }
@@ -726,7 +733,7 @@ namespace SoftBodySuite.Squish
                 if (!teleport) twistVel -= Vector3.Dot(Vector3.Cross(localDown, lat), fwd.normalized) * 40f;
                 float twOmega = 2f * Mathf.PI * 2.0f * Mathf.Max(0.05f, cfg.waveSpeed);
                 twistVel += -twOmega * twOmega * twist * dt;
-                twistVel *= Mathf.Exp(-1.8f * dt);
+                twistVel *= Mathf.Exp(-1.8f * dt * dmul);
                 twist += twistVel * dt;
                 twist = Mathf.Clamp(twist, -0.6f, 0.6f);
             }
@@ -747,7 +754,7 @@ namespace SoftBodySuite.Squish
             }
 
             float maxOff = Mathf.Max(0.001f, cfg.maxOffset);
-            float dampMul = Mathf.Pow(1f - damp, dt * 30f);
+            float dampMul = Mathf.Pow(1f - damp, dt * 30f * dmul);
             float r2max = 0f;
 
             // JIGGLE AT ZERO = NO DYNAMICS. The spring/inertia integration below feeds

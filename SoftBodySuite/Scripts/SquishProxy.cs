@@ -890,6 +890,11 @@ namespace SoftBodySuite.Squish
                 heldValid = true;
             }
 
+            {
+                // overall jiggle strength (the held/lerp state above stays raw)
+                float js = SoftBodySuite.JiggleGlobal.strength;
+                if (js != 1f) for (int i = 0; i < disp.Length; i++) disp[i] *= js;
+            }
             for (int i = 0; i < bakedVerts.Length; i++) bakedVerts[i] += disp[i];
             // FINAL guarantee, on the very array that becomes the rendered body: the flesh
             // cannot cross the clothes covering it, no matter what any earlier stage did.

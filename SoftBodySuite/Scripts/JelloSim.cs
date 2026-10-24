@@ -649,9 +649,18 @@ namespace SoftBodySuite.Jello
             return best;
         }
 
+        // sub-pass timers for the perf probe (main thread only: the cage sim runs there)
+        readonly System.Diagnostics.Stopwatch dynSw = new System.Diagnostics.Stopwatch();
+        float tNrm, tInteg, tRest, tAttach, tEdge, tBend, tTens, tCol, tPress;
+        float DynLap() { float ms = (float)dynSw.Elapsed.TotalMilliseconds; dynSw.Reset(); dynSw.Start(); return ms; }
+
         public void StepDynamics(Vector3[] baked, Vector3[] normals, float sdt, Vector3 localDown, Transform proxy)
         {
             if (n == 0) return;
+            dynSw.Reset(); dynSw.Start();
+            // self-check: the first 8 check frames of a session only (each re-runs the originals)
+            bool ck = (System.Threading.Interlocked.Increment(ref ckCounter) % 600) == 41 && ckRuns < 24;
+            tNrm = tInteg = tRest = tAttach = tEdge = tBend = tTens = tCol = tPress = 0f;
             if (!primed)
             {
                 for (int i = 0; i < n; i++) { pos[i] = baked[idx[i]]; prev[i] = pos[i]; }
@@ -669,24 +678,37 @@ namespace SoftBodySuite.Jello
                     if (am > 1e-6f) nS[i] = acc / am;
                 }
 
+            tNrm += DynLap();
             float damp = Mathf.Clamp01(cfg.damping);
+            // overall settle time: the velocity kept per step, raised to decayMul (so the
+            // ringing dies decayMul times faster); exactly (1 - damp) at the default
+            float dmulJ = SoftBodySuite.JiggleGlobal.decayMul;
+            float keepV = dmulJ == 1f ? (1f - damp) : Mathf.Pow(1f - damp, dmulJ);
             float grav = Mathf.Clamp(cfg.gravity, 0f, 1f) * 0.35f;
             for (int i = 0; i < n; i++)
             {
                 Vector3 x = pos[i];
-                Vector3 v = (x - prev[i]) * (1f - damp);
+                Vector3 v = (x - prev[i]) * keepV;
                 float vm = v.magnitude;
                 if (vm > 0.05f) v *= 0.05f / vm;   // oscillation guard
                 prev[i] = x;
                 pos[i] = x + v + localDown * (grav * sdt * sdt * wS[i]);
             }
 
+            tInteg += DynLap();
             int iters = Mathf.Clamp(Mathf.RoundToInt(cfg.xIter), 1, 30);
             // rest lengths from the current bake, ONCE per substep (was sqrt x edges x iters)
             if (restE == null || restE.Length != eA.Length) restE = new float[eA.Length];
             if (restB == null || restB.Length != bA.Length) restB = new float[bA.Length];
-            for (int e = 0; e < eA.Length; e++) restE[e] = (baked[idx[eA[e]]] - baked[idx[eB[e]]]).magnitude;
-            for (int e = 0; e < bA.Length; e++) restB[e] = (baked[idx[bA[e]]] - baked[idx[bB[e]]]).magnitude;
+            float[] rE = restE, rB = restB;
+            SoftBodySuite.Field.ParallelLoop.For(eA.Length, 2048, delegate (int lo, int hi)
+            {
+                for (int e = lo; e < hi; e++) rE[e] = (baked[idx[eA[e]]] - baked[idx[eB[e]]]).magnitude;
+            });
+            SoftBodySuite.Field.ParallelLoop.For(bA.Length, 2048, delegate (int lo, int hi)
+            {
+                for (int e = lo; e < hi; e++) rB[e] = (baked[idx[bA[e]]] - baked[idx[bB[e]]]).magnitude;
+            });
             if (contact == null || contact.Length != n) contact = new int[n];
             float kStretch = Mathf.Clamp01(cfg.xStretch);
             float attach = Mathf.Clamp01(cfg.xAttach);
@@ -696,123 +718,147 @@ namespace SoftBodySuite.Jello
             float colRelax = Mathf.Clamp(cfg.xColRelax, 0.05f, 1f);
             float compressK = Mathf.Clamp01(cfg.xCompress);
             float tension = Mathf.Clamp01(cfg.xTension) * 0.6f;
+            // proxy == null: the caller already ran PrepareStep on the main thread (the
+            // solve is on a worker and must not touch a Transform)
+            if (!skipCollision && proxy != null) PrepareColliders(ncol, proxy);
+            tRest += DynLap();
 
             for (int it = 0; it < iters; it++)
             {
+                tCol += DynLap();   // the previous iteration's collision
                 // 1. DETACHED mode: the interior answers ONLY to physics (springs,
                 // gravity, inertia, collision, pressure). Attachment exists only as GLUE
                 // near the paint boundary, ramping in smoothly so the join to the rest of
                 // the body stays seamless.
-                for (int i = 0; i < n; i++)
+                SoftBodySuite.Field.ParallelLoop.For(n, 512, delegate (int lo, int hi)
                 {
-                    Vector3 b = baked[idx[i]];
-                    float glue = 1f - wS[i];          // boundary (low paint) = glued
-                    glue *= glue;
-                    pos[i] = Vector3.Lerp(pos[i], b, Mathf.Max(glue * Mathf.Max(attach, 0.3f), attach * 0.01f));
-                    Vector3 d = pos[i] - b;
-                    // leash: tight at the boundary, effectively infinite in the interior
-                    float R = maxS * (0.25f + wS[i] * wS[i] * 8f);   // interior leash: maxStretch now bites (was *60 = effectively infinite)
-                    float dm = d.magnitude;
-                    if (dm > R) pos[i] = b + d * (R / dm);
-                }
+                    for (int i = lo; i < hi; i++)
+                    {
+                        Vector3 b = baked[idx[i]];
+                        float glue = 1f - wS[i];          // boundary (low paint) = glued
+                        glue *= glue;
+                        pos[i] = Vector3.Lerp(pos[i], b, Mathf.Max(glue * Mathf.Max(attach, 0.3f), attach * 0.01f));
+                        Vector3 d = pos[i] - b;
+                        // leash: tight at the boundary, effectively infinite in the interior
+                        float R = maxS * (0.25f + wS[i] * wS[i] * 8f);   // interior leash: maxStretch now bites (was *60 = effectively infinite)
+                        float dm = d.magnitude;
+                        if (dm > R) pos[i] = b + d * (R / dm);
+                    }
+                });
+                tAttach += DynLap();
                 // 2. distance constraints (rest = current skinned bake).
                 // Skipped wholesale when the stiffness is 0 (the validated setup) —
                 // iterating every edge to multiply by zero is pure waste.
+                if (ck && kStretch > 0.0001f) { CkBegin(); EdgesRef(ckPos, kStretch, compressK, corrCap); }
                 if (kStretch > 0.0001f)
-                for (int e = 0; e < eA.Length; e++)
                 {
-                    int a = eA[e], b2 = eB[e];
-                    Vector3 d = pos[a] - pos[b2];
-                    float L = d.magnitude;
-                    if (L < 1e-7f) continue;
-                    float diff = L - restE[e];
-                    // FLESH, not cloth: resist stretch hard, allow compression almost
-                    // freely - symmetric constraints force the surface to BUCKLE (fold)
-                    // under a press, which is exactly the rainbow crinkle in the overlay
-                    float k1 = diff > 0f ? kStretch : kStretch * compressK;
-                    Vector3 c = d * (diff / L * 0.5f * k1);
-                    float cl = c.magnitude;
-                    float capE = Mathf.Min(corrCap, Mathf.Max(restE[e] * 0.75f, 0.001f));   // scale-adaptive
-                    if (cl > capE) c *= capE / cl;
-                    pos[a] -= c; pos[b2] += c;
+                // Written out per component: the SAME operations in the SAME order with the
+                // same float32 roundings as the Vector3 operators (every Vector3 temporary is
+                // a float local here), minus Mono's per-operator calls. Same numbers, faster.
+                    Vector3[] P = pos; float[] RE = restE; int[] EA = eA, EB = eB;
+                    float kComp = kStretch * compressK;
+                    for (int e = 0; e < EA.Length; e++)
+                    {
+                        int a = EA[e], b2 = EB[e];
+                        float dx = P[a].x - P[b2].x, dy = P[a].y - P[b2].y, dz = P[a].z - P[b2].z;
+                        float L = (float)System.Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                        if (L < 1e-7f) continue;
+                        float diff = L - RE[e];
+                        // FLESH, not cloth: resist stretch hard, allow compression almost
+                        // freely - symmetric constraints force the surface to BUCKLE (fold)
+                        // under a press, which is exactly the rainbow crinkle in the overlay
+                        float k1 = diff > 0f ? kStretch : kComp;
+                        float sc = diff / L * 0.5f * k1;
+                        float cx = dx * sc, cy = dy * sc, cz = dz * sc;
+                        float cl = (float)System.Math.Sqrt(cx * cx + cy * cy + cz * cz);
+                        float capE = Mathf.Min(corrCap, Mathf.Max(RE[e] * 0.75f, 0.001f));   // scale-adaptive
+                        if (cl > capE) { float r = capE / cl; cx = cx * r; cy = cy * r; cz = cz * r; }
+                        P[a].x = P[a].x - cx; P[a].y = P[a].y - cy; P[a].z = P[a].z - cz;
+                        P[b2].x = P[b2].x + cx; P[b2].y = P[b2].y + cy; P[b2].z = P[b2].z + cz;
+                    }
                 }
+                if (ck && kStretch > 0.0001f) CkEnd("edges");
+                tEdge += DynLap();
                 // 2b. bending (2-ring) constraints — fold resistance so the surface stays
                 // a smooth sheet instead of crumpling
                 float kBend = kStretch * Mathf.Clamp01(cfg.xBend);
+                if (ck && kBend > 0.0001f) { CkBegin(); BendRef(ckPos, kBend, compressK, corrCap); }
                 if (kBend > 0.0001f)
-                for (int e = 0; e < bA.Length; e++)
                 {
-                    int a = bA[e], b2 = bB[e];
-                    Vector3 d = pos[a] - pos[b2];
-                    float L = d.magnitude;
-                    if (L < 1e-7f) continue;
-                    float diffB = L - restB[e];
-                    float kb1 = diffB > 0f ? kBend : kBend * Mathf.Min(1f, compressK * 2f);
-                    Vector3 c = d * (diffB / L * 0.5f * kb1);
-                    float cl = c.magnitude;
-                    if (cl > corrCap) c *= corrCap / cl;
-                    pos[a] -= c; pos[b2] += c;
+                // Written out per component: the SAME operations in the SAME order with the
+                // same float32 roundings as the Vector3 operators (every Vector3 temporary is
+                // a float local here), minus Mono's per-operator calls. Same numbers, faster.
+                    Vector3[] P = pos; float[] RB = restB; int[] BA = bA, BB = bB;
+                    float kbComp = kBend * Mathf.Min(1f, compressK * 2f);
+                    for (int e = 0; e < BA.Length; e++)
+                    {
+                        int a = BA[e], b2 = BB[e];
+                        float dx = P[a].x - P[b2].x, dy = P[a].y - P[b2].y, dz = P[a].z - P[b2].z;
+                        float L = (float)System.Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                        if (L < 1e-7f) continue;
+                        float diffB = L - RB[e];
+                        float kb1 = diffB > 0f ? kBend : kbComp;
+                        float sc = diffB / L * 0.5f * kb1;
+                        float cx = dx * sc, cy = dy * sc, cz = dz * sc;
+                        float cl = (float)System.Math.Sqrt(cx * cx + cy * cy + cz * cz);
+                        if (cl > corrCap) { float r = corrCap / cl; cx = cx * r; cy = cy * r; cz = cz * r; }
+                        P[a].x = P[a].x - cx; P[a].y = P[a].y - cy; P[a].z = P[a].z - cz;
+                        P[b2].x = P[b2].x + cx; P[b2].y = P[b2].y + cy; P[b2].z = P[b2].z + cz;
+                    }
                 }
+                if (ck && kBend > 0.0001f) CkEnd("bend");
+                tBend += DynLap();
                 // SKIN TENSION: with compression nearly free, slack surface has no defined
                 // resting shape and wanders into crinkle. Pull each node toward its
                 // neighbours' AVERAGE OFFSET (Laplacian on the deformation field) — smooths
                 // deformation without shrinking the rest shape (offset 0 stays 0).
+                if (ck && tension > 0.001f) { CkBegin(); TensionRef(ckPos, baked, tension); }
                 if (tension > 0.001f)
+                {
+                // Written out per component: the SAME operations in the SAME order with the
+                // same float32 roundings as the Vector3 operators (every Vector3 temporary is
+                // a float local here), minus Mono's per-operator calls. Same numbers, faster.
+                    Vector3[] P = pos; int[] IX = idx;
                     for (int i = 0; i < n; i++)
                     {
                         int[] nb = nbr[i];
                         if (nb.Length < 2) continue;
-                        Vector3 avgOff = Vector3.zero;
-                        for (int j = 0; j < nb.Length; j++) avgOff += pos[nb[j]] - baked[idx[nb[j]]];
-                        avgOff /= nb.Length;
+                        float ax = 0f, ay = 0f, az = 0f;
+                        for (int j = 0; j < nb.Length; j++)
+                        {
+                            int q = nb[j], bq = IX[q];
+                            float tx = P[q].x - baked[bq].x, ty = P[q].y - baked[bq].y, tz = P[q].z - baked[bq].z;
+                            ax = ax + tx; ay = ay + ty; az = az + tz;
+                        }
+                        float dn = nb.Length;
+                        ax = ax / dn; ay = ay / dn; az = az / dn;
                         // density-adaptive: denser-than-median areas get proportionally MORE
                         // tension (their absolute wander is larger relative to edge length)
                         float tAdapt = Mathf.Min(0.95f, tension * Mathf.Clamp(medianScale / Mathf.Max(localScale[i], 1e-5f), 1f, 3f));
-                        pos[i] = Vector3.Lerp(pos[i], baked[idx[i]] + avgOff, tAdapt);
+                        float t = Mathf.Clamp01(tAdapt);   // what Vector3.Lerp does first
+                        int bi = IX[i];
+                        float gx = baked[bi].x + ax, gy = baked[bi].y + ay, gz = baked[bi].z + az;
+                        float px = P[i].x, py = P[i].y, pz = P[i].z;
+                        P[i] = new Vector3(px + (gx - px) * t, py + (gy - py) * t, pz + (gz - pz) * t);
                     }
+                }
+                if (ck && tension > 0.001f) CkEnd("tension");
+                tTens += DynLap();
                 // 3. collision - hard, last. Iteration 0 scans ALL nodes and records the
                 // contact set (+ neighbours); later iterations only re-test that set.
                 if (skipCollision) continue;
                 if (it == 0) nContact = 0;
                 int scanCount = it == 0 ? n : nContact;
-                for (int si = 0; si < scanCount; si++)
+                bool firstIt = it == 0;
+                float relaxIt = it == iters - 1 ? 1f : colRelax;   // no one-step flings
+                int[] cset = contact;
+                SoftBodySuite.Field.ParallelLoop.For(scanCount, 256, delegate (int lo, int hi)
                 {
-                    int i = it == 0 ? si : contact[si];
-                    rawPen[i] = 0f;
-                    for (int c = 0; c < ncol; c++)
-                    {
-                        if (!colCfg[c].enabled) continue;
-                        if (!string.IsNullOrEmpty(colCfg[c].mesh))
-                        {
-                            MeshColliderCloud cl = clouds != null && c < clouds.Length ? clouds[c] : null;
-                            if (cl == null) continue;
-                            Vector3 push;
-                            if (cl.TryPushPlanar(pos[i], -0.003f, out push))   // tuck UNDER the glove surface — skin AT the surface renders grazing slivers
-                            {
-                                float relax = it == iters - 1 ? 1f : colRelax;   // no one-step flings
-                                pos[i] += push * relax;
-                                if (push.magnitude > rawPen[i]) rawPen[i] = push.magnitude;
-                            }
-                        }
-                        else
-                        {
-                            Transform ct = colTr != null ? colTr[c] : null;
-                            if (ct == null) continue;
-                            Vector3 cp0 = proxy.InverseTransformPoint(ct.position);
-                            float rad = colCfg[c].radius / Mathf.Max(0.0001f, proxy.lossyScale.x);
-                            Vector3 cp = cp0;
-                            if (colCfg[c].length > 0f)
-                            {
-                                Vector3 b3 = proxy.InverseTransformPoint(ct.position + ct.forward * colCfg[c].length);
-                                cp = ClosestOnSegment(cp0, b3, pos[i]);
-                            }
-                            Vector3 dd = pos[i] - cp; float dist = dd.magnitude;
-                            if (dist < rad && dist > 1e-6f)
-                            { pos[i] += dd / dist * (rad - dist); if (rad - dist > rawPen[i]) rawPen[i] = rad - dist; }
-                        }
-                    }
-                    if (it == 0 && rawPen[i] > 0f && nContact < n) contact[nContact++] = i;
-                }
+                    for (int si = lo; si < hi; si++) CollideNode(firstIt ? si : cset[si], ncol, relaxIt);
+                });
+                if (firstIt)
+                    for (int i = 0; i < n && nContact < n; i++)
+                        if (rawPen[i] > 0f) contact[nContact++] = i;
                 if (it == 0 && nContact > 0)
                 {
                     // widen the set by one ring so dragged neighbours stay covered
@@ -832,6 +878,7 @@ namespace SoftBodySuite.Jello
                 }
             }
 
+            tCol += DynLap();
             // pressure: contact-displaced volume re-inflates the untouched surface
             if (cfg.xPressure > 0.001f && !skipCollision)
             {
@@ -846,6 +893,202 @@ namespace SoftBodySuite.Jello
                     float lift = Mathf.Min(sunk / (n - cnt) * Mathf.Clamp(cfg.xPressure, 0f, 2f), 0.02f);
                     for (int i = 0; i < n; i++)
                         if (rawPen[i] <= 0f) pos[i] += nS[i] * (lift * wS[i]);
+                }
+            }
+            MarkDyn();
+        }
+
+        // ---- exact self-check of the hand-written loops against the Vector3 originals ----
+        static int ckCounter;
+        Vector3[] ckPos; static int ckRuns, ckBad; static bool ckLogged;
+        void CkBegin()
+        {
+            if (ckPos == null || ckPos.Length != n) ckPos = new Vector3[n];
+            System.Array.Copy(pos, ckPos, n);
+        }
+        void CkEnd(string what)
+        {
+            int bad = 0, first = -1;
+            for (int i = 0; i < n; i++)
+                if (!(pos[i].x == ckPos[i].x && pos[i].y == ckPos[i].y && pos[i].z == ckPos[i].z)) { bad++; if (first < 0) first = i; }
+            ckRuns++; ckBad += bad;
+            if (bad > 0 || !ckLogged)
+            {
+                ckLogged = true;
+                // logged later by the main thread: this may run on the solve worker
+                CkPost("[JelloSim] self-check " + what + ": " + n + " nodes, " + bad + " differ from the Vector3 original"
+                    + (first >= 0 ? " (first " + first + ": fast " + pos[first].ToString("F7") + " ref " + ckPos[first].ToString("F7") + ")" : "")
+                    + "  [checks " + ckRuns + ", differing so far " + ckBad + "]");
+            }
+        }
+        static volatile string ckPending;
+        public static string TakeLog() { string m = ckPending; ckPending = null; return m; }
+        static void CkPost(string m) { string prev = ckPending; ckPending = prev != null ? prev + "\n" + m : m; }
+
+        static int ckFwCounter;
+        Vector3[] ckOff;
+
+        void CkCompare(Vector3[] fast, Vector3[] refArr, string what)
+        {
+            int bad = 0, first = -1;
+            for (int i = 0; i < n; i++)
+                if (!(fast[i].x == refArr[i].x && fast[i].y == refArr[i].y && fast[i].z == refArr[i].z)) { bad++; if (first < 0) first = i; }
+            ckRuns++; ckBad += bad;
+            if (bad > 0 || !ckFwLogged)
+            {
+                ckFwLogged = true;
+                CkPost("[JelloSim] self-check " + what + ": " + n + " nodes, " + bad + " differ from the Vector3 original"
+                    + (first >= 0 ? " (first " + first + ": fast " + fast[first].ToString("F7") + " ref " + refArr[first].ToString("F7") + ")" : "")
+                    + "  [checks " + ckRuns + ", differing so far " + ckBad + "]");
+            }
+        }
+        static bool ckFwLogged;
+
+        // FieldAndWrite's polish + Taubin passes exactly as originally written
+        void SmoothRef(Vector3[] A, int tp)
+        {
+            for (int pass = 0; pass < 2; pass++)
+                for (int i = 0; i < n; i++)
+                {
+                    int[] nb = nbr[i]; if (nb.Length == 0) continue;
+                    Vector3 avg = Vector3.zero;
+                    for (int j = 0; j < nb.Length; j++) avg += A[nb[j]];
+                    A[i] = Vector3.Lerp(A[i], avg / nb.Length, 0.35f);
+                }
+            for (int pass2 = 0; pass2 < tp; pass2++)
+            {
+                float lam = (pass2 & 1) == 0 ? 0.5f : -0.53f;
+                for (int i = 0; i < n; i++)
+                {
+                    int[] nb = nbr[i];
+                    if (nb.Length < 2) continue;
+                    Vector3 avg = Vector3.zero;
+                    for (int j = 0; j < nb.Length; j++) avg += A[nb[j]];
+                    avg /= nb.Length;
+                    A[i] += (avg - A[i]) * lam;
+                }
+            }
+        }
+
+        // the original loops, verbatim, on an array of their own
+        void EdgesRef(Vector3[] P, float kStretch, float compressK, float corrCap)
+        {
+            for (int e = 0; e < eA.Length; e++)
+            {
+                int a = eA[e], b2 = eB[e];
+                Vector3 d = P[a] - P[b2];
+                float L = d.magnitude;
+                if (L < 1e-7f) continue;
+                float diff = L - restE[e];
+                float k1 = diff > 0f ? kStretch : kStretch * compressK;
+                Vector3 c = d * (diff / L * 0.5f * k1);
+                float cl = c.magnitude;
+                float capE = Mathf.Min(corrCap, Mathf.Max(restE[e] * 0.75f, 0.001f));
+                if (cl > capE) c *= capE / cl;
+                P[a] -= c; P[b2] += c;
+            }
+        }
+
+        void BendRef(Vector3[] P, float kBend, float compressK, float corrCap)
+        {
+            for (int e = 0; e < bA.Length; e++)
+            {
+                int a = bA[e], b2 = bB[e];
+                Vector3 d = P[a] - P[b2];
+                float L = d.magnitude;
+                if (L < 1e-7f) continue;
+                float diffB = L - restB[e];
+                float kb1 = diffB > 0f ? kBend : kBend * Mathf.Min(1f, compressK * 2f);
+                Vector3 c = d * (diffB / L * 0.5f * kb1);
+                float cl = c.magnitude;
+                if (cl > corrCap) c *= corrCap / cl;
+                P[a] -= c; P[b2] += c;
+            }
+        }
+
+        void TensionRef(Vector3[] P, Vector3[] baked, float tension)
+        {
+            for (int i = 0; i < n; i++)
+            {
+                int[] nb = nbr[i];
+                if (nb.Length < 2) continue;
+                Vector3 avgOff = Vector3.zero;
+                for (int j = 0; j < nb.Length; j++) avgOff += P[nb[j]] - baked[idx[nb[j]]];
+                avgOff /= nb.Length;
+                float tAdapt = Mathf.Min(0.95f, tension * Mathf.Clamp(medianScale / Mathf.Max(localScale[i], 1e-5f), 1f, 3f));
+                P[i] = Vector3.Lerp(P[i], baked[idx[i]] + avgOff, tAdapt);
+            }
+        }
+
+        void MarkDyn()
+        {
+            tPress += DynLap();
+            SoftBodySuite.Field.FieldDiag.Mark("dyn.normals", tNrm);
+            SoftBodySuite.Field.FieldDiag.Mark("dyn.integrate", tInteg);
+            SoftBodySuite.Field.FieldDiag.Mark("dyn.rest", tRest);
+            SoftBodySuite.Field.FieldDiag.Mark("dyn.attach", tAttach);
+            SoftBodySuite.Field.FieldDiag.Mark("dyn.edges", tEdge);
+            SoftBodySuite.Field.FieldDiag.Mark("dyn.bend", tBend);
+            SoftBodySuite.Field.FieldDiag.Mark("dyn.tension", tTens);
+            SoftBodySuite.Field.FieldDiag.Mark("dyn.collide", tCol);
+            SoftBodySuite.Field.FieldDiag.Mark("dyn.pressure", tPress);
+        }
+
+        // main-thread half of a step that will run on a worker: resolve the bone colliders
+        public void PrepareStep(Transform proxy)
+        {
+            int ncol = colCfg != null ? colCfg.Length : 0;
+            if (!skipCollision) PrepareColliders(ncol, proxy);
+        }
+
+        // Bone colliders, resolved to proxy space once per step on the main thread (the
+        // serial scan re-read the same transforms for every node). Plain arrays after this,
+        // so the per-node collision below can run on worker threads.
+        Vector3[] pcA, pcB; float[] pcR; bool[] pcSeg, pcOk;
+        void PrepareColliders(int ncol, Transform proxy)
+        {
+            if (pcA == null || pcA.Length < ncol)
+            { pcA = new Vector3[ncol]; pcB = new Vector3[ncol]; pcR = new float[ncol]; pcSeg = new bool[ncol]; pcOk = new bool[ncol]; }
+            for (int c = 0; c < ncol; c++)
+            {
+                pcOk[c] = false;
+                if (!colCfg[c].enabled || !string.IsNullOrEmpty(colCfg[c].mesh)) continue;
+                Transform ct = colTr != null ? colTr[c] : null;
+                if (ct == null || proxy == null) continue;
+                pcA[c] = proxy.InverseTransformPoint(ct.position);
+                pcR[c] = colCfg[c].radius / Mathf.Max(0.0001f, proxy.lossyScale.x);
+                pcSeg[c] = colCfg[c].length > 0f;
+                if (pcSeg[c]) pcB[c] = proxy.InverseTransformPoint(ct.position + ct.forward * colCfg[c].length);
+                pcOk[c] = true;
+            }
+        }
+
+        // one node against every collider; touches only pos[i] and rawPen[i]
+        void CollideNode(int i, int ncol, float relax)
+        {
+            rawPen[i] = 0f;
+            for (int c = 0; c < ncol; c++)
+            {
+                if (!colCfg[c].enabled) continue;
+                if (!string.IsNullOrEmpty(colCfg[c].mesh))
+                {
+                    MeshColliderCloud cl = clouds != null && c < clouds.Length ? clouds[c] : null;
+                    if (cl == null) continue;
+                    Vector3 push;
+                    if (cl.TryPushPlanar(pos[i], -0.003f, out push))   // tuck UNDER the glove surface — skin AT the surface renders grazing slivers
+                    {
+                        pos[i] += push * relax;
+                        if (push.magnitude > rawPen[i]) rawPen[i] = push.magnitude;
+                    }
+                }
+                else
+                {
+                    if (pcOk == null || c >= pcOk.Length || !pcOk[c]) continue;
+                    float rad = pcR[c];
+                    Vector3 cp = pcSeg[c] ? ClosestOnSegment(pcA[c], pcB[c], pos[i]) : pcA[c];
+                    Vector3 dd = pos[i] - cp; float dist = dd.magnitude;
+                    if (dist < rad && dist > 1e-6f)
+                    { pos[i] += dd / dist * (rad - dist); if (rad - dist > rawPen[i]) rawPen[i] = rad - dist; }
                 }
             }
         }
@@ -863,13 +1106,27 @@ namespace SoftBodySuite.Jello
                 outOffs[i] = off;
             }
             // cosmetic vertex-scale polish (shard law: the written field must be smooth)
+            // (written out per component, same operations and roundings as the Vector3
+            // version - see StepDynamics)
+            Vector3[] O = outOffs;
+            int tpCk = Mathf.Clamp(Mathf.RoundToInt(cfg.xSmoothPasses), 0, 100);
+            bool ckf = (System.Threading.Interlocked.Increment(ref ckFwCounter) % 600) == 43 && ckRuns < 24;
+            if (ckf)
+            {
+                if (ckOff == null || ckOff.Length != n) ckOff = new Vector3[n];
+                System.Array.Copy(O, ckOff, n);
+                SmoothRef(ckOff, tpCk);
+            }
             for (int pass = 0; pass < 2; pass++)
                 for (int i = 0; i < n; i++)
                 {
                     int[] nb = nbr[i]; if (nb.Length == 0) continue;
-                    Vector3 avg = Vector3.zero;
-                    for (int j = 0; j < nb.Length; j++) avg += outOffs[nb[j]];
-                    outOffs[i] = Vector3.Lerp(outOffs[i], avg / nb.Length, 0.35f);
+                    float ax = 0f, ay = 0f, az = 0f;
+                    for (int j = 0; j < nb.Length; j++) { int q = nb[j]; ax = ax + O[q].x; ay = ay + O[q].y; az = az + O[q].z; }
+                    float dn = nb.Length;
+                    float bx = ax / dn, by = ay / dn, bz = az / dn;
+                    float ox = O[i].x, oy = O[i].y, oz = O[i].z;
+                    O[i] = new Vector3(ox + (bx - ox) * 0.35f, oy + (by - oy) * 0.35f, oz + (bz - oz) * 0.35f);
                 }
             // Taubin smoothing (alternating +0.5 / -0.53 passes): removes PEAKS from the
             // deformation field while preserving the overall shape (shrink-free) — the
@@ -882,12 +1139,17 @@ namespace SoftBodySuite.Jello
                 {
                     int[] nb = nbr[i];
                     if (nb.Length < 2) continue;
-                    Vector3 avg = Vector3.zero;
-                    for (int j = 0; j < nb.Length; j++) avg += outOffs[nb[j]];
-                    avg /= nb.Length;
-                    outOffs[i] += (avg - outOffs[i]) * lam;
+                    float ax = 0f, ay = 0f, az = 0f;
+                    for (int j = 0; j < nb.Length; j++) { int q = nb[j]; ax = ax + O[q].x; ay = ay + O[q].y; az = az + O[q].z; }
+                    float dn = nb.Length;
+                    ax = ax / dn; ay = ay / dn; az = az / dn;
+                    float ox = O[i].x, oy = O[i].y, oz = O[i].z;
+                    float dx = ax - ox, dy = ay - oy, dz = az - oz;
+                    float sx = dx * lam, sy = dy * lam, sz = dz * lam;
+                    O[i] = new Vector3(ox + sx, oy + sy, oz + sz);
                 }
             }
+            if (ckf) CkCompare(O, ckOff, "output smoothing");
             for (int v = 0; v < wbVert.Length; v++)
             {
                 Vector3 off = Vector3.zero;
@@ -898,7 +1160,8 @@ namespace SoftBodySuite.Jello
             }
             if (blewUp)
             {
-                Debug.LogWarning("[Jello] region '" + cfg.name + "' destabilised (NaN/huge offset) - state reset");
+                // may run on the solve worker: the main thread logs it (TakeLog)
+                CkPost("[Jello] region '" + cfg.name + "' destabilised (NaN/huge offset) - state reset");
                 ResetState();
             }
         }
