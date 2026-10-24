@@ -335,7 +335,9 @@ namespace SoftBodySuite.Wobble
             float stiff = Mathf.Max(0.5f, cfg.stiffness);
             float damp = Mathf.Clamp01(cfg.damping);
             float clothC2 = Mathf.Lerp(40f, 400f, Mathf.Clamp01(cfg.clothSize)) * Mathf.Max(0.05f, cfg.waveSpeed);
-            float clothDampMul = Mathf.Exp(-2.5f * dt);
+            // overall settle time: every decay below runs decayMul times faster (1 = as tuned)
+            float dmul = SoftBodySuite.JiggleGlobal.decayMul;
+            float clothDampMul = Mathf.Exp(-2.5f * dt * dmul);
             float jelloOmega = 2f * Mathf.PI * Mathf.Lerp(6f, 1.5f, Mathf.Clamp01(cfg.jelloSize)) * Mathf.Max(0.05f, cfg.jelloSpeed);
 
             Vector3 centroid = Vector3.zero, prevCentroid = Vector3.zero;
@@ -420,7 +422,7 @@ namespace SoftBodySuite.Wobble
                 for (int q = 0; q < jst; q++)
                 {
                     jelloVel += -jelloOmega * jelloOmega * jelloPos * jdt;
-                    jelloVel *= Mathf.Exp(-2.0f * jdt);
+                    jelloVel *= Mathf.Exp(-2.0f * jdt * dmul);
                     jelloPos += jelloVel * jdt;
                 }
                 float jm = jelloPos.magnitude; if (jm > 0.1f) jelloPos *= 0.1f / jm;
@@ -458,7 +460,7 @@ namespace SoftBodySuite.Wobble
                 for (int q = 0; q < rst; q++)
                 {
                     ropeVel += -rOmega * rOmega * ropePos * rdt;
-                    ropeVel *= Mathf.Exp(-2f * rOmega * rdt);   // critical: settles, never rings
+                    ropeVel *= Mathf.Exp(-2f * rOmega * rdt * dmul);   // critical: settles, never rings
                     ropePos += ropeVel * rdt;
                 }
                 float rm = ropePos.magnitude; if (rm > 0.12f) ropePos *= 0.12f / rm;
@@ -494,7 +496,7 @@ namespace SoftBodySuite.Wobble
                 for (int q = 0; q < sst; q++)
                 {
                     swayVel += -swOmega * swOmega * swayPos * sdt;
-                    swayVel *= Mathf.Exp(-Mathf.Max(0.02f, cfg.swayDamp) * 6f * sdt);
+                    swayVel *= Mathf.Exp(-Mathf.Max(0.02f, cfg.swayDamp) * 6f * sdt * dmul);
                     swayPos += swayVel * sdt;
                 }
                 float sm = swayPos.magnitude; if (sm > 0.10f) swayPos *= 0.10f / sm;
@@ -513,7 +515,7 @@ namespace SoftBodySuite.Wobble
                 for (int q = 0; q < tst; q++)
                 {
                     twistVel += -twOmega * twOmega * twist * tdt;
-                    twistVel *= Mathf.Exp(-Mathf.Max(0.02f, cfg.twistDamp) * 6f * tdt);
+                    twistVel *= Mathf.Exp(-Mathf.Max(0.02f, cfg.twistDamp) * 6f * tdt * dmul);
                     twist += twistVel * tdt;
                 }
                 // clamp the SWING, not the spring: pinning the angle alone used to park it
@@ -538,7 +540,7 @@ namespace SoftBodySuite.Wobble
             }
 
             float maxOff = Mathf.Max(0.001f, cfg.maxOffset);
-            float dampMul = Mathf.Pow(1f - damp, dt * 30f);
+            float dampMul = Mathf.Pow(1f - damp, dt * 30f * dmul);
             float r2max = 0f;
 
             // JIGGLE AT ZERO = NO DYNAMICS. The spring/inertia integration below feeds
@@ -918,7 +920,7 @@ namespace SoftBodySuite.Wobble
                     Wave wv = waves[k];
                     float r = (target - wv.pos).magnitude;
                     float phase = (r / liqLambda) - wv.t * 8f;
-                    float env = Mathf.Exp(-wv.t * 2.2f) * Mathf.Exp(-r * 6f);
+                    float env = Mathf.Exp(-wv.t * 2.2f * SoftBodySuite.JiggleGlobal.decayMul) * Mathf.Exp(-r * 6f);
                     outOff += nrm * (Mathf.Sin(phase * Mathf.PI * 2f) * wv.amp * env * w[i]);
                 }
                 if (cfg.cellulite > 0.0001f && cellNoise != null)

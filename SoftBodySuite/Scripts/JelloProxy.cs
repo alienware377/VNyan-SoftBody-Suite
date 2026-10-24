@@ -38,11 +38,20 @@ namespace SoftBodySuite.Jello
         // what the next stage (and, at the very end, the cloth pass) reads
         public Vector3[] OutVerts { get { return bakedVerts; } }
         public Vector3[] OutNormals { get { return bakedNormals; } }
+        // this stage's own offset this frame (zeros with the sim off), for the look probe
+        public Vector3[] Disp { get { return disp; } }
         public Vector3[] BaseVerts { get { return bakedVerts; } }
 
         // only the last stage that actually runs should be on screen
         public void SetVisible(bool v)
         {
+            // coming back on screen: the hidden frames were not uploaded, so push this one now
+            // or one stale frame would flash
+            if (v && mr != null && !mr.enabled && display != null && framedOnce && bakedVerts != null)
+            {
+                display.SetVertices(bakedVerts);
+                if (bakedNormals != null) display.SetNormals(bakedNormals);
+            }
             if (mr != null && mr.enabled != v) mr.enabled = v;
         }
 
@@ -103,6 +112,47 @@ namespace SoftBodySuite.Jello
             public float[] gDnRaw;              // full-wrap normal component (clearance reference)
             public bool[] gIsFill;              // valley-gap groups: no binding, diffused from neighbors
             public bool hasFill;
+            // ---- FOLLOW DIAGNOSTICS (see FollowDiag* below) ----
+            public int[] dEdgeA, dEdgeB;        // unique render-vert edges, one per welded pair
+            public int[] dState;                // per render vert: FD_* state code
+            public int[] dBone;                 // per render vert: dominant bone index into dBoneNames
+            public string[] dBoneNames;
+            public Vector3[] skin;              // this frame's plain skinned verts, before we move them
+            public Vector3[] dCp, dN;           // per group: bound surface point + outward normal (src space)
+            public bool[] dOk;
+            public float dT; public int dFrames;
+            public float dMaxDisp, dMaxStretch, dMinClear; public int dOver20, dStretch2, dClip;
+            public int dWorstA = -1, dWorstB = -1; public float dWorstDispA, dWorstDispB;
+            // ---- floating islands, moved rigidly (see RigidIslands) ----
+            public int[] gIsl;                  // per group: island id, -1 = not rigid
+            public int islN;
+            public Quaternion[] islQ;           // last frame's fit, warm start
+            public int[][] islMem;              // per island: its groups, ascending (built with gIsl)
+            // ---- baked early this frame (while jell-o's solve runs on a worker) ----
+            public readonly List<Vector3> nrm = new List<Vector3>();
+            public bool haveN;
+            public Matrix4x4 frameM;
+            public int bakedFrame = -1;
+            // fast-wrap self-check scratch (allocated on the first check)
+            public Vector3[] ckD, ckN, ckD2, ckN2; public float[] ckP, ckR, ckP2, ckR2; public bool ckLogged;
+            public bool allRigid;               // every bound group is in a rigid island (a bow)
+            // ---- skin guard: final push-out against the body on screen (see ApplySkinGuard) ----
+            public int[] kRep;                  // watched weld group -> representative render vert
+            public int[] kMemStart, kMem;       // CSR: members (render verts) per watched group
+            public int[] kTA, kTB, kTC;         // body RENDER triangle under the group at bind
+            public Vector3[] kBar;              // barycentric point on it
+            public float[] kSign, kRest;        // winding fix so the normal points OUT; rest gap (m)
+            public bool[] kFix;                 // sunk into the skin on the model itself: guarded even at rest
+            public int[][] kAdj;                // adjacency among watched groups
+            public float[][] kAdjLen;           // ...and the rest length of each of those edges
+            public MinHeap kHeap;               // cone-spread sweep, reused every frame
+            public Vector3[] kCorr, kCorr2, kNl, kNs; public float[] kNeed;   // per-frame scratch
+            public int[] kSeed;                 // per frame: the pushed group a spread push came from
+            public int kWatched;                // groups that can push (the rest only carry the falloff)
+            public int dGuardHits, dGuardDeep; public float dGuardMax;
+            public int dTear; public float dTearMax;   // edges grown by more than 5 mm (absolute, not a ratio)
+            public int dTearA = -1, dTearB = -1; public float dTearDispA, dTearDispB;
+            public float[] dGuardV;              // per render vert: the guard's push this frame (diag only)
         }
         readonly List<Follower> followers = new List<Follower>();
         readonly List<SkinnedMeshRenderer> folQueue = new List<SkinnedMeshRenderer>();  // bind 1/frame
@@ -112,11 +162,25 @@ namespace SoftBodySuite.Jello
         int folLastBoneFilter, folLastFillMax, folLastAnchor;
         float folLastRange, folRangeT, folRetryT;
         readonly List<SkinnedMeshRenderer> folFailed = new List<SkinnedMeshRenderer>();
+        // meshes no bone of which skins the paint (hair, face...): slow retry only
+        readonly List<SkinnedMeshRenderer> folDead = new List<SkinnedMeshRenderer>();
+        float folDeadT;
+        int lastFleshCand;   // set by FleshBoneGate: groups that had a flesh bone at all
         // bind-generation search structures: a CURRENT-POSE grid (rest-space search mis-bound
         // verts and froze pose error into the fit)
         RemeshCage.TriGrid bindGrid;
         Vector3[] bindPts;             // positions the grid indexes (refreshed in place per bind call)
         int[] bindTris;                // triangle array the grid's results index into
+        // skin guard: a grid over the CLEAN body render mesh, rebuilt when a garment binds
+        // more than 2 s after the last build (the pose has moved by then)
+        RemeshCage.TriGrid guardGrid; Vector3[] guardPts; int[] guardTris; float guardGridT = -999f;
+        Vector3[] guardFin;            // this frame's finished body (what is on screen), or null
+        const float GUARD_WELD = 0.001f;    // garment verts closer than this share ONE guard group (seam slivers)
+        const float GUARD_DEEP = 0.08f;     // deeper than this = the wrong surface: leave it alone
+                                            // (was 0.12; real flesh motion here peaks near 80 mm)
+        const int GUARD_SPREAD = 2;         // light rounding passes after the cone spread
+        float folLastGuardReach, folLastGuardSunk;
+        const float GUARD_LIFT = 0.002f;    // where sunk cloth is lifted to: just above the skin
         Vector3[] cageOut, cageHeld, cagePrev, cageRaw, cagePreBoost;   // follower-side field mirror
         bool cageHeldValid;
 
@@ -236,9 +300,11 @@ namespace SoftBodySuite.Jello
 
         List<SkinnedMeshRenderer> allColSmrs;   // resolved targets for a "*" (all meshes) collider
 
+        HashSet<int> cachedSelfExclude;
+
         public void ResolveColliderMeshes(GameObject avatar)
         {
-            colMeshSmr.Clear(); colMeshCloud.Clear(); allColSmrs = null;
+            colMeshSmr.Clear(); colMeshCloud.Clear(); allColSmrs = null; cachedSelfExclude = null;
             if (avatar == null || cfg == null) return;
             SkinnedMeshRenderer[] rends = avatar.GetComponentsInChildren<SkinnedMeshRenderer>(true);
             for (int r = 0; r < cfg.regions.Count; r++)
@@ -294,7 +360,9 @@ namespace SoftBodySuite.Jello
                 regBounds.Add(new Vector4(cen.x, cen.y, cen.z, Mathf.Sqrt(rr) + 0.06f));
             }
 
-            HashSet<int> selfExclude = null;
+            // the self-collision exclude set depends only on the paint, and was rebuilt
+            // (9k hash inserts) every frame; it is cleared with the collider set on rebuild
+            HashSet<int> selfExclude = cachedSelfExclude;
             foreach (KeyValuePair<string, SkinnedMeshRenderer> kv in colMeshSmr)
             {
                 SkinnedMeshRenderer csmr = kv.Value;
@@ -307,6 +375,7 @@ namespace SoftBodySuite.Jello
                     for (int r = 0; r < cfg.regions.Count; r++)
                         for (int v = 0; v < cfg.regions[r].jello.vertIndex.Count; v++)
                             if (cfg.regions[r].jello.weight[v] > 0.15f) selfExclude.Add(cfg.regions[r].jello.vertIndex[v]);
+                    cachedSelfExclude = selfExclude;
                 }
 
                 MeshColliderCloud cloud;
@@ -460,6 +529,10 @@ namespace SoftBodySuite.Jello
         // What the stage BEFORE us added this frame. Without it the clothes only
         // ever saw the jell-o wobble and slid straight through anything wobble did.
         public System.Func<Vector3[]> upstreamExtra;
+        // perf probe: the slowest follower-lifecycle frame (binds, retries) this window
+        public static float bindMaxMs;
+        // true when the final body this frame IS our own output, unchanged (set by the plugin)
+        public System.Func<bool> finalIsOwnOutput;
 
         Vector3[] FinalBodyVerts()
         {
@@ -482,9 +555,16 @@ namespace SoftBodySuite.Jello
             return finalVerts;
         }
 
+        // CLOTHES COST PROBE: each step summed over all garments, marked once a frame, so
+        // the [Perf] block says where the clothes pass spends its time.
+        readonly System.Diagnostics.Stopwatch cloSw = new System.Diagnostics.Stopwatch();
+        float cloBake, cloWrap, cloSeam, cloSmooth, cloRigid, cloGuard, cloUpload, cloDiag;
+        float CloLap() { float ms = (float)cloSw.Elapsed.TotalMilliseconds; cloSw.Reset(); cloSw.Start(); return ms; }
+
         public void LateFollowUpdate()
         {
             if (!Alive || !framedOnce) return;   // bakedVerts is still all zeros before the first Frame()
+            cloSw.Reset(); cloSw.Start();
             // difference between the rendered body and our own output = everything the
             // downstream stage added this frame
             // a downstream stage disables OUR renderer when it chains onto us; until it
@@ -496,32 +576,68 @@ namespace SoftBodySuite.Jello
             Vector3[] up = upstreamExtra != null ? upstreamExtra() : null;
             int n = bakedVerts.Length;
             if (up != null && up.Length != n) up = null;
+            // The field handed OUR verts out byte for byte (Field Mix 0, asleep, ...): the
+            // body on screen is this stage's own output, so fin - bakedVerts is exactly zero
+            // everywhere and building, sampling and smoothing it was ~0.5 ms for nothing.
+            // The skin guard still gets the rendered body (same numbers either way).
+            Vector3[] finExtra = (fin != null && finalIsOwnOutput != null && finalIsOwnOutput()) ? null : fin;
 
-            if (fin != null || up != null)
+            if (finExtra != null || up != null)
             {
-                if (downExtra == null || downExtra.Length != n) downExtra = new Vector3[n];
+                // backing buffers survive pass-through frames (no 460 KB re-allocation when
+                // the field wakes up again)
+                if (downBuf == null || downBuf.Length != n) downBuf = new Vector3[n];
+                downExtra = downBuf;
                 // everything the cage field does NOT already carry: what the stage before
                 // us added (wobble) plus what the stage after us adds (squish)
-                if (fin != null) for (int i = 0; i < n; i++) downExtra[i] = fin[i] - bakedVerts[i];
+                // per-vert, each writes its own slot: same numbers on many cores
+                Vector3[] dx = downExtra, bv = bakedVerts;
+                if (finExtra != null) SoftBodySuite.Field.ParallelLoop.For(n, delegate (int lo, int hi)
+                {
+                    for (int i = lo; i < hi; i++) dx[i] = finExtra[i] - bv[i];
+                });
                 else System.Array.Clear(downExtra, 0, n);
-                if (up != null) for (int i = 0; i < n; i++) downExtra[i] += up[i];
+                if (up != null) SoftBodySuite.Field.ParallelLoop.For(n, delegate (int lo, int hi)
+                {
+                    for (int i = lo; i < hi; i++) dx[i] += up[i];
+                });
 
                 if (cage != null && cage.SimVertCount > 0)
                 {
-                    if (cageExtra == null || cageExtra.Length != cage.SimVertCount)
-                        cageExtra = new Vector3[cage.SimVertCount];
+                    if (cageExBuf == null || cageExBuf.Length != cage.SimVertCount)
+                        cageExBuf = new Vector3[cage.SimVertCount];
+                    cageExtra = cageExBuf;
                     cage.InterpDelta(downExtra, cageExtra);
                     int exSm = settingsRef != null ? Mathf.Clamp(Mathf.RoundToInt(settingsRef.cloth.follow.folSmooth), 0, 60) : 0;
                     if (exSm > 0) cage.SmoothArray(cageExtra, exSm);
                 }
             }
             else { finalVerts = null; downExtra = null; cageExtra = null; }
+            guardFin = (fin != null && fin.Length == n) ? fin : null;
 
+            SoftBodySuite.Field.FieldDiag.Mark("clo_extra", CloLap());
             UpdateFollowerLifecycle();
+            float bindMs = CloLap();
+            if (bindMs > bindMaxMs) bindMaxMs = bindMs;
+            SoftBodySuite.Field.FieldDiag.Mark("clo_bind", bindMs);
+            cloBake = cloWrap = cloSeam = cloSmooth = cloRigid = cloGuard = cloUpload = cloDiag = 0f;
+            cloBake = cloPreBake; cloPreBake = 0f;
             UpdateFollowers();
+            if (followers.Count > 0)
+            {
+                SoftBodySuite.Field.FieldDiag.Mark("clo_bake", cloBake);
+                SoftBodySuite.Field.FieldDiag.Mark("clo_wrap", cloWrap);
+                SoftBodySuite.Field.FieldDiag.Mark("clo_seam", cloSeam);
+                SoftBodySuite.Field.FieldDiag.Mark("clo_smooth", cloSmooth);
+                SoftBodySuite.Field.FieldDiag.Mark("clo_rigid", cloRigid);
+                SoftBodySuite.Field.FieldDiag.Mark("clo_guard", cloGuard);
+                SoftBodySuite.Field.FieldDiag.Mark("clo_upload", cloUpload);
+                SoftBodySuite.Field.FieldDiag.Mark("clo_diag", cloDiag);
+            }
         }
 
         Vector3[] finalVerts, downExtra, cageExtra;
+        Vector3[] downBuf, cageExBuf;
         bool framedOnce;
 
         // ---------- cage followers ----------
@@ -539,7 +655,7 @@ namespace SoftBodySuite.Jello
             bool want = settingsRef != null && settingsRef.cloth.follow.enabled &&
                         (whole || (cage != null && settingsRef.jello.useRemesh > 0.5f));
             if (!want) { if (folGenActive || followers.Count > 0) DetachFollowers(); return; }
-            float range = Mathf.Clamp(settingsRef.cloth.follow.range, 0.005f, 0.5f);
+            float range = Mathf.Clamp(settingsRef.cloth.follow.range, 0.005f, FOLLOW_RANGE_MAX);
             // cage rebuilt (cage mode) or bind-mode flipped: detach and RETURN — requeueing
             // next frame lets the pending-destroy "_JelloFollow" corpses actually die
             if (folGenActive && (folLastWhole != whole || (!whole && folCage != cage))) { DetachFollowers(); return; }
@@ -547,9 +663,16 @@ namespace SoftBodySuite.Jello
             int kFilt = settingsRef.cloth.follow.boneFilter ? 1 : 0;
             int kFill = Mathf.RoundToInt(settingsRef.cloth.follow.fillMax);
             int kAnch = Mathf.RoundToInt(settingsRef.cloth.follow.anchorMin);
+            Vector3 offNow = new Vector3(settingsRef.cloth.follow.offsetX,
+                                         settingsRef.cloth.follow.offsetY,
+                                         settingsRef.cloth.follow.offsetZ);
             if (folGenActive && (Mathf.Abs(range - folLastRange) > 0.0005f ||
+                (offNow - folLastOffset).sqrMagnitude > 0.0005f * 0.0005f ||
+                Mathf.Abs(settingsRef.cloth.follow.floatDist - folLastFloat) > 0.0005f ||
+                Mathf.Abs(settingsRef.cloth.follow.guardReach - folLastGuardReach) > 0.0005f ||
+                Mathf.Abs(settingsRef.cloth.follow.guardSunk - folLastGuardSunk) > 0.0005f ||
                 kFilt != folLastBoneFilter || kFill != folLastFillMax || kAnch != folLastAnchor))
-            { folRangeT = 0.5f; folLastRange = range; folLastBoneFilter = kFilt; folLastFillMax = kFill; folLastAnchor = kAnch; }
+            { folRangeT = 0.5f; folLastRange = range; folLastOffset = offNow; folLastFloat = settingsRef.cloth.follow.floatDist; folLastGuardReach = settingsRef.cloth.follow.guardReach; folLastGuardSunk = settingsRef.cloth.follow.guardSunk; folLastBoneFilter = kFilt; folLastFillMax = kFill; folLastAnchor = kAnch; }
             if (folRangeT > 0f)
             {
                 folRangeT -= Time.deltaTime;
@@ -557,11 +680,20 @@ namespace SoftBodySuite.Jello
             }
             if (!folGenActive)
             {
-                folGenActive = true; folCage = cage; folLastWhole = whole; folLastRange = range;
+                folGenActive = true; folCage = cage; folLastWhole = whole; folLastRange = range; folLastOffset = offNow;
+                folLastFloat = settingsRef.cloth.follow.floatDist;
+                folLastGuardReach = settingsRef.cloth.follow.guardReach;
+                folLastGuardSunk = settingsRef.cloth.follow.guardSunk;
                 folLastBoneFilter = settingsRef.cloth.follow.boneFilter ? 1 : 0;
                 folLastFillMax = Mathf.RoundToInt(settingsRef.cloth.follow.fillMax);
                 folLastAnchor = Mathf.RoundToInt(settingsRef.cloth.follow.anchorMin);
                 QueueFollowerCandidates();
+            }
+            if (folQueue.Count == 0 && folDead.Count > 0 && (folDeadT += Time.deltaTime) > 60f)
+            {
+                folDeadT = 0f;
+                for (int i = 0; i < folDead.Count; i++) if (folDead[i] != null) folFailed.Add(folDead[i]);
+                folDead.Clear();
             }
             if (folQueue.Count > 0) BindNextFollower(range, whole);   // one mesh per frame spreads the cost
             else if (folFailed.Count > 0)
@@ -610,6 +742,10 @@ namespace SoftBodySuite.Jello
         }
 
         Vector3 bindMin, bindMax;
+        Vector3 folLastOffset;
+        float folLastFloat = -1f;
+        // was 0.5 m. Loose or puffy garments sit further off the body than that.
+        public const float FOLLOW_RANGE_MAX = 1.5f;
 
         void ComputeBindBounds()
         {
@@ -685,6 +821,15 @@ namespace SoftBodySuite.Jello
             Vector3[] nrm = bk.normals;
             Matrix4x4 toSrc = go.transform.worldToLocalMatrix * r.transform.localToWorldMatrix;
             bool haveN = nrm != null && nrm.Length == pts.Length;
+            // capture-zone offset, avatar axes -> this proxy's local space
+            Vector3 offSrc = Vector3.zero;
+            if (settingsRef != null && avatarRef != null)
+            {
+                ClothFollow cf = settingsRef.cloth.follow;
+                Transform at = avatarRef.transform;
+                Vector3 w = at.right * cf.offsetX + at.up * cf.offsetY + at.forward * cf.offsetZ;
+                offSrc = go.transform.InverseTransformVector(w);
+            }
 
             // ---- weld duplicate render verts (UV/normal seams) into groups ----
             Dictionary<long, int> cellMap = new Dictionary<long, int>();
@@ -731,13 +876,50 @@ namespace SoftBodySuite.Jello
                 {
                     Transform[] gb = r.bones;
                     bool[] pick = new bool[gb.Length];
+                    // ...and by POSITION. A garment that ships its own skeleton names its bones
+                    // its own way: the leg harness on Nami is skinned to "Right Leg" / "Left
+                    // Leg" while the thighs region is "Thigh_R" / "Thigh_L", so every one of its
+                    // 1875 groups failed the filter and it never followed. A garment bone that
+                    // sits on a region bone (within 2 cm) IS that bone; its children count too.
+                    List<Vector3> regPos = RegionBonePositions(names);
+                    int byPos = 0;
                     for (int b0 = 0; b0 < gb.Length; b0++)
                     {
                         Transform t0 = gb[b0];
                         if (t0 == null) continue;
                         if (names.Contains(t0.name)) { pick[b0] = true; continue; }
-                        for (Transform pp = t0.parent; pp != null; pp = pp.parent)   // children of picked bones count too
-                            if (names.Contains(pp.name)) { pick[b0] = true; break; }
+                        bool hit = false;
+                        for (Transform pp = t0.parent; pp != null && !hit; pp = pp.parent)   // children of picked bones count too
+                            if (names.Contains(pp.name)) hit = true;
+                        for (Transform pp = t0; pp != null && !hit && regPos.Count > 0; pp = pp.parent)
+                            if (OnRegionBone(pp.position, regPos)) { hit = true; byPos++; }
+                        pick[b0] = hit;
+                    }
+                    if (followDiag)
+                    {
+                        // which garment bones matched, and for the most-used bone where the
+                        // nearest region bone is, so a miss can be read straight off the log
+                        System.Text.StringBuilder sbm = new System.Text.StringBuilder();
+                        for (int b0 = 0; b0 < gb.Length; b0++)
+                            if (pick[b0] && gb[b0] != null && !names.Contains(gb[b0].name)) sbm.Append(gb[b0].name).Append(", ");
+                        BoneWeight[] gw0 = r.sharedMesh.boneWeights;
+                        int[] use = new int[gb.Length];
+                        if (gw0 != null) for (int i = 0; i < gw0.Length; i++) if (gw0[i].boneIndex0 < use.Length) use[gw0[i].boneIndex0]++;
+                        int top = -1; for (int b0 = 0; b0 < use.Length; b0++) if (top < 0 || use[b0] > use[top]) top = b0;
+                        string near = "-";
+                        if (top >= 0 && gb[top] != null)
+                        {
+                            float bd = float.MaxValue; string bn = "?";
+                            Transform[] bb = smr != null ? smr.bones : null;
+                            if (bb != null) for (int i = 0; i < bb.Length; i++)
+                                if (bb[i] != null && names.Contains(bb[i].name))
+                                { float d = (bb[i].position - gb[top].position).magnitude; if (d < bd) { bd = d; bn = bb[i].name; } }
+                            string chain = ""; int hops = 0;
+                            for (Transform pp = gb[top].parent; pp != null && hops < 6; pp = pp.parent, hops++) chain += pp.name + " < ";
+                            near = "'" + gb[top].name + "' nearest region bone '" + bn + "' at " + (bd * 1000f).ToString("0") + "mm, parents: " + chain;
+                        }
+                        Debug.Log("[FollowDiag] '" + r.name + "' bone filter: region bones [" + string.Join(", ", new List<string>(names).ToArray())
+                            + "], picked (by name, a picked parent, or position): [" + sbm.ToString() + "], most-used " + near);
                     }
                     BoneWeight[] gw = r.sharedMesh.boneWeights;
                     if (gw != null && gw.Length == pts.Length)
@@ -756,17 +938,42 @@ namespace SoftBodySuite.Jello
                 }
             }
 
+            if (boneOkG != null)
+            {
+                int okN = 0;
+                for (int gg = 0; gg < nGlobal; gg++) if (boneOkG[gg]) okN++;
+                if (okN < 8)
+                {
+                    int added = FleshBoneGate(r, pts, toSrc, gOfGlobal, gFirst, boneOkG);
+                    if (followDiag || added > 0)
+                        Debug.Log("[FollowDiag] '" + r.name + "': the region bones skin none of it by name ("
+                            + okN + " groups); flesh fallback let " + added + " groups through (their bone moves the painted"
+                            + " flesh AND the skin under them is painted)");
+                }
+            }
+
+            // Diagnose each garment ONCE. Failed binds retry every 5 s, and doing a body
+            // search for every rejected vert on every retry froze VNyan (hair alone is
+            // 12.5k groups). The first report says everything the retries would.
+            bool diagThis = followDiag && diagReported.Add(r.name);
+            int[] whyG = new int[nGlobal];      // FD_* reason this group did or did not bind
+            float[] distG = new float[nGlobal]; // distance to the nearest body surface (diagnostic, -1 unknown)
             for (int gg = 0; gg < nGlobal; gg++)
             {
-                if (boneOkG != null && !boneOkG[gg]) continue;
-                Vector3 q = toSrc.MultiplyPoint3x4(pts[gFirst[gg]]);
-                if (q.x < lo.x || q.y < lo.y || q.z < lo.z || q.x > hi.x || q.y > hi.y || q.z > hi.z) continue;
+                distG[gg] = -1f;
+                Vector3 qd = toSrc.MultiplyPoint3x4(pts[gFirst[gg]]) - offSrc;
+                if (boneOkG != null && !boneOkG[gg]) { whyG[gg] = FD_BONE; if (diagThis) distG[gg] = DiagDist(qd); continue; }
+                Vector3 q = qd;
+                if (q.x < lo.x || q.y < lo.y || q.z < lo.z || q.x > hi.x || q.y > hi.y || q.z > hi.z) { whyG[gg] = FD_FAR; continue; }
                 Vector3 ns = gNormSum[gg];
                 Vector3 nq = ns.sqrMagnitude > 1e-6f ? toSrc.MultiplyVector(ns).normalized : Vector3.zero;
                 int bt; Vector3 cp, bar; bool viaGate;
-                if (!bindGrid.NearestGatedWithin(q, nq, 0.35f, range * 1.25f, out bt, out cp, out bar, out viaGate)) continue;
+                if (!bindGrid.NearestGatedWithin(q, nq, 0.35f, range * 1.25f, out bt, out cp, out bar, out viaGate))
+                { whyG[gg] = FD_NOHIT; if (diagThis) distG[gg] = DiagDist(q); continue; }
                 float dist = (q - cp).magnitude;
-                if (dist > range) continue;
+                distG[gg] = dist;
+                if (dist > range) { whyG[gg] = FD_RANGE; continue; }
+                whyG[gg] = FD_BOUND;
                 float u = Mathf.Clamp01((dist - range * 0.5f) / (range * 0.5f));
                 float fall = 1f - u * u * (3f - 2f * u);   // 1 inside half-range, smooth to 0 at range
                 localOf[gg] = rep.Count;
@@ -774,7 +981,26 @@ namespace SoftBodySuite.Jello
                 A.Add(bindTris[bt]); B.Add(bindTris[bt + 1]); C.Add(bindTris[bt + 2]);
                 WA.Add(bar.x); WB.Add(bar.y); WC.Add(bar.z); FF.Add(fall);
             }
-            if (rep.Count < 8) { Object.Destroy(bk); folFailed.Add(r); return; }   // not covered (maybe off-pose)
+            if (rep.Count < 8)
+            {
+                if (diagThis) FollowDiagBind(r, pts, gOfGlobal, gFirst, whyG, distG, null, range, whole, offSrc, null);
+                // Not one group passed the bone filter, flesh fallback included (hair, face,
+                // shoes): no pose can change that, only a new paint or region bones, and those
+                // start a new follower generation anyway. Retrying such meshes every 5 s re-baked
+                // ~15 of them (11k-group twin-tails among them) one per frame: a stutter burst.
+                // (Pose CAN matter for the flesh fallback, so a mesh only counts as dead when
+                // not one of its verts has a flesh bone at all; dead ones still retry once a
+                // minute, and at once after a paint or region-bone rebuild.)
+                bool boneDead = false;
+                if (boneOkG != null && lastFleshCand == 0)
+                {
+                    boneDead = true;
+                    for (int gg = 0; gg < boneOkG.Length; gg++) if (boneOkG[gg]) { boneDead = false; break; }
+                }
+                Object.Destroy(bk);
+                if (boneDead) folDead.Add(r); else folFailed.Add(r);   // not covered (maybe off-pose): retry later
+                return;
+            }
             int drivenCount = rep.Count;
 
             // ---- VALLEY-GAP INFILL ----
@@ -867,6 +1093,8 @@ namespace SoftBodySuite.Jello
             f.gNrm = new Vector3[G]; f.gProt = new float[G]; f.gDnRaw = new float[G];
             f.gIsFill = FILL.ToArray();
             f.hasFill = G > drivenCount;
+            for (int gg = 0; gg < nGlobal; gg++)
+                if (localOf[gg] >= 0 && f.gIsFill[localOf[gg]]) whyG[gg] = FD_FILL;
 
             // WRAP offsets: each group's rest position expressed in its bound tri's local
             // frame, measured on the CLEAN current-pose surface (bindPts: skinned bra vs
@@ -891,6 +1119,8 @@ namespace SoftBodySuite.Jello
                 f.gOffRest[g2] = d3;
                 f.gOff[g2] = new Vector3(Vector3.Dot(d3, e1), Vector3.Dot(d3, e2), Vector3.Dot(d3, n3));
             }
+
+            if (followDiag) FollowDiagBind(r, pts, gOfGlobal, gFirst, whyG, distG, f, range, whole, offSrc, bk.triangles, diagThis);
 
             // members CSR (driven groups only)
             int[] cnt = new int[G];
@@ -922,6 +1152,11 @@ namespace SoftBodySuite.Jello
             }
             f.gAdj = new int[G][];
             for (int g2 = 0; g2 < G; g2++) f.gAdj[g2] = adj[g2].ToArray();
+            FindFloatingIslands(f, r.name, OffSkinFlags(f, toSrc, pts));
+            f.allRigid = f.islN > 0;
+            for (int g2 = 0; g2 < f.gRep.Length && f.allRigid; g2++)
+                if (!f.gIsFill[g2] && f.gIsl[g2] < 0) f.allRigid = false;
+            BuildSkinGuard(f, r.name, toSrc, pts, gOfGlobal, gFirst, gNormSum, localOf, tris);
 
             // seam field: multi-source Dijkstra from the driven-area boundary (mirrors the
             // main mesh's painted<->unpainted seam machinery, reusing the same sliders)
@@ -969,45 +1204,417 @@ namespace SoftBodySuite.Jello
             if (followers.Count == 0 || go == null) return;
             bool cageOk = cage != null && cageOut != null && cageOut.Length == cage.SimVertCount;
             Matrix4x4 srcL2W = go.transform.localToWorldMatrix;
+            float fieldMax = 0f;
+            if (cageOut != null)
+                for (int ci = 0; ci < cageOut.Length; ci++)
+                { float m2 = cageOut[ci].sqrMagnitude; if (m2 > fieldMax) fieldMax = m2; }
+            float extraMax = 0f;
+            if (cageExtra != null)
+                for (int ci = 0; ci < cageExtra.Length; ci++)
+                { float m3 = cageExtra[ci].sqrMagnitude; if (m3 > extraMax) extraMax = m3; }
+            // the ceiling has to cover the downstream contribution too, or the very
+            // contact motion this pass exists to carry gets clamped away
+            float folMaxMove = Mathf.Max(0.02f, (Mathf.Sqrt(fieldMax) + Mathf.Sqrt(extraMax)) * 2.5f);
+            bool rigidFull = settingsRef == null || settingsRef.cloth.follow.rigidFloat >= 0.999f;
+            int frameNow = Time.frameCount;
             for (int fi = followers.Count - 1; fi >= 0; fi--)
             {
                 Follower f = followers[fi];
-                if (f.smr == null || f.go == null) { RemoveFollower(fi); continue; }
-                // hidden meanwhile (hide panel sets enabled=false): drop the follower and
-                // RELEASE forceRenderingOff — enabled=false is what hides it, and leaving
-                // our flag set would keep the mesh invisible forever after an un-hide
-                if (!f.smr.enabled || !f.smr.gameObject.activeInHierarchy ||
-                    (settingsRef != null && settingsRef.hiddenMeshes != null && settingsRef.hiddenMeshes.Contains(f.smr.name)))
-                { RemoveFollower(fi, true); continue; }
-                // another studio took ownership: they manage visibility now
-                if (OtherStudioProxyAlive(f.smr)) { RemoveFollower(fi, false); continue; }
-                f.smr.forceRenderingOff = true;   // we render this mesh while driving it
-                f.smr.BakeMesh(f.baked);
-                f.baked.GetVertices(scratch);
-                if (scratch.Count != f.verts.Length) { RemoveFollower(fi); continue; }   // mesh swapped
-                scratch.CopyTo(f.verts);
-                f.baked.GetNormals(folNrmScratch);
-                bool haveN = folNrmScratch.Count == f.verts.Length;
-                Matrix4x4 M = f.smr.transform.worldToLocalMatrix * srcL2W;
-
+                // usually already baked this frame, while jell-o's solve ran (PreBakeFollowers)
+                if (f.bakedFrame != frameNow)
+                {
+                    CloLap();
+                    bool alive = BakeFollower(fi, srcL2W);
+                    cloBake += CloLap();
+                    if (!alive) continue;
+                }
+                bool haveN = f.haveN;
+                Matrix4x4 M = f.frameM;
                 if (!f.whole && !cageOk) continue;   // cage followers wait out a rebuild frame
                 float fit = settingsRef != null ? Mathf.Clamp(settingsRef.cloth.follow.fitStrength, 0f, 3f) : 1f;
                 float inf = settingsRef != null ? Mathf.Clamp(settingsRef.cloth.follow.inflate, 0f, 0.1f) : 0f;
                 float dyn = settingsRef != null ? Mathf.Clamp(settingsRef.cloth.follow.inflateDyn, 0f, 3f) : 0f;
                 int G = f.gRep.Length;
-                float fieldMax = 0f;
-                if (cageOut != null)
-                    for (int ci = 0; ci < cageOut.Length; ci++)
-                    { float m2 = cageOut[ci].sqrMagnitude; if (m2 > fieldMax) fieldMax = m2; }
-                float extraMax = 0f;
-                if (cageExtra != null)
-                    for (int ci = 0; ci < cageExtra.Length; ci++)
-                    { float m3 = cageExtra[ci].sqrMagnitude; if (m3 > extraMax) extraMax = m3; }
-                // the ceiling has to cover the downstream contribution too, or the very
-                // contact motion this pass exists to carry gets clamped away
-                float folMaxMove = Mathf.Max(0.02f, (Mathf.Sqrt(fieldMax) + Mathf.Sqrt(extraMax)) * 2.5f);
                 Vector3[] cb = f.whole ? (finalVerts != null ? finalVerts : bakedVerts) : cage.simBaked;
-                for (int g2 = 0; g2 < G; g2++)
+                // each group reads the shared cage + its own rest offset and writes only its
+                // own slots, so the groups split across cores (results are identical).
+                // Every 600 frames the old Vector3 version runs too and must match exactly.
+                // (the first 8 checks of a session only: each one re-runs the old version)
+                bool wrapCheck = (Time.frameCount % 600) == 37 && wrapChecks < 8 * Mathf.Max(1, followers.Count);
+                if (wrapCheck) WrapSnapshot(f);
+                WrapAllFast(f, cb, M, fit, inf, dyn, folMaxMove);
+                if (wrapCheck) WrapVerify(f, cb, M, fit, inf, dyn, folMaxMove);
+
+                cloWrap += CloLap();
+                // driven-area seam polish: SAME sliders as the painted<->unpainted seam.
+                // Smooths across the boundary band of the garment and cone-clamps the ramp
+                // so the driven edge can't crease or pop through.
+                if (settingsRef != null && f.gBand.Length > 0 && !(f.allRigid && rigidFull))
+                {
+                    int slv = Mathf.Clamp(Mathf.RoundToInt(settingsRef.jello.seamLevel), 0, 200);
+                    float srange = Mathf.Min(settingsRef.jello.seamRange, SEAM_MAXR);
+                    float smax = settingsRef.jello.seamMaxStretch;
+                    if ((slv > 0 || smax > 0.0001f) && srange > 0.0002f)
+                    {
+                        int active = f.gBand.Length;
+                        for (int i = 0; i < f.gBand.Length; i++) if (f.gSeam[f.gBand[i]] > srange) { active = i; break; }
+                        float invR = 1f / srange;
+                        // each band group reads the previous pass and writes only its own slot:
+                        // the pass splits across cores with identical results
+                        int[] bandS = f.gBand; float[] seamS = f.gSeam; int[][] adjB = f.gAdj;
+                        Vector3[] dA = f.gDisp, dB = f.gDisp2;
+                        for (int pass = 0; pass < slv; pass++)
+                        {
+                            SoftBodySuite.Field.ParallelLoop.For(active, 256, delegate (int lo, int hi)
+                            {
+                                for (int i = lo; i < hi; i++)
+                                {
+                                    int gg = bandS[i];
+                                    float bw2 = 1f - seamS[gg] * invR;
+                                    int[] nb = adjB[gg];
+                                    if (bw2 <= 0f || nb.Length < 2) { dB[gg] = dA[gg]; continue; }
+                                    float ax = 0f, ay = 0f, az = 0f;
+                                    for (int j = 0; j < nb.Length; j++) { Vector3 v = dA[nb[j]]; ax += v.x; ay += v.y; az += v.z; }
+                                    float inv = 1f / nb.Length;
+                                    Vector3 c0 = dA[gg];
+                                    dB[gg] = new Vector3(c0.x + (ax * inv - c0.x) * bw2, c0.y + (ay * inv - c0.y) * bw2, c0.z + (az * inv - c0.z) * bw2);
+                                }
+                            });
+                            SoftBodySuite.Field.ParallelLoop.For(active, 2048, delegate (int lo, int hi)
+                            {
+                                for (int i = lo; i < hi; i++) { int gg = bandS[i]; dA[gg] = dB[gg]; }
+                            });
+                        }
+                        if (smax > 0.0001f)
+                        {
+                            float slope = smax / Mathf.Max(srange, 0.0005f);
+                            SoftBodySuite.Field.ParallelLoop.For(bandS.Length, 2048, delegate (int lo, int hi)
+                            {
+                                for (int i = lo; i < hi; i++)
+                                {
+                                    int gg = bandS[i];
+                                    float allowed = seamS[gg] * slope;
+                                    float dm = dA[gg].magnitude;
+                                    if (dm > allowed && dm > 1e-9f) dA[gg] *= allowed / dm;
+                                }
+                            });
+                        }
+                    }
+                }
+
+                // ---- CLOTH-SIDE ANTI-CLIP (the body is never touched) ----
+                // Each group knows how far it rested OUTSIDE the body (gOff.z) and what the
+                // full wrap would have done (gDnRaw). A garment may drift closer to the skin
+                // than its rest gap, but never nearer than `minClear` — so the flesh cannot
+                // emerge through it, and the fix is applied entirely to the garment.
+                if (settingsRef != null && settingsRef.cloth.follow.clothOutside)
+                {
+                    float minClear = Mathf.Clamp(settingsRef.cloth.follow.minClear, 0f, 0.05f);
+                    SoftBodySuite.Field.ParallelLoop.For(G, 2048, delegate (int lo, int hi)
+                    {
+                        for (int g2 = lo; g2 < hi; g2++)
+                        {
+                            if (f.gIsFill[g2]) continue;   // no surface reference to clamp against
+                            float allow = Mathf.Max(0f, Mathf.Abs(f.gOff[g2].z) - minClear);
+                            float need = f.gDnRaw[g2] - allow;
+                            float cur = Vector3.Dot(f.gDisp[g2], f.gNrm[g2]);
+                            if (cur >= need) continue;
+                            float add = Mathf.Min(need - cur, 0.03f);   // never teleport a vert
+                            f.gDisp[g2] += f.gNrm[g2] * add;
+                        }
+                    });
+                }
+
+                // anti-clip floor: whatever the seam smoothing/clamps did above, the protected
+                // outward component survives — a close-fitting cup can never be pierced.
+                // The floor still obeys the seam RAMP law near the driven edge (a boundary
+                // group snapping to full amplitude against undriven neighbours is a tear).
+                float pSmax = settingsRef != null ? settingsRef.jello.seamMaxStretch : 0f;
+                float pSrange = settingsRef != null ? Mathf.Min(settingsRef.jello.seamRange, SEAM_MAXR) : 0f;
+                float pSlope = (pSmax > 0.0001f && pSrange > 0.0005f) ? pSmax / pSrange : -1f;
+                SoftBodySuite.Field.ParallelLoop.For(G, 2048, delegate (int lo, int hi)
+                {
+                    for (int g2 = lo; g2 < hi; g2++)
+                    {
+                        float prot = f.gProt[g2];
+                        if (prot <= 0f) continue;
+                        if (pSlope > 0f) prot = Mathf.Min(prot, f.gSeam[g2] * pSlope);
+                        float dn2 = Vector3.Dot(f.gDisp[g2], f.gNrm[g2]);
+                        if (dn2 < prot) f.gDisp[g2] += f.gNrm[g2] * (prot - dn2);
+                    }
+                });
+
+                cloSeam += CloLap();
+                // CLOTH FIELD SMOOTHING: diffuse the finished per-group motion over the
+                // garment itself. This used to be gated behind 'sharpness', so at the
+                // default the slider did nothing at all.
+                int clothSm = settingsRef != null ? Mathf.Clamp(Mathf.RoundToInt(settingsRef.cloth.follow.folSmooth), 0, 60) : 0;
+                // a garment that is one rigid piece (the bow) is overwritten by the rigid fit
+                // below, so smoothing it was ~1/3 of this pass for nothing
+                if (f.allRigid && rigidFull) clothSm = 0;
+                int[] islS = (f.islN > 0 && rigidFull) ? f.gIsl : null;
+                for (int pass = 0; pass < clothSm; pass++)
+                {
+                    Vector3[] src = f.gDisp, dst = f.gDisp2;
+                    int[][] adjS = f.gAdj;
+                    SoftBodySuite.Field.ParallelLoop.For(G, 256, delegate (int lo, int hi)
+                    {
+                        for (int g2 = lo; g2 < hi; g2++)
+                        {
+                            int[] nb = adjS[g2];
+                            if (nb.Length < 2 || (islS != null && islS[g2] >= 0)) { dst[g2] = src[g2]; continue; }
+                            float ax = 0f, ay = 0f, az = 0f;
+                            for (int j = 0; j < nb.Length; j++) { Vector3 v = src[nb[j]]; ax += v.x; ay += v.y; az += v.z; }
+                            float inv = 0.5f / nb.Length;
+                            Vector3 c0 = src[g2];
+                            dst[g2] = new Vector3(c0.x * 0.5f + ax * inv, c0.y * 0.5f + ay * inv, c0.z * 0.5f + az * inv);
+                        }
+                    });
+                    f.gDisp = dst; f.gDisp2 = src;   // swap the two scratch buffers instead of copying
+                }
+
+                // valley-gap infill: unbound islands between tracked cloth inherit motion by
+                // diffusion from their neighbors (warm-started, converges in a few sweeps)
+                if (f.hasFill)
+                    for (int pass = 0; pass < 4; pass++)
+                        for (int g2 = 0; g2 < G; g2++)
+                        {
+                            if (!f.gIsFill[g2]) continue;
+                            int[] nb = f.gAdj[g2];
+                            if (nb.Length == 0) continue;
+                            Vector3 avg = Vector3.zero;
+                            for (int j = 0; j < nb.Length; j++) avg += f.gDisp[nb[j]];
+                            f.gDisp[g2] = avg / nb.Length;
+                        }
+
+                cloSmooth += CloLap();
+                if (f.islN > 0) RigidIslands(f);
+
+                SoftBodySuite.Field.ParallelLoop.For(G, 2048, delegate (int lo, int hi)
+                {
+                    for (int g2 = lo; g2 < hi; g2++)
+                    {
+                        Vector3 dl = f.gDisp[g2];
+                        int e = f.gMemStart[g2 + 1];
+                        for (int m = f.gMemStart[g2]; m < e; m++) f.verts[f.gMem[m]] += dl;
+                    }
+                });
+                cloRigid += CloLap();
+                if (guardFin != null && f.kRep != null && settingsRef != null && settingsRef.cloth.follow.skinGuard)
+                    ApplySkinGuard(f, M, guardFin);
+                cloGuard += CloLap();
+                f.display.SetVertices(f.verts);
+                cloUpload += CloLap();
+                if (followDiag) FollowDiagFrame(f, M);
+                cloDiag += CloLap();
+                if (haveN) f.display.SetNormals(f.nrm);
+                if (!f.boundsSet)
+                { f.display.bounds = new Bounds(f.display.bounds.center, f.display.bounds.size + Vector3.one * 2f); f.boundsSet = true; }
+                cloUpload += CloLap();
+            }
+        }
+
+        readonly List<Vector3> folNrmScratch = new List<Vector3>();
+
+
+        // The wrap written out per component: the SAME operations in the SAME order with the
+        // same float32 roundings as the Vector3/Matrix4x4 version (WrapAllRef): every Vector3
+        // temporary or float return value is a float local here. Mono does not inline the
+        // operators, so this is ~2x faster with the same numbers.
+        void WrapAllFast(Follower f, Vector3[] cb, Matrix4x4 M, float fit, float inf, float dyn, float folMaxMove)
+        {
+            int G = f.gRep.Length;
+            bool whole = f.whole;
+            Vector3[] co = cageOut, ce = cageExtra;
+            Vector3[] NR = whole ? bakedNormals : cage.simNormals;
+            bool diag = followDiag && f.dCp != null;
+            float m00 = M.m00, m01 = M.m01, m02 = M.m02, m03 = M.m03;
+            float m10 = M.m10, m11 = M.m11, m12 = M.m12, m13 = M.m13;
+            float m20 = M.m20, m21 = M.m21, m22 = M.m22, m23 = M.m23;
+            SoftBodySuite.Field.ParallelLoop.For(G, 256, delegate (int lo, int hi)
+            {
+                for (int g2 = lo; g2 < hi; g2++)
+                {
+                    if (f.gIsFill[g2]) { f.gProt[g2] = 0f; continue; }
+                    int ia = f.gA[g2], ib = f.gB[g2], ic = f.gC[g2];
+                    float ax, ay, az, bx, by, bz, cx, cy, cz;
+                    if (whole)
+                    {
+                        ax = cb[ia].x; ay = cb[ia].y; az = cb[ia].z;
+                        bx = cb[ib].x; by = cb[ib].y; bz = cb[ib].z;
+                        cx = cb[ic].x; cy = cb[ic].y; cz = cb[ic].z;
+                    }
+                    else if (ce != null)
+                    {
+                        float sx, sy, sz;
+                        sx = cb[ia].x + co[ia].x; sy = cb[ia].y + co[ia].y; sz = cb[ia].z + co[ia].z;
+                        ax = sx + ce[ia].x; ay = sy + ce[ia].y; az = sz + ce[ia].z;
+                        sx = cb[ib].x + co[ib].x; sy = cb[ib].y + co[ib].y; sz = cb[ib].z + co[ib].z;
+                        bx = sx + ce[ib].x; by = sy + ce[ib].y; bz = sz + ce[ib].z;
+                        sx = cb[ic].x + co[ic].x; sy = cb[ic].y + co[ic].y; sz = cb[ic].z + co[ic].z;
+                        cx = sx + ce[ic].x; cy = sy + ce[ic].y; cz = sz + ce[ic].z;
+                    }
+                    else
+                    {
+                        ax = cb[ia].x + co[ia].x; ay = cb[ia].y + co[ia].y; az = cb[ia].z + co[ia].z;
+                        bx = cb[ib].x + co[ib].x; by = cb[ib].y + co[ib].y; bz = cb[ib].z + co[ib].z;
+                        cx = cb[ic].x + co[ic].x; cy = cb[ic].y + co[ic].y; cz = cb[ic].z + co[ic].z;
+                    }
+                    // ---- TriFrame
+                    float e1x = bx - ax, e1y = by - ay, e1z = bz - az;
+                    float m1 = (float)System.Math.Sqrt(e1x * e1x + e1y * e1y + e1z * e1z);
+                    float acx = cx - ax, acy = cy - ay, acz = cz - az;
+                    float nx = e1y * acz - e1z * acy, ny = e1z * acx - e1x * acz, nz = e1x * acy - e1y * acx;
+                    float mn = (float)System.Math.Sqrt(nx * nx + ny * ny + nz * nz);
+                    if (m1 < 1e-9f || mn < 1e-12f)
+                    { f.gDisp[g2] = Vector3.zero; f.gNrm[g2] = Vector3.up; f.gProt[g2] = 0f; continue; }
+                    e1x = e1x / m1; e1y = e1y / m1; e1z = e1z / m1;
+                    nx = nx / mn; ny = ny / mn; nz = nz / mn;
+                    float e2x = ny * e1z - nz * e1y, e2y = nz * e1x - nx * e1z, e2z = nx * e1y - ny * e1x;
+                    // ---- canonical side
+                    float rx = NR[ia].x + NR[ib].x, ry = NR[ia].y + NR[ib].y, rz = NR[ia].z + NR[ib].z;
+                    rx = rx + NR[ic].x; ry = ry + NR[ic].y; rz = rz + NR[ic].z;
+                    float side = nx * rx + ny * ry + nz * rz;
+                    if (side < 0f) { nx = -nx; ny = -ny; nz = -nz; e2x = -e2x; e2y = -e2y; e2z = -e2z; }
+                    // ---- cp2 = A*wA + B*wB + C*wC
+                    float wa = f.gwA[g2], wb = f.gwB[g2], wc = f.gwC[g2];
+                    float pax = ax * wa, pay = ay * wa, paz = az * wa;
+                    float pbx = bx * wb, pby = by * wb, pbz = bz * wb;
+                    float pcx = cx * wc, pcy = cy * wc, pcz = cz * wc;
+                    float qx = pax + pbx, qy = pay + pby, qz = paz + pbz;
+                    float cpx = qx + pcx, cpy = qy + pcy, cpz = qz + pcz;
+                    if (diag) { f.dCp[g2] = new Vector3(cpx, cpy, cpz); f.dN[g2] = new Vector3(nx, ny, nz); f.dOk[g2] = true; }
+                    // ---- rotated = e1*off.x + e2*off.y + n2*off.z
+                    Vector3 off = f.gOff[g2];
+                    float r1x = e1x * off.x, r1y = e1y * off.x, r1z = e1z * off.x;
+                    float r2x = e2x * off.y, r2y = e2y * off.y, r2z = e2z * off.y;
+                    float r3x = nx * off.z, r3y = ny * off.z, r3z = nz * off.z;
+                    float rsx = r1x + r2x, rsy = r1y + r2y, rsz = r1z + r2z;
+                    float rotx = rsx + r3x, roty = rsy + r3y, rotz = rsz + r3z;
+                    Vector3 orr = f.gOffRest[g2];
+                    float offLen = (float)System.Math.Sqrt(orr.x * orr.x + orr.y * orr.y + orr.z * orr.z);
+                    float wRot = 1f - Mathf.Clamp01((offLen - 0.02f) / 0.06f);
+                    wRot = wRot * wRot * (3f - 2f * wRot);
+                    // ---- wrapSrc = cp2 + Lerp(offRest, rotated, wRot)
+                    float tl = Mathf.Clamp01(wRot);
+                    float lx = orr.x + (rotx - orr.x) * tl, ly = orr.y + (roty - orr.y) * tl, lz = orr.z + (rotz - orr.z) * tl;
+                    float wsx = cpx + lx, wsy = cpy + ly, wsz = cpz + lz;
+                    // ---- dlRaw = M.MultiplyPoint3x4(wrapSrc) - verts[rep]
+                    float px = m00 * wsx + m01 * wsy + m02 * wsz + m03;
+                    float py = m10 * wsx + m11 * wsy + m12 * wsz + m13;
+                    float pz = m20 * wsx + m21 * wsy + m22 * wsz + m23;
+                    Vector3 vr = f.verts[f.gRep[g2]];
+                    float dlx = px - vr.x, dly = py - vr.y, dlz = pz - vr.z;
+                    // ---- nl = M.MultiplyVector(n2).normalized
+                    float mvx = m00 * nx + m01 * ny + m02 * nz;
+                    float mvy = m10 * nx + m11 * ny + m12 * nz;
+                    float mvz = m20 * nx + m21 * ny + m22 * nz;
+                    float mvm = (float)System.Math.Sqrt(mvx * mvx + mvy * mvy + mvz * mvz);
+                    float nlx, nly, nlz;
+                    if (mvm > 1E-05f) { nlx = mvx / mvm; nly = mvy / mvm; nlz = mvz / mvm; }
+                    else { nlx = 0f; nly = 0f; nlz = 0f; }
+                    // ---- anti-clip split (see WrapAllRef for the reasoning)
+                    float baseW = f.gFall[g2] * fit;
+                    float dn = dlx * nlx + dly * nly + dlz * nlz;
+                    float t1x = nlx * dn, t1y = nly * dn, t1z = nlz * dn;
+                    float dtx = dlx - t1x, dty = dly - t1y, dtz = dlz - t1z;
+                    float wClip = 1f - Mathf.Clamp01((Mathf.Abs(off.z) - 0.01f) / 0.02f);
+                    float ef = Mathf.Clamp01(f.gSeam[g2] / 0.02f);
+                    wClip *= ef * ef * (3f - 2f * ef);
+                    float outW = Mathf.Max(baseW, wClip);
+                    float prot = 0f;
+                    float ox = dtx * baseW, oy = dty * baseW, oz = dtz * baseW;
+                    if (dn > 0f)
+                    {
+                        float s1 = dn * outW;
+                        float ux = nlx * s1, uy = nly * s1, uz = nlz * s1;
+                        ox = ox + ux; oy = oy + uy; oz = oz + uz;
+                        prot = dn * outW;
+                        if (dyn > 0f)
+                        {
+                            float s2 = dn * outW * dyn;
+                            float vx = nlx * s2, vy = nly * s2, vz = nlz * s2;
+                            ox = ox + vx; oy = oy + vy; oz = oz + vz;
+                            prot += dn * outW * dyn;
+                        }
+                    }
+                    else
+                    {
+                        float s3 = dn * baseW;
+                        float ux = nlx * s3, uy = nly * s3, uz = nlz * s3;
+                        ox = ox + ux; oy = oy + uy; oz = oz + uz;
+                    }
+                    if (inf > 0f)
+                    {
+                        float add = inf * Mathf.Max(f.gFall[g2], wClip);
+                        float ux = nlx * add, uy = nly * add, uz = nlz * add;
+                        ox = ox + ux; oy = oy + uy; oz = oz + uz;
+                        prot += add;
+                    }
+                    float dlM = (float)System.Math.Sqrt(ox * ox + oy * oy + oz * oz);
+                    if (dlM > folMaxMove)
+                    {
+                        float rr = folMaxMove / dlM;
+                        ox = ox * rr; oy = oy * rr; oz = oz * rr;
+                        prot = Mathf.Min(prot, folMaxMove);
+                    }
+                    f.gNrm[g2] = new Vector3(nlx, nly, nlz); f.gProt[g2] = prot; f.gDnRaw[g2] = dn;
+                    f.gDisp[g2] = new Vector3(ox, oy, oz);
+                }
+            });
+        }
+
+        // ---- the fast wrap's self-check: snapshot, run fast, run the reference, compare ----
+        static int wrapChecks, wrapMismatchGroups;
+        void WrapSnapshot(Follower f)
+        {
+            int G = f.gRep.Length;
+            if (f.ckD == null || f.ckD.Length != G)
+            { f.ckD = new Vector3[G]; f.ckN = new Vector3[G]; f.ckP = new float[G]; f.ckR = new float[G];
+              f.ckD2 = new Vector3[G]; f.ckN2 = new Vector3[G]; f.ckP2 = new float[G]; f.ckR2 = new float[G]; }
+            System.Array.Copy(f.gDisp, f.ckD, G); System.Array.Copy(f.gNrm, f.ckN, G);
+            System.Array.Copy(f.gProt, f.ckP, G); System.Array.Copy(f.gDnRaw, f.ckR, G);
+        }
+
+        void WrapVerify(Follower f, Vector3[] cb, Matrix4x4 M, float fit, float inf, float dyn, float folMaxMove)
+        {
+            int G = f.gRep.Length;
+            // keep the fast result, put the inputs back, run the reference over them
+            System.Array.Copy(f.gDisp, f.ckD2, G); System.Array.Copy(f.gNrm, f.ckN2, G);
+            System.Array.Copy(f.gProt, f.ckP2, G); System.Array.Copy(f.gDnRaw, f.ckR2, G);
+            System.Array.Copy(f.ckD, f.gDisp, G); System.Array.Copy(f.ckN, f.gNrm, G);
+            System.Array.Copy(f.ckP, f.gProt, G); System.Array.Copy(f.ckR, f.gDnRaw, G);
+            WrapAllRef(f, cb, M, fit, inf, dyn, folMaxMove);
+            int bad = 0, first = -1;
+            for (int g = 0; g < G; g++)
+            {
+                // exact float compares (Vector3 == is approximate in Unity)
+                bool same = f.gDisp[g].x == f.ckD2[g].x && f.gDisp[g].y == f.ckD2[g].y && f.gDisp[g].z == f.ckD2[g].z
+                    && f.gNrm[g].x == f.ckN2[g].x && f.gNrm[g].y == f.ckN2[g].y && f.gNrm[g].z == f.ckN2[g].z
+                    && f.gProt[g] == f.ckP2[g] && f.gDnRaw[g] == f.ckR2[g];
+                if (!same) { bad++; if (first < 0) first = g; }
+            }
+            wrapChecks++;
+            if (bad > 0) wrapMismatchGroups += bad;
+            if (bad > 0 || !f.ckLogged)
+            {
+                f.ckLogged = true;
+                Debug.Log("[Wrap] self-check '" + (f.smr != null ? f.smr.name : "?") + "': " + G + " groups, "
+                    + bad + " differ from the reference" + (first >= 0
+                        ? " (first g" + first + ": fast " + f.ckD2[first].ToString("F7") + " ref " + f.gDisp[first].ToString("F7") + ")"
+                        : "") + "  [checks " + wrapChecks + ", differing groups so far " + wrapMismatchGroups + "]");
+            }
+            // the reference result stays in place (identical when the check passes)
+        }
+
+        // The wrap exactly as it was written with Vector3 operators: the reference the fast
+        // version is checked against (WrapVerify), byte for byte.
+        void WrapAllRef(Follower f, Vector3[] cb, Matrix4x4 M, float fit, float inf, float dyn, float folMaxMove)
+        {
+            int G = f.gRep.Length;
+            SoftBodySuite.Field.ParallelLoop.For(G, 256, delegate (int lo, int hi)
+            {
+                for (int g2 = lo; g2 < hi; g2++)
                 {
                     if (f.gIsFill[g2]) { f.gProt[g2] = 0f; continue; }   // diffused later, warm-started
                     // WRAP: rebuild the bound tri's frame on the CURRENT surface and re-place
@@ -1037,6 +1644,7 @@ namespace SoftBodySuite.Jello
                         : cage.simNormals[ia] + cage.simNormals[ib] + cage.simNormals[ic];
                     if (Vector3.Dot(n2, nrf) < 0f) { n2 = -n2; e2 = -e2; }
                     Vector3 cp2 = A2 * f.gwA[g2] + B2 * f.gwB[g2] + C2 * f.gwC[g2];
+                    if (followDiag && f.dCp != null) { f.dCp[g2] = cp2; f.dN[g2] = n2; f.dOk[g2] = true; }
                     Vector3 off = f.gOff[g2];
                     // A wrap re-orients the stored offset by the bound triangle's frame.
                     // That is exact for cloth ON the surface, but for a vert bound far
@@ -1084,130 +1692,981 @@ namespace SoftBodySuite.Jello
                     f.gNrm[g2] = nl; f.gProt[g2] = prot; f.gDnRaw[g2] = dn;
                     f.gDisp[g2] = dl;
                 }
+            });
+        }
 
-                // driven-area seam polish: SAME sliders as the painted<->unpainted seam.
-                // Smooths across the boundary band of the garment and cone-clamps the ramp
-                // so the driven edge can't crease or pop through.
-                if (settingsRef != null && f.gBand.Length > 0)
+        // Ownership checks + BakeMesh of one garment, results kept on the follower for this
+        // frame. False = the follower was dropped (hidden, taken over, mesh swapped).
+        bool BakeFollower(int fi, Matrix4x4 srcL2W)
+        {
+            Follower f = followers[fi];
+            if (f.smr == null || f.go == null) { RemoveFollower(fi); return false; }
+            // hidden meanwhile (hide panel sets enabled=false): drop the follower and
+            // RELEASE forceRenderingOff (enabled=false is what hides it, and leaving
+            // our flag set would keep the mesh invisible forever after an un-hide)
+            if (!f.smr.enabled || !f.smr.gameObject.activeInHierarchy ||
+                (settingsRef != null && settingsRef.hiddenMeshes != null && settingsRef.hiddenMeshes.Contains(f.smr.name)))
+            { RemoveFollower(fi, true); return false; }
+            // another studio took ownership: they manage visibility now
+            if (OtherStudioProxyAlive(f.smr)) { RemoveFollower(fi, false); return false; }
+            f.smr.forceRenderingOff = true;   // we render this mesh while driving it
+            f.smr.BakeMesh(f.baked);
+            f.baked.GetVertices(scratch);
+            if (scratch.Count != f.verts.Length) { RemoveFollower(fi); return false; }   // mesh swapped
+            scratch.CopyTo(f.verts);
+            if (followDiag)
+            {
+                if (f.skin == null || f.skin.Length != f.verts.Length) f.skin = new Vector3[f.verts.Length];
+                scratch.CopyTo(f.skin);
+            }
+            f.baked.GetNormals(f.nrm);
+            f.haveN = f.nrm.Count == f.verts.Length;
+            f.frameM = f.smr.transform.worldToLocalMatrix * srcL2W;
+            f.bakedFrame = Time.frameCount;
+            return true;
+        }
+
+        // The garments' BakeMesh calls (main thread only) done EARLY, while jell-o's cage
+        // solve runs on a worker. Nothing between here and the clothes pass moves a bone,
+        // so the garments come out exactly as they would later in the frame.
+        void PreBakeFollowers()
+        {
+            if (followers.Count == 0 || go == null) return;
+            Matrix4x4 srcL2W = go.transform.localToWorldMatrix;
+            System.Diagnostics.Stopwatch sw = preBakeSw;
+            sw.Reset(); sw.Start();
+            for (int fi = followers.Count - 1; fi >= 0; fi--) BakeFollower(fi, srcL2W);
+            cloPreBake += (float)sw.Elapsed.TotalMilliseconds;
+        }
+        readonly System.Diagnostics.Stopwatch preBakeSw = new System.Diagnostics.Stopwatch();
+        float cloPreBake;
+
+        // ---- jell-o's cage solve on a worker, overlapped with PreBakeFollowers ----
+        public static bool overlapSolve = true;
+        readonly System.Threading.ManualResetEventSlim solveDone = new System.Threading.ManualResetEventSlim(true);
+        System.Threading.WaitCallback solveJob;
+        System.Exception solveErr; bool solveBroken;
+        int solveSubsteps; float solveSdt, solvePdt; Vector3 solveDown;
+
+        void SolveJob(object state)
+        {
+            try
+            {
+                for (int s = 0; s < solveSubsteps; s++)
+                    cageSim.StepDynamics(cage.simBaked, cage.simNormals, solveSdt, solveDown, null);
+                System.Array.Clear(cage.simDisp, 0, cage.simDisp.Length);
+                cageSim.FieldAndWrite(cage.simBaked, cage.simNormals, cage.simDisp, solvePdt, SimsAsList(), null);
+            }
+            catch (System.Exception e) { solveErr = e; }
+            finally { solveDone.Set(); }
+        }
+
+        // =====================================================================
+        // FOLLOW DIAGNOSTICS
+        // Written for a second avatar where a bow on the top tears into shards and the
+        // top clips with every follow option maxed. Raising the range and shifting the
+        // zone forward changed nothing, so range is not what stops those verts binding.
+        // At bind: per garment, WHY each part did or did not bind, its bone, and its
+        // distance to the body. Every 2 s: how far the cloth moved, the worst stretched
+        // edge (the shard) and how much bound cloth sits INSIDE the body (the clip).
+        // A CSV per garment lands next to the configs for offline digging.
+        // =====================================================================
+        // Off by default: it cost ~5 ms a frame on three garments (measured). The plugin
+        // turns it on together with the collider view (F10 / Show colliders).
+        public static bool followDiag = false;
+        // garments already reported this session; cleared when the follower set is rebuilt
+        readonly HashSet<string> diagReported = new HashSet<string>();
+        const int FD_FREE = 0, FD_BOUND = 1, FD_FILL = 2, FD_BONE = 3, FD_FAR = 4, FD_NOHIT = 5, FD_RANGE = 6;
+        static readonly string[] FD_NAMES = { "free", "bound", "fill", "boneFilter", "outsideBox", "noSurface", "beyondRange" };
+
+        // ---- FLESH FALLBACK for the bone filter --------------------------------
+        // A garment rigged to the main leg bone ("Right Leg") while the region was picked from
+        // the thigh flesh helpers ("Thigh_R", 107 mm away) shares no bone with the region by
+        // name or by position, so the gate dropped all 1875 groups of the leg harness. Used
+        // ONLY when the name gate would leave a garment unbound: a vert passes if one of its
+        // bones really skins the painted flesh (>= 3% of that bone's skin weight lies in the
+        // paint) AND the body vert right under it (within 8 cm) is painted (>= 20% of that
+        // region's strongest paint). The back of a top and a sleeve still fail the second test.
+        HashSet<string> shareBones;          // cached per follower generation
+        float[] paintW;                      // per body vert: the strongest enabled region's paint
+        Dictionary<long, List<int>> paintGrid;
+        Vector3[] paintPts;
+        BoneWeight[] bodyBW;                 // the body's skin weights, for the shared-bone test
+        string[] bodyBoneNames;
+        const float PAINT_CELL = 0.04f;
+
+        void EnsureFleshData()
+        {
+            if (shareBones != null) return;
+            shareBones = new HashSet<string>();
+            if (smr == null || smr.sharedMesh == null || bakedVerts == null || cfg == null || cfg.regions == null) return;
+            int n = bakedVerts.Length;
+            paintW = new float[n];
+            for (int ri = 0; ri < cfg.regions.Count; ri++)
+            {
+                SoftBodySuite.SuiteRegion reg = cfg.regions[ri];
+                if (reg == null || !reg.enabled) continue;
+                // relative to the region's OWN strongest paint: a region picked from bone
+                // weights can top out at 0.19 (Nami's thighs did), and that is still "painted"
+                float rmax = 0f;
+                for (int k = 0; k < reg.weight.Count; k++) if (reg.weight[k] > rmax) rmax = reg.weight[k];
+                if (rmax <= 1e-4f) continue;
+                for (int k = 0; k < reg.vertIndex.Count; k++)
                 {
-                    int slv = Mathf.Clamp(Mathf.RoundToInt(settingsRef.jello.seamLevel), 0, 200);
-                    float srange = Mathf.Min(settingsRef.jello.seamRange, SEAM_MAXR);
-                    float smax = settingsRef.jello.seamMaxStretch;
-                    if ((slv > 0 || smax > 0.0001f) && srange > 0.0002f)
+                    int vi = reg.vertIndex[k];
+                    float w = reg.weight[k] / rmax;
+                    if (vi >= 0 && vi < n && w > paintW[vi]) paintW[vi] = w;
+                }
+            }
+            BoneWeight[] bw = null;
+            try { bw = smr.sharedMesh.boneWeights; } catch (System.Exception) { bw = null; }
+            Transform[] sb = smr.bones;
+            bodyBW = (bw != null && bw.Length == n) ? bw : null;
+            if (sb != null)
+            {
+                bodyBoneNames = new string[sb.Length];
+                for (int b = 0; b < sb.Length; b++) bodyBoneNames[b] = sb[b] != null ? sb[b].name : null;
+            }
+            if (bw != null && sb != null && bw.Length == n)
+            {
+                float[] tot = new float[sb.Length], inP = new float[sb.Length];
+                for (int i = 0; i < n; i++)
+                {
+                    BoneWeight w = bw[i]; float pw = paintW[i];
+                    if (w.boneIndex0 < sb.Length) { tot[w.boneIndex0] += w.weight0; inP[w.boneIndex0] += w.weight0 * pw; }
+                    if (w.boneIndex1 < sb.Length) { tot[w.boneIndex1] += w.weight1; inP[w.boneIndex1] += w.weight1 * pw; }
+                    if (w.boneIndex2 < sb.Length) { tot[w.boneIndex2] += w.weight2; inP[w.boneIndex2] += w.weight2 * pw; }
+                    if (w.boneIndex3 < sb.Length) { tot[w.boneIndex3] += w.weight3; inP[w.boneIndex3] += w.weight3 * pw; }
+                }
+                // a bone counts if a real part of its skin lies in the paint (Nami's main leg
+                // bones carry 6% of their weight in the thigh paint, the chest 6% in the breasts;
+                // hair and arm bones carry none). The skin-under-the-vert test does the rest.
+                for (int b = 0; b < sb.Length; b++)
+                    if (sb[b] != null && tot[b] > 1f && (inP[b] >= 0.03f * tot[b] || inP[b] >= 10f)) shareBones.Add(sb[b].name);
+                if (followDiag)
+                {
+                    // the 16 bones carrying the most painted weight, with their share
+                    List<int> ord = new List<int>();
+                    for (int b = 0; b < sb.Length; b++) if (inP[b] > 0f) ord.Add(b);
+                    ord.Sort(delegate (int x, int y) { return inP[y].CompareTo(inP[x]); });
+                    System.Text.StringBuilder sbd = new System.Text.StringBuilder();
+                    for (int k = 0; k < ord.Count && k < 16; k++)
                     {
-                        int active = f.gBand.Length;
-                        for (int i = 0; i < f.gBand.Length; i++) if (f.gSeam[f.gBand[i]] > srange) { active = i; break; }
-                        float invR = 1f / srange;
-                        for (int pass = 0; pass < slv; pass++)
+                        int b = ord[k];
+                        sbd.Append(sb[b] != null ? sb[b].name : "?").Append(' ').Append(inP[b].ToString("0")).Append('/')
+                           .Append(tot[b].ToString("0")).Append(" (").Append((inP[b] / Mathf.Max(tot[b], 1e-6f) * 100f).ToString("0")).Append("%), ");
+                    }
+                    int painted = 0; for (int i = 0; i < n; i++) if (paintW[i] > 0f) painted++;
+                    Debug.Log("[FollowDiag] painted body verts " + painted + "; bones by painted weight: " + sbd.ToString());
+                }
+            }
+            // clean current-pose body, hashed for "what skin is under this garment vert"
+            paintPts = new Vector3[n];
+            paintGrid = new Dictionary<long, List<int>>();
+            for (int i = 0; i < n; i++)
+            {
+                paintPts[i] = bakedVerts[i] - (disp != null && i < disp.Length ? disp[i] : Vector3.zero) - UpDispAt(i);
+                long key = HashCell(paintPts[i], PAINT_CELL, 0, 0, 0);
+                List<int> l;
+                if (!paintGrid.TryGetValue(key, out l)) { l = new List<int>(8); paintGrid[key] = l; }
+                l.Add(i);
+            }
+            if (followDiag)
+                Debug.Log("[FollowDiag] flesh bones (>= 3% of their weight in the paint): "
+                    + string.Join(", ", new List<string>(shareBones).ToArray()));
+        }
+
+        int NearestBodyVert(Vector3 q, float maxD)
+        {
+            int best = -1; float bd = maxD * maxD;
+            for (int dx = -1; dx <= 1; dx++)
+                for (int dy = -1; dy <= 1; dy++)
+                    for (int dz = -1; dz <= 1; dz++)
+                    {
+                        List<int> l;
+                        if (!paintGrid.TryGetValue(HashCell(q, PAINT_CELL, dx, dy, dz), out l)) continue;
+                        for (int j = 0; j < l.Count; j++)
                         {
-                            for (int i = 0; i < active; i++)
-                            {
-                                int gg = f.gBand[i];
-                                float bw2 = 1f - f.gSeam[gg] * invR;
-                                int[] nb = f.gAdj[gg];
-                                if (bw2 <= 0f || nb.Length < 2) { f.gDisp2[gg] = f.gDisp[gg]; continue; }
-                                Vector3 avg = Vector3.zero;
-                                for (int j = 0; j < nb.Length; j++) avg += f.gDisp[nb[j]];
-                                avg /= nb.Length;
-                                f.gDisp2[gg] = Vector3.Lerp(f.gDisp[gg], avg, bw2);
-                            }
-                            for (int i = 0; i < active; i++) { int gg = f.gBand[i]; f.gDisp[gg] = f.gDisp2[gg]; }
+                            float d2 = (paintPts[l[j]] - q).sqrMagnitude;
+                            if (d2 < bd) { bd = d2; best = l[j]; }
                         }
-                        if (smax > 0.0001f)
-                        {
-                            float slope = smax / Mathf.Max(srange, 0.0005f);
-                            for (int i = 0; i < f.gBand.Length; i++)
-                            {
-                                int gg = f.gBand[i];
-                                float allowed = f.gSeam[gg] * slope;
-                                float dm = f.gDisp[gg].magnitude;
-                                if (dm > allowed && dm > 1e-9f) f.gDisp[gg] *= allowed / dm;
-                            }
-                        }
+                    }
+            return best;
+        }
+
+        bool SharesBone(BoneWeight gwv, Transform[] gb, int bodyVert)
+        {
+            if (bodyBW == null || bodyBoneNames == null) return true;   // cannot tell: do not refuse
+            BoneWeight bv = bodyBW[bodyVert];
+            return BoneIn(gwv.boneIndex0, gwv.weight0, gb, bv) || BoneIn(gwv.boneIndex1, gwv.weight1, gb, bv)
+                || BoneIn(gwv.boneIndex2, gwv.weight2, gb, bv) || BoneIn(gwv.boneIndex3, gwv.weight3, gb, bv);
+        }
+
+        bool BoneIn(int gIdx, float gW, Transform[] gb, BoneWeight bv)
+        {
+            if (gW <= 0.05f || gIdx < 0 || gIdx >= gb.Length || gb[gIdx] == null) return false;
+            string nm = gb[gIdx].name;
+            return Named(bv.boneIndex0, bv.weight0, nm) || Named(bv.boneIndex1, bv.weight1, nm)
+                || Named(bv.boneIndex2, bv.weight2, nm) || Named(bv.boneIndex3, bv.weight3, nm);
+        }
+
+        bool Named(int bIdx, float w, string nm)
+        {
+            return w > 0.02f && bIdx >= 0 && bIdx < bodyBoneNames.Length && bodyBoneNames[bIdx] == nm;
+        }
+
+        int FleshBoneGate(SkinnedMeshRenderer r, Vector3[] pts, Matrix4x4 toSrc, int[] gOfGlobal, List<int> gFirst, bool[] boneOkG)
+        {
+            EnsureFleshData();
+            lastFleshCand = 0;
+            if (shareBones == null || shareBones.Count == 0 || paintGrid == null) return 0;
+            Transform[] gb = r.bones;
+            BoneWeight[] gw = r.sharedMesh != null ? r.sharedMesh.boneWeights : null;
+            if (gb == null || gw == null || gw.Length != pts.Length) return 0;
+            bool[] bOk = new bool[gb.Length];
+            for (int b = 0; b < gb.Length; b++) bOk[b] = gb[b] != null && shareBones.Contains(gb[b].name);
+            bool[] cand = new bool[boneOkG.Length];
+            for (int i = 0; i < gw.Length; i++)
+            {
+                BoneWeight w = gw[i];
+                if ((w.weight0 > 0.05f && w.boneIndex0 < bOk.Length && bOk[w.boneIndex0])
+                    || (w.weight1 > 0.05f && w.boneIndex1 < bOk.Length && bOk[w.boneIndex1])
+                    || (w.weight2 > 0.05f && w.boneIndex2 < bOk.Length && bOk[w.boneIndex2])
+                    || (w.weight3 > 0.05f && w.boneIndex3 < bOk.Length && bOk[w.boneIndex3]))
+                    cand[gOfGlobal[i]] = true;
+            }
+            for (int gg = 0; gg < boneOkG.Length; gg++) if (cand[gg] && !boneOkG[gg]) lastFleshCand++;
+            int added = 0, refused = 0;
+            for (int gg = 0; gg < boneOkG.Length; gg++)
+            {
+                if (boneOkG[gg] || !cand[gg]) continue;
+                int nv = NearestBodyVert(toSrc.MultiplyPoint3x4(pts[gFirst[gg]]), 0.08f);
+                if (nv < 0 || paintW[nv] < 0.2f) continue;
+                // ...and the garment vert and that skin must share a bone. Nami's breasts hang
+                // down to her waist, so the skin "under" the skirt's waistband was breast, and
+                // the waistband (Hips / Spine) rode the breast jiggle: 92-111 mm. The leg
+                // harness (Right Leg) and the thigh skin (Right Leg + Thigh_R) do share one.
+                if (!SharesBone(gw[gFirst[gg]], gb, nv)) { refused++; continue; }
+                boneOkG[gg] = true; added++;
+            }
+            if (followDiag && refused > 0)
+                Debug.Log("[FollowDiag] '" + r.name + "': flesh fallback refused " + refused
+                    + " groups whose painted skin underneath belongs to other bones");
+            return added;
+        }
+
+        // World positions of this body's bones named in `names` (the regions' picked bones).
+        List<Vector3> RegionBonePositions(HashSet<string> names)
+        {
+            List<Vector3> outP = new List<Vector3>();
+            if (smr == null || smr.bones == null) return outP;
+            Transform[] bb = smr.bones;
+            for (int i = 0; i < bb.Length; i++)
+                if (bb[i] != null && names.Contains(bb[i].name)) outP.Add(bb[i].position);
+            return outP;
+        }
+
+        static bool OnRegionBone(Vector3 p, List<Vector3> regPos)
+        {
+            for (int i = 0; i < regPos.Count; i++)
+                if ((regPos[i] - p).sqrMagnitude < 0.02f * 0.02f) return true;
+            return false;
+        }
+
+        // nearest body distance for a vert the binder rejected, ignoring range and gate
+        float DiagDist(Vector3 q)
+        {
+            if (bindGrid == null) return -1f;
+            int bt; Vector3 cp, bar; bool via;
+            if (!bindGrid.NearestGatedWithin(q, Vector3.zero, 0.35f, 0.10f, out bt, out cp, out bar, out via)) return -1f;
+            return (q - cp).magnitude;
+        }
+
+        void FollowDiagBind(SkinnedMeshRenderer r, Vector3[] pts, int[] gOfGlobal, List<int> gFirst,
+                            int[] whyG, float[] distG, Follower f, float range, bool whole,
+                            Vector3 offSrc, int[] tris)
+        { FollowDiagBind(r, pts, gOfGlobal, gFirst, whyG, distG, f, range, whole, offSrc, tris, true); }
+
+        // `report` false = a re-bind: only set up the runtime arrays, no log line, no CSV
+        void FollowDiagBind(SkinnedMeshRenderer r, Vector3[] pts, int[] gOfGlobal, List<int> gFirst,
+                            int[] whyG, float[] distG, Follower f, float range, bool whole,
+                            Vector3 offSrc, int[] tris, bool report)
+        {
+            if (!followDiag) return;
+            try
+            {
+                int nG = gFirst.Count;
+                if (!report && f == null) return;
+                string[] bn = null; int[] vb = new int[pts.Length];
+                for (int i = 0; i < vb.Length; i++) vb[i] = -1;
+                if (r.sharedMesh != null && r.bones != null)
+                {
+                    Transform[] bs = r.bones;
+                    bn = new string[bs.Length];
+                    for (int b = 0; b < bs.Length; b++) bn[b] = bs[b] != null ? bs[b].name : "?";
+                    BoneWeight[] bw = r.sharedMesh.boneWeights;
+                    if (bw != null && bw.Length == pts.Length)
+                        for (int i = 0; i < bw.Length; i++) vb[i] = bw[i].boneIndex0;   // weight0 is the largest
+                }
+                int[] cnt = new int[7]; int[] near3 = new int[7]; int[] near10 = new int[7];
+                Dictionary<string, int>[] bones = new Dictionary<string, int>[7];
+                for (int k = 0; k < 7; k++) bones[k] = new Dictionary<string, int>();
+                for (int g = 0; g < nG; g++)
+                {
+                    int w = whyG[g];
+                    cnt[w]++;
+                    float d = distG[g];
+                    if (d >= 0f && d <= 0.03f) near3[w]++;
+                    if (d >= 0f && d <= 0.10f) near10[w]++;
+                    int b = vb[gFirst[g]];
+                    string key = (bn != null && b >= 0 && b < bn.Length) ? bn[b] : "?";
+                    int c0; bones[w].TryGetValue(key, out c0); bones[w][key] = c0 + 1;
+                }
+                System.Text.StringBuilder sb = new System.Text.StringBuilder();
+                sb.Append("[FollowDiag] BIND '").Append(r.name).Append("' ").Append(whole ? "whole-body" : "cage")
+                  .Append(" range=").Append(range.ToString("0.000")).Append("m offset=").Append(offSrc.ToString("F3"))
+                  .Append(" groups=").Append(nG).Append(f == null ? "  ** FAILED (<8 bound) **" : "");
+                for (int k = 0; k < 7; k++)
+                {
+                    if (cnt[k] == 0) continue;
+                    sb.Append("\n   ").Append(FD_NAMES[k].PadRight(12)).Append(cnt[k].ToString().PadLeft(6))
+                      .Append("   within 3cm of body: ").Append(near3[k]).Append("   within 10cm: ").Append(near10[k])
+                      .Append("   bones: ").Append(TopBones(bones[k], 5));
+                }
+                if (report) Debug.Log(sb.ToString());
+
+                System.Globalization.CultureInfo ic = System.Globalization.CultureInfo.InvariantCulture;
+                string path = System.IO.Path.Combine(Application.persistentDataPath,
+                    "softfleshfield.followdiag_" + Safe(r.name) + ".csv");
+                if (report)
+                using (System.IO.StreamWriter w = new System.IO.StreamWriter(path, false))
+                {
+                    w.WriteLine("group,vert,state,bone,dist_m,x,y,z");
+                    for (int g = 0; g < nG; g++)
+                    {
+                        int v = gFirst[g]; Vector3 p = pts[v]; int b = vb[v];
+                        w.WriteLine(g + "," + v + "," + FD_NAMES[whyG[g]] + "," +
+                            ((bn != null && b >= 0 && b < bn.Length) ? bn[b] : "?") + "," +
+                            distG[g].ToString("0.0000", ic) + "," + p.x.ToString("0.0000", ic) + "," +
+                            p.y.ToString("0.0000", ic) + "," + p.z.ToString("0.0000", ic));
                     }
                 }
 
-                // ---- CLOTH-SIDE ANTI-CLIP (the body is never touched) ----
-                // Each group knows how far it rested OUTSIDE the body (gOff.z) and what the
-                // full wrap would have done (gDnRaw). A garment may drift closer to the skin
-                // than its rest gap, but never nearer than `minClear` — so the flesh cannot
-                // emerge through it, and the fix is applied entirely to the garment.
-                if (settingsRef != null && settingsRef.cloth.follow.clothOutside)
+                if (f == null) return;
+                f.dBoneNames = bn; f.dBone = vb;
+                f.dState = new int[pts.Length];
+                for (int i = 0; i < pts.Length; i++) f.dState[i] = whyG[gOfGlobal[i]];
+                int G = f.gRep.Length;
+                f.dCp = new Vector3[G]; f.dN = new Vector3[G]; f.dOk = new bool[G];
+                HashSet<long> seen = new HashSet<long>();
+                List<int> ea = new List<int>(), eb = new List<int>();
+                if (tris != null)
+                    for (int t = 0; t + 2 < tris.Length; t += 3)
+                        for (int e = 0; e < 3; e++)
+                        {
+                            int a = gOfGlobal[tris[t + e]], b = gOfGlobal[tris[t + (e + 1) % 3]];
+                            if (a == b) continue;
+                            long k2 = a < b ? (((long)a << 32) | (uint)b) : (((long)b << 32) | (uint)a);
+                            if (!seen.Add(k2)) continue;
+                            ea.Add(gFirst[a]); eb.Add(gFirst[b]);
+                        }
+                f.dEdgeA = ea.ToArray(); f.dEdgeB = eb.ToArray();
+                f.dMinClear = float.MaxValue;
+            }
+            catch (System.Exception ex) { Debug.LogWarning("[FollowDiag] bind report failed: " + ex.Message); }
+        }
+
+        void FollowDiagFrame(Follower f, Matrix4x4 M)
+        {
+            if (f.skin == null || f.dEdgeA == null) return;
+            Vector3[] v = f.verts, s0 = f.skin;
+            for (int i = 0; i < v.Length; i++)
+            {
+                float d = (v[i] - s0[i]).magnitude;
+                if (d > f.dMaxDisp) f.dMaxDisp = d;
+                if (d > 0.02f) f.dOver20++;
+            }
+            for (int e = 0; e < f.dEdgeA.Length; e++)
+            {
+                int a = f.dEdgeA[e], b = f.dEdgeB[e];
+                float rest = (s0[a] - s0[b]).magnitude;
+                if (rest < 1e-5f) continue;
+                float len = (v[a] - v[b]).magnitude;
+                float ratio = len / rest;
+                if (ratio > 2f) f.dStretch2++;
+                // ratios explode on 0.1 mm seam edges; this is what a viewer actually sees
+                float grow = len - rest;
+                if (grow > 0.005f) f.dTear++;
+                if (grow > f.dTearMax)
                 {
-                    float minClear = Mathf.Clamp(settingsRef.cloth.follow.minClear, 0f, 0.05f);
-                    for (int g2 = 0; g2 < G; g2++)
+                    f.dTearMax = grow; f.dTearA = a; f.dTearB = b;
+                    f.dTearDispA = (v[a] - s0[a]).magnitude; f.dTearDispB = (v[b] - s0[b]).magnitude;
+                }
+                if (ratio > f.dMaxStretch)
+                {
+                    f.dMaxStretch = ratio; f.dWorstA = a; f.dWorstB = b;
+                    f.dWorstDispA = (v[a] - s0[a]).magnitude; f.dWorstDispB = (v[b] - s0[b]).magnitude;
+                }
+            }
+            if (f.dOk != null)
+            {
+                Matrix4x4 Mi = M.inverse;
+                for (int g = 0; g < f.gRep.Length; g++)
+                {
+                    if (!f.dOk[g]) continue;
+                    // Only cloth that RESTED outside its body triangle can clip through it.
+                    // A sleeve bound to a chest triangle sits behind that plane by design,
+                    // and counting it reported a hoodie "34 cm inside the body".
+                    if (f.gOff[g].z < 0f) continue;
+                    Vector3 pS = Mi.MultiplyPoint3x4(v[f.gRep[g]]);
+                    float c = Vector3.Dot(pS - f.dCp[g], f.dN[g]);
+                    if (c < 0f) f.dClip++;
+                    if (c < f.dMinClear) f.dMinClear = c;
+                }
+            }
+            f.dFrames++;
+            f.dT += Time.deltaTime;
+            if (f.dT < 2f) return;
+            string wa = DiagDescribe(f, f.dWorstA), wb = DiagDescribe(f, f.dWorstB);
+            Debug.Log("[FollowDiag] '" + f.smr.name + "' frames=" + f.dFrames
+                + "  maxMove=" + (f.dMaxDisp * 1000f).ToString("0.0") + "mm  verts>20mm/frame=" + (f.dOver20 / f.dFrames)
+                + "  worstStretch=x" + f.dMaxStretch.ToString("0.00") + "  edges>x2/frame=" + (f.dStretch2 / f.dFrames)
+                + "  grown>5mm/frame=" + (f.dTear / f.dFrames) + " maxGrow=" + (f.dTearMax * 1000f).ToString("0.0") + "mm"
+                + "  clipped/frame=" + (f.dClip / f.dFrames) + " of " + f.gRep.Length + " groups"
+                + "  deepest=" + (f.dMinClear == float.MaxValue ? "-" : (f.dMinClear * 1000f).ToString("0.0") + "mm")
+                + (f.kRep != null ? "  | skinGuard pushed/frame=" + (f.dGuardHits / f.dFrames) + " of " + f.kWatched
+                    + " max=" + (f.dGuardMax * 1000f).ToString("0.0") + "mm tooDeep/frame=" + (f.dGuardDeep / f.dFrames) : "")
+                + "\n   worst edge: [" + wa + " moved " + (f.dWorstDispA * 1000f).ToString("0.0") + "mm]  <->  ["
+                + wb + " moved " + (f.dWorstDispB * 1000f).ToString("0.0") + "mm]"
+                + "\n   most grown edge: [" + DiagDescribe(f, f.dTearA) + " moved " + (f.dTearDispA * 1000f).ToString("0.0")
+                + "mm guard " + GuardAt(f, f.dTearA) + "]  <->  [" + DiagDescribe(f, f.dTearB) + " moved "
+                + (f.dTearDispB * 1000f).ToString("0.0") + "mm guard " + GuardAt(f, f.dTearB) + "]");
+            f.dT = 0f; f.dFrames = 0; f.dMaxDisp = 0f; f.dOver20 = 0; f.dMaxStretch = 0f; f.dStretch2 = 0;
+            f.dClip = 0; f.dMinClear = float.MaxValue; f.dWorstA = -1; f.dWorstB = -1;
+            f.dGuardHits = 0; f.dGuardDeep = 0; f.dGuardMax = 0f; f.dTear = 0; f.dTearMax = 0f;
+        }
+
+        // =====================================================================
+        // SKIN GUARD
+        // The follow above rides a SMOOTHED copy of the body: the region cage, with the
+        // field's motion interpolated onto it and blurred ("Cloth smoothing"), and then the
+        // cloth's own copy is blurred again AFTER the anti-clip floors, which pulls them
+        // back in. Measured on Tops 1: ~70 groups a frame inside, up to 55 mm. On top of
+        // that 42% of that top never binds at all (only-region-bones filter), so nothing
+        // ever moves it out of the way of the flesh.
+        // This pass runs LAST, on every garment vert near the skin, bound or not, against
+        // the body that is actually rendered this frame. Each watched weld group keeps the
+        // body RENDER triangle under it at bind plus its rest gap, and is pushed out along
+        // that triangle's CURRENT normal whenever it comes nearer than
+        // min(rest gap, Min cloth gap). Only where the downstream stage really moved the
+        // body: elsewhere the rest fit still holds and the cloth is left exactly as before.
+        // Rigid accessories (the bow) are skipped; they already move as one piece.
+        // =====================================================================
+        bool EnsureGuardGrid()
+        {
+            if (guardGrid != null && Time.time - guardGridT < 2f) return true;
+            if (display == null || bakedVerts == null || bakedNormals == null || bakedNormals.Length != bakedVerts.Length)
+                return false;
+            int n = bakedVerts.Length;
+            guardPts = new Vector3[n];
+            for (int i = 0; i < n; i++)
+                guardPts[i] = bakedVerts[i] - (disp != null && i < disp.Length ? disp[i] : Vector3.zero) - UpDispAt(i);
+            guardTris = display.triangles;
+            int nt = guardTris.Length / 3;
+            Vector3[] tn = new Vector3[nt];
+            for (int t = 0; t < nt; t++)
+            {
+                Vector3 sN = bakedNormals[guardTris[t * 3]] + bakedNormals[guardTris[t * 3 + 1]] + bakedNormals[guardTris[t * 3 + 2]];
+                float m = sN.magnitude;
+                tn[t] = m > 1e-9f ? sN / m : Vector3.up;
+            }
+            guardGrid = new RemeshCage.TriGrid(guardPts, guardTris, 0.02f);
+            guardGrid.triNormals = tn;
+            guardGridT = Time.time;
+            return true;
+        }
+
+        static int UfFind(int[] par, int x)
+        {
+            while (par[x] != x) { par[x] = par[par[x]]; x = par[x]; }
+            return x;
+        }
+
+        void BuildSkinGuard(Follower f, string meshName, Matrix4x4 toSrc, Vector3[] pts, int[] gOfGlobal,
+                            List<int> gFirst, List<Vector3> gNormSum, int[] localOf, int[] tris)
+        {
+            f.kRep = null;
+            if (!EnsureGuardGrid()) return;
+            float reach = Mathf.Clamp(settingsRef.cloth.follow.guardReach, 0.005f, 0.3f);
+            float sunk = Mathf.Clamp(settingsRef.cloth.follow.guardSunk, 0f, 0.1f);
+            int nSunk = 0, nWatch = 0;
+            int nGlobal = gFirst.Count;
+            // Glue weld groups joined by an edge shorter than GUARD_WELD into ONE guard group:
+            // seams with verts 0.14 mm apart were bound to different skin triangles at a fold,
+            // pushed in two directions, and that sliver stretched 85-160x.
+            int[] par = new int[nGlobal];
+            for (int i = 0; i < nGlobal; i++) par[i] = i;
+            float w2 = GUARD_WELD * GUARD_WELD;
+            for (int t = 0; t + 2 < tris.Length; t += 3)
+                for (int e = 0; e < 3; e++)
+                {
+                    int va = tris[t + e], vb = tris[t + (e + 1) % 3];
+                    int ga = gOfGlobal[va], gb = gOfGlobal[vb];
+                    if (ga == gb) continue;
+                    if (toSrc.MultiplyVector(pts[va] - pts[vb]).sqrMagnitude > w2) continue;
+                    int ra = UfFind(par, ga), rb = UfFind(par, gb);
+                    if (ra != rb) par[ra] = rb;
+                }
+            int[] kOf = new int[nGlobal];
+            for (int i = 0; i < nGlobal; i++) kOf[i] = -1;
+            List<int> rp = new List<int>(), ta = new List<int>(), tb = new List<int>(), tc = new List<int>();
+            List<Vector3> br = new List<Vector3>();
+            List<float> sg = new List<float>(), rs = new List<float>();
+            List<bool> fx = new List<bool>();
+            for (int gg = 0; gg < nGlobal; gg++)
+            {
+                if (UfFind(par, gg) != gg) continue;   // bound once, by its root
+                int lg = localOf[gg];
+                if (lg >= 0 && f.gIsl != null && f.gIsl[lg] >= 0) continue;   // rigid piece: has its own motion
+                Vector3 q = toSrc.MultiplyPoint3x4(pts[gFirst[gg]]);           // true position, no zone offset
+                Vector3 ns = gNormSum[gg];
+                Vector3 nq = ns.sqrMagnitude > 1e-6f ? toSrc.MultiplyVector(ns).normalized : Vector3.zero;
+                // Every other group joins as PASSIVE: it never pushes, but it carries the soft
+                // falloff of its pushed neighbours. Leaving it out tore the cloth exactly at the
+                // edge of the watched area (measured: a leg-harness strap pushed 81 mm next to an
+                // unwatched neighbour that moved 0).
+                int bt; Vector3 cp, bar; bool via;
+                bool watch = guardGrid.NearestGatedWithin(q, nq, 0.35f, reach, out bt, out cp, out bar, out via)
+                             && (q - cp).sqrMagnitude <= reach * reach;
+                int a = -1, b = -1, c = -1; float sgn = 1f, h0 = 0f; bool fix = false;
+                if (watch)
+                {
+                    a = guardTris[bt]; b = guardTris[bt + 1]; c = guardTris[bt + 2];
+                    Vector3 nr = Vector3.Cross(guardPts[b] - guardPts[a], guardPts[c] - guardPts[a]);
+                    if (nr.sqrMagnitude < 1e-14f) watch = false;
+                    else
                     {
-                        if (f.gIsFill[g2]) continue;   // no surface reference to clamp against
-                        float allow = Mathf.Max(0f, Mathf.Abs(f.gOff[g2].z) - minClear);
-                        float need = f.gDnRaw[g2] - allow;
-                        float cur = Vector3.Dot(f.gDisp[g2], f.gNrm[g2]);
-                        if (cur >= need) continue;
-                        float add = Mathf.Min(need - cur, 0.03f);   // never teleport a vert
-                        f.gDisp[g2] += f.gNrm[g2] * add;
+                        sgn = Vector3.Dot(nr, bakedNormals[a] + bakedNormals[b] + bakedNormals[c]) < 0f ? -1f : 1f;
+                        nr = nr.normalized * sgn;
+                        h0 = Vector3.Dot(q - cp, nr);
+                        // Rests INSIDE this skin. Deeper than 1 cm it is usually not a layer over
+                        // it at all (a sleeve over the chest), unless the user says the model
+                        // itself sinks the cloth in that far: then it is lifted just above it.
+                        fix = sunk > 0f && h0 < 0f && h0 >= -sunk;
+                        if (h0 < -0.01f && !fix) watch = false;
                     }
                 }
+                if (!watch) { a = -1; b = -1; c = -1; fix = false; h0 = 0f; }
+                if (fix) nSunk++;
+                if (watch) nWatch++;
+                kOf[gg] = rp.Count;
+                rp.Add(gFirst[gg]); ta.Add(a); tb.Add(b); tc.Add(c); br.Add(bar); sg.Add(sgn);
+                rs.Add(fix ? GUARD_LIFT : h0); fx.Add(fix);
+            }
+            for (int gg = 0; gg < nGlobal; gg++) kOf[gg] = kOf[UfFind(par, gg)];
+            int K = rp.Count;
+            if (K == 0 || nWatch == 0) return;
+            int[] cnt = new int[K];
+            for (int i = 0; i < pts.Length; i++) { int k = kOf[gOfGlobal[i]]; if (k >= 0) cnt[k]++; }
+            f.kMemStart = new int[K + 1];
+            for (int k = 0; k < K; k++) f.kMemStart[k + 1] = f.kMemStart[k] + cnt[k];
+            f.kMem = new int[f.kMemStart[K]];
+            int[] cur = new int[K];
+            for (int i = 0; i < pts.Length; i++) { int k = kOf[gOfGlobal[i]]; if (k >= 0) f.kMem[f.kMemStart[k] + cur[k]++] = i; }
+            List<int>[] adj = new List<int>[K];
+            for (int k = 0; k < K; k++) adj[k] = new List<int>(6);
+            for (int t = 0; t + 2 < tris.Length; t += 3)
+            {
+                int ka = kOf[gOfGlobal[tris[t]]], kb = kOf[gOfGlobal[tris[t + 1]]], kc = kOf[gOfGlobal[tris[t + 2]]];
+                if (ka >= 0 && kb >= 0 && ka != kb && !adj[ka].Contains(kb)) { adj[ka].Add(kb); adj[kb].Add(ka); }
+                if (kb >= 0 && kc >= 0 && kb != kc && !adj[kb].Contains(kc)) { adj[kb].Add(kc); adj[kc].Add(kb); }
+                if (ka >= 0 && kc >= 0 && ka != kc && !adj[ka].Contains(kc)) { adj[ka].Add(kc); adj[kc].Add(ka); }
+            }
+            f.kAdj = new int[K][];
+            f.kAdjLen = new float[K][];
+            for (int k = 0; k < K; k++)
+            {
+                f.kAdj[k] = adj[k].ToArray();
+                f.kAdjLen[k] = new float[f.kAdj[k].Length];
+                for (int j = 0; j < f.kAdj[k].Length; j++)   // SOURCE space: the units pushes are measured in
+                    f.kAdjLen[k][j] = toSrc.MultiplyVector(pts[rp[k]] - pts[rp[f.kAdj[k][j]]]).magnitude;
+            }
+            f.kHeap = new MinHeap(256);
+            f.kTA = ta.ToArray(); f.kTB = tb.ToArray(); f.kTC = tc.ToArray();
+            f.kBar = br.ToArray(); f.kSign = sg.ToArray(); f.kRest = rs.ToArray(); f.kFix = fx.ToArray();
+            f.kCorr = new Vector3[K]; f.kCorr2 = new Vector3[K]; f.kNl = new Vector3[K]; f.kNs = new Vector3[K]; f.kNeed = new float[K];
+            f.kSeed = new int[K];
+            f.kWatched = nWatch;
+            f.kRep = rp.ToArray();
+            Debug.Log("[FollowDiag] '" + meshName + "' skin guard watches " + nWatch + " groups (+" + (K - nWatch) + " that only carry its falloff) of " + nGlobal
+                + " (within " + (reach * 1000f).ToString("0") + "mm of the skin, seams under "
+                + (GUARD_WELD * 1000f).ToString("0") + "mm glued"
+                + (sunk > 0f ? ", " + nSunk + " sunk up to " + (sunk * 1000f).ToString("0") + "mm will be lifted" : "") + ")");
+        }
 
-                // anti-clip floor: whatever the seam smoothing/clamps did above, the protected
-                // outward component survives — a close-fitting cup can never be pierced.
-                // The floor still obeys the seam RAMP law near the driven edge (a boundary
-                // group snapping to full amplitude against undriven neighbours is a tear).
-                float pSmax = settingsRef != null ? settingsRef.jello.seamMaxStretch : 0f;
-                float pSrange = settingsRef != null ? Mathf.Min(settingsRef.jello.seamRange, SEAM_MAXR) : 0f;
-                float pSlope = (pSmax > 0.0001f && pSrange > 0.0005f) ? pSmax / pSrange : -1f;
-                for (int g2 = 0; g2 < G; g2++)
+        // this group's skin normal on the body as rendered, pointing OUT (zero if degenerate)
+        Vector3 GuardNormal(Follower f, int k, Vector3[] fin)
+        {
+            int a = f.kTA[k], b = f.kTB[k], c = f.kTC[k];
+            Vector3 A = fin[a];
+            Vector3 nr = Vector3.Cross(fin[b] - A, fin[c] - A);
+            float m = nr.magnitude;
+            // The skinned normal (no jiggle) is the safety net. A render triangle a few mm
+            // wide can fold or flip under the field's displacement, and a flipped normal reads
+            // the cloth as deep INSIDE the skin and shoves it the wrong way: the guard was
+            // pushing leg-harness straps by its full 120 mm limit while the flesh moved < 80.
+            Vector3 sk = bakedNormals[a] + bakedNormals[b] + bakedNormals[c];
+            float sm = sk.magnitude;
+            if (sm > 1e-9f) sk /= sm;
+            if (m < 1e-12f) return sm > 1e-9f ? sk : Vector3.zero;
+            nr *= f.kSign[k] / m;
+            if (sm > 1e-9f && Vector3.Dot(nr, sk) < 0.5f) return sk;   // tilted past 60 degrees: trust the skin
+            return nr;
+        }
+
+        void ApplySkinGuard(Follower f, Matrix4x4 M, Vector3[] fin)
+        {
+            int K = f.kRep.Length;
+            if (fin.Length != bakedVerts.Length) return;
+            ClothFollow cf = settingsRef.cloth.follow;
+            float gapMax = Mathf.Clamp(cf.guardGap, 0f, 0.05f);
+            float slope = 1f / Mathf.Max(cf.guardSoft, 0.05f);
+            float str = Mathf.Clamp01(cf.guardStrength);
+            if (str <= 0f) return;
+            Matrix4x4 Mi = M.inverse;
+            Vector3[] bkv = bakedVerts;
+            // every group is independent here and writes only its own slots: all cores.
+            // "Too deep" is marked -1 and counted afterwards, single-threaded.
+            SoftBodySuite.Field.ParallelLoop.For(K, 512, delegate (int lo, int hi)
+            {
+                for (int k = lo; k < hi; k++)
                 {
-                    float prot = f.gProt[g2];
-                    if (prot <= 0f) continue;
-                    if (pSlope > 0f) prot = Mathf.Min(prot, f.gSeam[g2] * pSlope);
-                    float dn2 = Vector3.Dot(f.gDisp[g2], f.gNrm[g2]);
-                    if (dn2 < prot) f.gDisp[g2] += f.gNrm[g2] * (prot - dn2);
+                    f.kNeed[k] = 0f; f.kNs[k] = Vector3.zero; f.kSeed[k] = k;
+                    int a = f.kTA[k], b = f.kTB[k], c = f.kTC[k];
+                    if (a < 0) continue;   // passive: carries falloff only
+                    Vector3 A = fin[a], B = fin[b], C = fin[c];
+                    // the downstream stage left this patch alone: the rest fit still holds
+                    // (except cloth the model itself sank into the skin: that is fixed at rest too)
+                    if (!f.kFix[k] && (A - bkv[a]).sqrMagnitude < 1e-6f && (B - bkv[b]).sqrMagnitude < 1e-6f
+                        && (C - bkv[c]).sqrMagnitude < 1e-6f) continue;
+                    Vector3 nr = GuardNormal(f, k, fin);
+                    if (nr == Vector3.zero) continue;
+                    f.kNs[k] = nr;
+                    Vector3 bw = f.kBar[k];
+                    Vector3 cp = A * bw.x + B * bw.y + C * bw.z;
+                    Vector3 p = Mi.MultiplyPoint3x4(f.verts[f.kRep[k]]);
+                    float gap = Vector3.Dot(p - cp, nr);
+                    float target = Mathf.Min(f.kRest[k], gapMax);
+                    if (gap >= target) continue;
+                    float push = target - gap;
+                    f.kNeed[k] = push > GUARD_DEEP ? -1f : push;
                 }
-
-                // CLOTH FIELD SMOOTHING: diffuse the finished per-group motion over the
-                // garment itself. This used to be gated behind 'sharpness', so at the
-                // default the slider did nothing at all.
-                int clothSm = settingsRef != null ? Mathf.Clamp(Mathf.RoundToInt(settingsRef.cloth.follow.folSmooth), 0, 60) : 0;
-                for (int pass = 0; pass < clothSm; pass++)
+            });
+            int hits = 0;
+            for (int k = 0; k < K; k++)
+            {
+                float nk = f.kNeed[k];
+                if (nk == 0f) continue;
+                if (nk < 0f) { f.kNeed[k] = 0f; if (followDiag) f.dGuardDeep++; continue; }
+                hits++;
+                if (followDiag && nk > f.dGuardMax) f.dGuardMax = nk;
+            }
+            if (followDiag) f.dGuardHits += hits;
+            if (followDiag)
+            {
+                if (f.dGuardV == null || f.dGuardV.Length != f.verts.Length) f.dGuardV = new float[f.verts.Length];
+                else System.Array.Clear(f.dGuardV, 0, f.dGuardV.Length);
+            }
+            if (hits == 0) return;
+            // CONE SPREAD on the push SIZE: every pushed group lifts its neighbours by its own
+            // push minus slope x the cloth distance between them (largest-first sweep). Each
+            // group then moves along ITS OWN skin normal: inheriting the pusher's direction
+            // carried sideways shoves across the cleavage and round the back.
+            MinHeap hp = f.kHeap;
+            hp.Count = 0;
+            for (int k = 0; k < K; k++) if (f.kNeed[k] > 0f) hp.Push(-f.kNeed[k], k);
+            while (hp.Count > 0)
+            {
+                float key; int k;
+                hp.Pop(out key, out k);
+                float nk = -key;
+                if (nk + 1e-7f < f.kNeed[k]) continue;   // superseded by a bigger push
+                int[] nb = f.kAdj[k]; float[] ln = f.kAdjLen[k];
+                for (int j = 0; j < nb.Length; j++)
                 {
-                    for (int g2 = 0; g2 < G; g2++)
+                    float cand = nk - slope * ln[j];
+                    int q = nb[j];
+                    if (cand <= f.kNeed[q] + 1e-6f) continue;
+                    f.kNeed[q] = cand;
+                    f.kSeed[q] = f.kSeed[k];
+                    hp.Push(-cand, q);
+                }
+            }
+            for (int k = 0; k < K; k++)
+            {
+                Vector3 v = Vector3.zero;
+                if (f.kNeed[k] > 0f)
+                {
+                    // lifted by a neighbour: its own skin normal if it has a skin triangle,
+                    // else (passive cloth off the skin) the direction of the push it carries
+                    if (f.kNs[k] == Vector3.zero)
+                        f.kNs[k] = f.kTA[k] >= 0 ? GuardNormal(f, k, fin) : f.kNs[f.kSeed[k]];
+                    v = M.MultiplyVector(f.kNs[k] * f.kNeed[k]);
+                }
+                f.kCorr[k] = v; f.kNl[k] = v;   // kNl keeps the floor for after the rounding
+            }
+            // round the cone's tip off, then lift every group back to its floor: the flesh
+            // makes a soft bulge in the cloth, never a tent or a hole
+            for (int pass = 0; pass < GUARD_SPREAD; pass++)
+            {
+                Vector3[] src = f.kCorr, dst = f.kCorr2;
+                SoftBodySuite.Field.ParallelLoop.For(K, 1024, delegate (int lo, int hi)
+                {
+                    for (int k = lo; k < hi; k++)
                     {
-                        int[] nb = f.gAdj[g2];
-                        if (nb.Length < 2) { f.gDisp2[g2] = f.gDisp[g2]; continue; }
+                        int[] nb = f.kAdj[k];
+                        if (nb.Length == 0 || f.kNeed[k] <= 0f) { dst[k] = src[k]; continue; }
                         Vector3 avg = Vector3.zero;
-                        for (int j = 0; j < nb.Length; j++) avg += f.gDisp[nb[j]];
-                        f.gDisp2[g2] = Vector3.Lerp(f.gDisp[g2], avg / nb.Length, 0.5f);
+                        for (int j = 0; j < nb.Length; j++) avg += src[nb[j]];
+                        dst[k] = Vector3.Lerp(src[k], avg / nb.Length, 0.5f);
                     }
-                    for (int g2 = 0; g2 < G; g2++) f.gDisp[g2] = f.gDisp2[g2];
-                }
-
-                // valley-gap infill: unbound islands between tracked cloth inherit motion by
-                // diffusion from their neighbors (warm-started, converges in a few sweeps)
-                if (f.hasFill)
-                    for (int pass = 0; pass < 4; pass++)
-                        for (int g2 = 0; g2 < G; g2++)
-                        {
-                            if (!f.gIsFill[g2]) continue;
-                            int[] nb = f.gAdj[g2];
-                            if (nb.Length == 0) continue;
-                            Vector3 avg = Vector3.zero;
-                            for (int j = 0; j < nb.Length; j++) avg += f.gDisp[nb[j]];
-                            f.gDisp[g2] = avg / nb.Length;
-                        }
-
-                for (int g2 = 0; g2 < G; g2++)
+                });
+                f.kCorr = dst; f.kCorr2 = src;
+            }
+            for (int k = 0; k < K; k++)
+            {
+                if (f.kNeed[k] <= 0f) continue;
+                Vector3 fl = f.kNl[k];
+                float flm = fl.magnitude;
+                if (flm > 1e-9f)
                 {
-                    Vector3 dl = f.gDisp[g2];
-                    int e = f.gMemStart[g2 + 1];
-                    for (int m = f.gMemStart[g2]; m < e; m++) f.verts[f.gMem[m]] += dl;
+                    Vector3 dir = fl / flm;
+                    float have = Vector3.Dot(f.kCorr[k], dir);
+                    if (have < flm) f.kCorr[k] += dir * (flm - have);
                 }
-                f.display.SetVertices(f.verts);
-                if (haveN) f.display.SetNormals(folNrmScratch);
-                if (!f.boundsSet)
-                { f.display.bounds = new Bounds(f.display.bounds.center, f.display.bounds.size + Vector3.one * 2f); f.boundsSet = true; }
+                Vector3 d = f.kCorr[k] * str;
+                int e = f.kMemStart[k + 1];
+                for (int mm = f.kMemStart[k]; mm < e; mm++) f.verts[f.kMem[mm]] += d;
+                if (followDiag && f.dGuardV != null)
+                    for (int mm = f.kMemStart[k]; mm < e; mm++) f.dGuardV[f.kMem[mm]] = d.magnitude;
             }
         }
 
-        readonly List<Vector3> folNrmScratch = new List<Vector3>();
+        // ---- floating islands -------------------------------------------------
+        // Which groups sit further than floatDist from the real SKIN (the whole body render
+        // mesh, clean pose), not from the bound triangle. The first version measured the
+        // bound triangle, and in cage mode that is the painted region only - so a top
+        // lying right on the ribcage read as "100% off-body" and was frozen solid along
+        // with the bow. Nearest body VERT, via a hash grid of cell = floatDist: within
+        // half an edge of the true surface distance, which is plenty against 20 mm.
+        bool[] OffSkinFlags(Follower f, Matrix4x4 toSrc, Vector3[] pts)
+        {
+            int G = f.gRep.Length;
+            bool[] far = new bool[G];
+            if (bakedVerts == null || settingsRef == null) return far;
+            float cell = Mathf.Max(0.004f, settingsRef.cloth.follow.floatDist);
+            float c2 = cell * cell;
+            Dictionary<long, List<int>> grid = new Dictionary<long, List<int>>();
+            Vector3[] body = new Vector3[bakedVerts.Length];
+            for (int i = 0; i < bakedVerts.Length; i++)
+            {
+                body[i] = bakedVerts[i] - (disp != null && i < disp.Length ? disp[i] : Vector3.zero) - UpDispAt(i);
+                long k = HashCell(body[i], cell, 0, 0, 0);
+                List<int> l;
+                if (!grid.TryGetValue(k, out l)) { l = new List<int>(8); grid[k] = l; }
+                l.Add(i);
+            }
+            for (int g = 0; g < G; g++)
+            {
+                Vector3 q = toSrc.MultiplyPoint3x4(pts[f.gRep[g]]);
+                bool near = false;
+                for (int dx = -1; dx <= 1 && !near; dx++)
+                    for (int dy = -1; dy <= 1 && !near; dy++)
+                        for (int dz = -1; dz <= 1 && !near; dz++)
+                        {
+                            List<int> l;
+                            if (!grid.TryGetValue(HashCell(q, cell, dx, dy, dz), out l)) continue;
+                            for (int j = 0; j < l.Count; j++)
+                                if ((body[l[j]] - q).sqrMagnitude <= c2) { near = true; break; }
+                        }
+                far[g] = !near;
+            }
+            return far;
+        }
+
+        static long HashCell(Vector3 p, float cell, int dx, int dy, int dz)
+        {
+            long x = Mathf.FloorToInt(p.x / cell) + dx, y = Mathf.FloorToInt(p.y / cell) + dy, z = Mathf.FloorToInt(p.z / cell) + dz;
+            return ((x & 0x1FFFFF) << 42) | ((y & 0x1FFFFF) << 21) | (z & 0x1FFFFF);
+        }
+
+        void FindFloatingIslands(Follower f, string meshName, bool[] offSkin)
+        {
+            f.gIsl = null; f.islN = 0; f.islQ = null; f.islMem = null;
+            if (settingsRef == null) return;
+            float floatD = Mathf.Max(0.001f, settingsRef.cloth.follow.floatDist);
+            int G = f.gRep.Length;
+            int[] isl = new int[G];
+            for (int g = 0; g < G; g++) isl[g] = -1;
+            List<int> stack = new List<int>(), members = new List<int>();
+            int id = 0; int rigidGroups = 0;
+            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+            int[] tmp = new int[G];
+            for (int g = 0; g < G; g++) tmp[g] = -2;
+            for (int s0 = 0; s0 < G; s0++)
+            {
+                if (tmp[s0] != -2) continue;
+                members.Clear(); stack.Clear(); stack.Add(s0); tmp[s0] = -3;
+                while (stack.Count > 0)
+                {
+                    int a = stack[stack.Count - 1]; stack.RemoveAt(stack.Count - 1);
+                    members.Add(a);
+                    int[] nb = f.gAdj[a];
+                    for (int j = 0; j < nb.Length; j++) if (tmp[nb[j]] == -2) { tmp[nb[j]] = -3; stack.Add(nb[j]); }
+                }
+                int far = 0, real = 0;
+                for (int j = 0; j < members.Count; j++)
+                {
+                    int g = members[j];
+                    if (f.gIsFill[g]) continue;
+                    real++;
+                    if (offSkin != null ? offSkin[g] : f.gOffRest[g].magnitude > floatD) far++;
+                }
+                // floating = most of the piece hangs off the body, and big enough to fit
+                bool floating = real >= 8 && far * 10 >= real * 6;
+                for (int j = 0; j < members.Count; j++) tmp[members[j]] = -1;
+                if (!floating) continue;
+                for (int j = 0; j < members.Count; j++) isl[members[j]] = id;
+                rigidGroups += members.Count;
+                if (sb.Length > 0) sb.Append(", ");
+                sb.Append(members.Count).Append(" groups (").Append(far * 100 / Mathf.Max(1, real)).Append("% off-body)");
+                id++;
+            }
+            if (id == 0) return;
+            f.gIsl = isl; f.islN = id;
+            // each island's groups in ascending order: the fit used to scan every group of
+            // the garment once per island (3 sweeps each); same order = same sums
+            int[] cnt = new int[id];
+            for (int g = 0; g < G; g++) if (isl[g] >= 0) cnt[isl[g]]++;
+            f.islMem = new int[id][];
+            for (int k = 0; k < id; k++) f.islMem[k] = new int[cnt[k]];
+            for (int k = 0; k < id; k++) cnt[k] = 0;
+            for (int g = 0; g < G; g++) if (isl[g] >= 0) f.islMem[isl[g]][cnt[isl[g]]++] = g;
+            f.islQ = new Quaternion[id];
+            for (int i = 0; i < id; i++) f.islQ[i] = Quaternion.identity;
+            Debug.Log("[FollowDiag] '" + meshName + "' " + id + " floating piece(s) will move rigidly (beyond "
+                + (floatD * 1000f).ToString("0") + "mm): " + sb.ToString());
+        }
+
+        // Replace each floating island's per-group motion with ONE best-fit rigid motion:
+        // the rotation + shift that best carries the island's cloth from where skinning put
+        // it this frame to where the per-point follow wanted it. Horn's quaternion method,
+        // because a flat ribbon makes the 3x3 covariance rank-deficient and an SVD-free
+        // polar iteration would blow up on it; the 4x4 dominant eigenvector does not.
+        Vector3[] islP, islQv; float[] islW;
+        void RigidIslands(Follower f)
+        {
+            float amt = settingsRef != null ? Mathf.Clamp01(settingsRef.cloth.follow.rigidFloat) : 1f;
+            if (amt <= 0f) return;
+            int G = f.gRep.Length;
+            if (f.islMem == null || f.islMem.Length != f.islN) return;
+            // islands own disjoint groups (and their own islQ slot): fit them side by side
+            SoftBodySuite.Field.ParallelLoop.For(f.islN, 2, delegate (int klo, int khi)
+            {
+                for (int k = klo; k < khi; k++) RigidIsland(f, k, amt);
+            });
+        }
+
+        void RigidIsland(Follower f, int k, float amt)
+        {
+            int[] mem = f.islMem[k];
+            {
+                // centroids, weighted by the per-point bind confidence (fill groups have none)
+                Vector3 pc = Vector3.zero, qc = Vector3.zero; float ws = 0f;
+                for (int mi = 0; mi < mem.Length; mi++)
+                {
+                    int g = mem[mi];
+                    if (f.gIsFill[g]) continue;
+                    float w = Mathf.Max(0.05f, f.gFall[g]);
+                    Vector3 p = f.verts[f.gRep[g]];
+                    pc += p * w; qc += (p + f.gDisp[g]) * w; ws += w;
+                }
+                if (ws <= 1e-6f) return;
+                pc /= ws; qc /= ws;
+                double sxx = 0, sxy = 0, sxz = 0, syx = 0, syy = 0, syz = 0, szx = 0, szy = 0, szz = 0;
+                for (int mi = 0; mi < mem.Length; mi++)
+                {
+                    int g = mem[mi];
+                    if (f.gIsFill[g]) continue;
+                    float w = Mathf.Max(0.05f, f.gFall[g]);
+                    Vector3 p = f.verts[f.gRep[g]] - pc;
+                    Vector3 q = f.verts[f.gRep[g]] + f.gDisp[g] - qc;
+                    sxx += w * p.x * q.x; sxy += w * p.x * q.y; sxz += w * p.x * q.z;
+                    syx += w * p.y * q.x; syy += w * p.y * q.y; syz += w * p.y * q.z;
+                    szx += w * p.z * q.x; szy += w * p.z * q.y; szz += w * p.z * q.z;
+                }
+                double[,] N = new double[4, 4];
+                N[0, 0] = sxx + syy + szz; N[0, 1] = syz - szy;      N[0, 2] = szx - sxz;       N[0, 3] = sxy - syx;
+                N[1, 0] = N[0, 1];         N[1, 1] = sxx - syy - szz; N[1, 2] = sxy + syx;      N[1, 3] = szx + sxz;
+                N[2, 0] = N[0, 2];         N[2, 1] = N[1, 2];         N[2, 2] = -sxx + syy - szz; N[2, 3] = syz + szy;
+                N[3, 0] = N[0, 3];         N[3, 1] = N[1, 3];         N[3, 2] = N[2, 3];        N[3, 3] = -sxx - syy + szz;
+                double shift = 0;
+                for (int a = 0; a < 4; a++) for (int b = 0; b < 4; b++) shift += System.Math.Abs(N[a, b]);
+                Quaternion q0 = f.islQ[k];
+                double qw = q0.w, qx = q0.x, qy = q0.y, qz = q0.z;
+                for (int it = 0; it < 24; it++)
+                {
+                    double nw = (N[0, 0] + shift) * qw + N[0, 1] * qx + N[0, 2] * qy + N[0, 3] * qz;
+                    double nx = N[1, 0] * qw + (N[1, 1] + shift) * qx + N[1, 2] * qy + N[1, 3] * qz;
+                    double ny = N[2, 0] * qw + N[2, 1] * qx + (N[2, 2] + shift) * qy + N[2, 3] * qz;
+                    double nz = N[3, 0] * qw + N[3, 1] * qx + N[3, 2] * qy + (N[3, 3] + shift) * qz;
+                    double len = System.Math.Sqrt(nw * nw + nx * nx + ny * ny + nz * nz);
+                    if (len < 1e-12) break;
+                    qw = nw / len; qx = nx / len; qy = ny / len; qz = nz / len;
+                }
+                Quaternion R = new Quaternion((float)qx, (float)qy, (float)qz, (float)qw);
+                if (float.IsNaN(R.x)) R = Quaternion.identity;
+                f.islQ[k] = R;
+                for (int mi = 0; mi < mem.Length; mi++)
+                {
+                    int g = mem[mi];
+                    Vector3 p = f.verts[f.gRep[g]];
+                    Vector3 rigid = R * (p - pc) + qc - p;
+                    f.gDisp[g] = Vector3.Lerp(f.gDisp[g], rigid, amt);
+                }
+            }
+        }
+
+        static string GuardAt(Follower f, int v)
+        {
+            if (f.dGuardV == null || v < 0 || v >= f.dGuardV.Length) return "-";
+            return (f.dGuardV[v] * 1000f).ToString("0.0") + "mm";
+        }
+
+        static string DiagDescribe(Follower f, int v)
+        {
+            if (v < 0 || f.dState == null || v >= f.dState.Length) return "-";
+            int b = f.dBone != null ? f.dBone[v] : -1;
+            string bone = (f.dBoneNames != null && b >= 0 && b < f.dBoneNames.Length) ? f.dBoneNames[b] : "?";
+            return "v" + v + " " + FD_NAMES[f.dState[v]] + " bone=" + bone;
+        }
+
+        static string TopBones(Dictionary<string, int> d, int n)
+        {
+            List<KeyValuePair<string, int>> l = new List<KeyValuePair<string, int>>(d);
+            l.Sort((x, y) => y.Value.CompareTo(x.Value));
+            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+            for (int i = 0; i < l.Count && i < n; i++)
+            { if (i > 0) sb.Append(", "); sb.Append(l[i].Key).Append('(').Append(l[i].Value).Append(')'); }
+            return sb.ToString();
+        }
+
+        static string Safe(string s)
+        {
+            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+            foreach (char c in s) sb.Append(char.IsLetterOrDigit(c) ? c : '_');
+            return sb.ToString();
+        }
 
         void RemoveFollower(int i) { RemoveFollower(i, true); }
 
@@ -1226,10 +2685,13 @@ namespace SoftBodySuite.Jello
         public void DetachFollowers()
         {
             for (int i = followers.Count - 1; i >= 0; i--) RemoveFollower(i);
-            folQueue.Clear(); folFailed.Clear();
+            folQueue.Clear(); folFailed.Clear(); folDead.Clear(); folDeadT = 0f;
+            diagReported.Clear();   // a fresh bind (new range / offset) gets a fresh report
             folRetryT = 0f; folRangeT = 0f;
             folCage = null; folGenActive = false;
             bindGrid = null; bindPts = null; bindTris = null;
+            shareBones = null; paintW = null; paintGrid = null; paintPts = null; bodyBW = null; bodyBoneNames = null;   // paint may have changed
+            guardGrid = null; guardPts = null; guardTris = null; guardFin = null;
             // drop the timing mirrors: a rebuilt cage has a different vert count, and a
             // held frame would otherwise feed followers a stale wrong-length field
             cageOut = null; cageHeld = null; cagePrev = null; cageHeldValid = false;
@@ -1307,6 +2769,9 @@ namespace SoftBodySuite.Jello
         public static bool halfRateLerp;
         bool frameFlip; Vector3[] heldDisp, heldPrev; bool heldValid;
         System.Diagnostics.Stopwatch swDbg = new System.Diagnostics.Stopwatch();
+        // sub-pass timer inside jel_run, so the probe can say WHICH part of the 5 ms it is
+        readonly System.Diagnostics.Stopwatch swJel = new System.Diagnostics.Stopwatch();
+        float JelLap() { float ms = (float)swJel.Elapsed.TotalMilliseconds; swJel.Reset(); swJel.Start(); return ms; }
 
         public void Frame(float dt, int substeps, Vector3 worldDown, bool simEnabled)
         {
@@ -1375,7 +2840,9 @@ namespace SoftBodySuite.Jello
         void RunSim(float dt, int substeps, Vector3 worldDown, bool simEnabled)
         {
             msBake = Mathf.Lerp(msBake, (float)swDbg.Elapsed.TotalMilliseconds, 0.08f);
+            SoftBodySuite.Field.FieldDiag.Mark("jel_bake", (float)swDbg.Elapsed.TotalMilliseconds);
             swDbg.Restart();
+            swJel.Reset(); swJel.Start();
             System.Array.Clear(disp, 0, disp.Length);
 
             // Stage switched off: it adds nothing, but the cloth pass still hangs off this
@@ -1421,7 +2888,9 @@ namespace SoftBodySuite.Jello
             else if (simEnabled)
             {
                 float pdt = hrAny ? Mathf.Min(dt * 2f, 0.05f) : dt;   // physics dt spans the held frame
+                SoftBodySuite.Field.FieldDiag.Mark("jel.clear", JelLap());
                 UpdateColliderClouds();
+                SoftBodySuite.Field.FieldDiag.Mark("jel.colliders", JelLap());
                 Vector3 localDown = go.transform.InverseTransformDirection(worldDown);
                 float sdt = pdt / Mathf.Max(1, substeps);
                 // dynamics substepped; collision field + output written ONCE per frame
@@ -1431,41 +2900,61 @@ namespace SoftBodySuite.Jello
                     // live-sync the tuning sliders onto the cage's cloned region first
                     if (cageSrc != null) SyncSolverParams(cageSim.cfg, cageSrc);
                     cage.InterpBaked(bakedVerts, bakedNormals);
-                    for (int s = 0; s < substeps; s++)
-                        cageSim.StepDynamics(cage.simBaked, cage.simNormals, sdt, localDown, go.transform);
-                    System.Array.Clear(cage.simDisp, 0, cage.simDisp.Length);
-                    cageSim.FieldAndWrite(cage.simBaked, cage.simNormals, cage.simDisp, pdt, SimsAsList(), go.transform);
-                    // snapshot the field BEFORE the body's smoothing passes: the projection
-                    // averaging that makes the body buttery also blurred the CLOTH's copy down
-                    // to a fraction of its amplitude (measured 24-38% at projAvg 28), which is
-                    // most of why garments looked like they weren't following
-                    if (cageRaw == null || cageRaw.Length != cage.simDisp.Length) cageRaw = new Vector3[cage.simDisp.Length];
-                    System.Array.Copy(cage.simDisp, cageRaw, cageRaw.Length);
+                    SoftBodySuite.Field.FieldDiag.Mark("jel.interpbaked", JelLap());
+                    bool overlap = overlapSolve && !solveBroken && followers.Count > 0 && settingsRef != null
+                        && settingsRef.cloth.enabled && settingsRef.cloth.follow.enabled;
+                    if (overlap)
+                    {
+                        // the solve is plain array maths: run it on a worker while this thread
+                        // does the garments' BakeMesh calls, which only the main thread can do
+                        cageSim.PrepareStep(go.transform);
+                        solveSubsteps = substeps; solveSdt = sdt; solvePdt = pdt; solveDown = localDown;
+                        solveErr = null;
+                        if (solveJob == null) solveJob = SolveJob;
+                        solveDone.Reset();
+                        System.Threading.ThreadPool.QueueUserWorkItem(solveJob);
+                        try { PreBakeFollowers(); }
+                        finally { solveDone.Wait(); }   // never leave the solve running unjoined
+                        { string lg = SquishSim.TakeLog(); if (lg != null) Debug.Log(lg); }
+                        SoftBodySuite.Field.FieldDiag.Mark("jel.solve+garmentbake", JelLap());
+                        if (solveErr != null)
+                        {
+                            solveBroken = true;
+                            Debug.LogWarning("[Jello] cage solve on a worker failed, back to the main thread: " + solveErr);
+                        }
+                    }
+                    else
+                    {
+                        for (int s = 0; s < substeps; s++)
+                            cageSim.StepDynamics(cage.simBaked, cage.simNormals, sdt, localDown, go.transform);
+                        SoftBodySuite.Field.FieldDiag.Mark("jel.dynamics", JelLap());
+                        { string lg = SquishSim.TakeLog(); if (lg != null) Debug.Log(lg); }
+                        System.Array.Clear(cage.simDisp, 0, cage.simDisp.Length);
+                        cageSim.FieldAndWrite(cage.simBaked, cage.simNormals, cage.simDisp, pdt, SimsAsList(), go.transform);
+                        SoftBodySuite.Field.FieldDiag.Mark("jel.fieldwrite", JelLap());
+                    }
+                    // (The raw/sharpened CLOTH copy of this field that used to be built here,
+                    // with its own smoothing and a held/lerp mirror, was dead work: further
+                    // down, cage.InterpDelta(disp, cageOut) overwrites cageOut every sim frame
+                    // before any garment reads it, so the clothes ride exactly the body's
+                    // field. Removing it changes no output and saved ~0.5 ms a frame.)
                     if (settingsRef != null)
                     {
                         int ts = Mathf.Clamp(Mathf.RoundToInt(settingsRef.jello.proxySmooth), 0, 400);
                         int av = Mathf.Clamp(Mathf.RoundToInt(settingsRef.jello.projAvg), 0, 400);
                         if (ts > 0 || av > 0) cage.SmoothDisp(ts, av);
+                        SoftBodySuite.Field.FieldDiag.Mark("jel.smoothdisp", JelLap());
                         // 2nd-level squish: restore the sharp dent AFTER the smoothers
                         if (settingsRef.jello.boostStrength > 0.001f || settingsRef.jello.slapPower > 0.001f)
                         {
-                            // capture the pre-boost state so the boost's contribution can be
-                            // added to the CLOTH field too — contact is exactly when the body
-                            // would otherwise punch through a garment
-                            if (cagePreBoost == null || cagePreBoost.Length != cage.simDisp.Length)
-                                cagePreBoost = new Vector3[cage.simDisp.Length];
-                            System.Array.Copy(cage.simDisp, cagePreBoost, cagePreBoost.Length);
+                            // (the boost reaches the clothes through disp -> cageOut below)
                             cage.ContactBoost(cageSim, go.transform, settingsRef.jello.boostStrength,
                                 Mathf.Clamp(Mathf.RoundToInt(settingsRef.jello.boostSpread), 0, 60),
                                 Mathf.Clamp(settingsRef.jello.boostMax, 0.001f, 0.2f),
                                 Mathf.Max(0f, settingsRef.jello.slapSens), settingsRef.jello.slapPower, pdt);
-                            if (cageRaw != null && cageRaw.Length == cage.simDisp.Length)
-                                for (int bi = 0; bi < cageRaw.Length; bi++)
-                                    cageRaw[bi] += cage.simDisp[bi] - cagePreBoost[bi];
                         }
                     }
-                    // follower timing mirror: cageOut must show the SAME held/lerp state the
-                    // mesh's disp does, or clothing leads/lags the body by half a tick
+                    // the garments read cageOut; it is filled from the finished disp below
                     if (cageOut == null || cageOut.Length != cage.simDisp.Length)
                     {
                         cageOut = new Vector3[cage.simDisp.Length];
@@ -1473,34 +2962,10 @@ namespace SoftBodySuite.Jello
                         cagePrev = new Vector3[cage.simDisp.Length];
                         cageHeldValid = false;
                     }
-                    // Cloth field = the body's own (smoothed) field blended toward the raw
-                    // one. Raw carries the full contact amplitude but also its sharp local
-                    // spikes: replayed per weld-group on a garment those spikes SHRED it, so
-                    // the default is the body's field exactly and sharpness is opt-in.
-                    Vector3[] folSrc = cage.simDisp;
-                    float sharp = settingsRef != null ? Mathf.Clamp01(settingsRef.cloth.follow.folSharp) : 0f;
-                    if (sharp > 0.001f && cageRaw != null && cageRaw.Length == cage.simDisp.Length)
-                    {
-                        int folSm = settingsRef != null ? Mathf.Clamp(Mathf.RoundToInt(settingsRef.cloth.follow.folSmooth), 0, 60) : 4;
-                        if (folSm > 0) cage.SmoothArray(cageRaw, folSm);
-                        for (int ci = 0; ci < cageRaw.Length; ci++)
-                            cageRaw[ci] = Vector3.Lerp(cage.simDisp[ci], cageRaw[ci], sharp);
-                        folSrc = cageRaw;
-                    }
-                    if (halfRateLerp && cageHeldValid)
-                    {
-                        System.Array.Copy(cageHeld, cagePrev, cageHeld.Length);
-                        System.Array.Copy(folSrc, cageHeld, cageHeld.Length);
-                        for (int ci = 0; ci < cageOut.Length; ci++) cageOut[ci] = (cagePrev[ci] + cageHeld[ci]) * 0.5f;
-                    }
-                    else
-                    {
-                        System.Array.Copy(folSrc, cageHeld, cageHeld.Length);
-                        System.Array.Copy(folSrc, cageOut, cageOut.Length);
-                    }
-                    cageHeldValid = true;
 
+                    SoftBodySuite.Field.FieldDiag.Mark("jel.folsrc", JelLap());
                     cage.Project(disp);
+                    SoftBodySuite.Field.FieldDiag.Mark("jel.project", JelLap());
                     if (cageVizGo != null && cageVizGo.activeSelf && cageVizMesh != null) cage.UpdateViz(cageVizMesh);
                 }
                 else
@@ -1521,6 +2986,7 @@ namespace SoftBodySuite.Jello
                     if ((slv > 0 || settingsRef.jello.seamMaxStretch > 0.0001f) && settingsRef.jello.seamRange > 0.0002f)
                         ApplySeamSmoothing(disp, slv, settingsRef.jello.seamRange, settingsRef.jello.seamMaxStretch);
                 }
+                SoftBodySuite.Field.FieldDiag.Mark("jel.seam", JelLap());
                 if (heldDisp == null || heldDisp.Length != disp.Length) { heldDisp = new Vector3[disp.Length]; heldPrev = new Vector3[disp.Length]; }
                 if (heldPrev == null || heldPrev.Length != disp.Length) heldPrev = new Vector3[disp.Length];
                 if (halfRateLerp && heldValid)
@@ -1541,8 +3007,22 @@ namespace SoftBodySuite.Jello
             // wobble, so that unclamped copy cancelled more of the wobble than the body did, and
             // the body poked through the clothes. This is the single point every branch (off,
             // held, blended, fresh) passes through, so the two can never drift apart again.
-            if (cage != null && cageOut != null && cageOut.Length == cage.SimVertCount)
+            // (stage off: disp is all zeros and cageOut was zeroed above - nothing to carry)
+            SoftBodySuite.Field.FieldDiag.Mark("jel.hold", JelLap());
+            // overall jiggle strength, applied to what is SHOWN (held/lerp state stays raw),
+            // before the clothes take their copy so they ride exactly the scaled body
+            float js = SoftBodySuite.JiggleGlobal.strength;
+            if (simEnabled && js != 1f)
+            {
+                Vector3[] dj = disp;
+                SoftBodySuite.Field.ParallelLoop.For(dj.Length, delegate (int lo, int hi)
+                {
+                    for (int i = lo; i < hi; i++) dj[i] *= js;
+                });
+            }
+            if (simEnabled && cage != null && cageOut != null && cageOut.Length == cage.SimVertCount)
                 cage.InterpDelta(disp, cageOut);
+            SoftBodySuite.Field.FieldDiag.Mark("jel.interpdelta", JelLap());
 
             // bakedVerts here is still (skin + wobble); take the wobble back out
             if (cage != null && cage.SimVertCount > 0 && cage.simBaked != null)
@@ -1553,21 +3033,40 @@ namespace SoftBodySuite.Jello
                 {
                     if (cleanScratch == null || cleanScratch.Length != bakedVerts.Length)
                         cleanScratch = new Vector3[bakedVerts.Length];
-                    for (int i = 0; i < bakedVerts.Length; i++) cleanScratch[i] = bakedVerts[i] - upDisp[i];
+                    Vector3[] cs = cleanScratch, bv = bakedVerts, ud = upDisp;
+                    SoftBodySuite.Field.ParallelLoop.For(bv.Length, delegate (int lo, int hi)
+                    {
+                        for (int i = lo; i < hi; i++) cs[i] = bv[i] - ud[i];
+                    });
                     cage.InterpDelta(cleanScratch, cageClean);
                 }
                 else System.Array.Copy(cage.simBaked, cageClean, nc);
             }
+            SoftBodySuite.Field.FieldDiag.Mark("jel.clean", JelLap());
 
-            for (int i = 0; i < bakedVerts.Length; i++) bakedVerts[i] += disp[i];
+            if (simEnabled)
+            {
+                Vector3[] bv2 = bakedVerts, dp = disp;
+                SoftBodySuite.Field.ParallelLoop.For(bv2.Length, delegate (int lo, int hi)
+                {
+                    for (int i = lo; i < hi; i++) bv2[i] += dp[i];
+                });
+            }
+            SoftBodySuite.Field.FieldDiag.Mark("jel.add", JelLap());
             framedOnce = true;
-            display.SetVertices(bakedVerts);
-            display.SetNormals(bakedNormals);
+            // Upload only what someone can see. With the field or squish on screen this mesh
+            // is hidden, and pushing all 38k verts + normals to it every frame was pure cost.
+            if ((mr != null && mr.enabled) || overlayGO != null)
+            {
+                display.SetVertices(bakedVerts);
+                display.SetNormals(bakedNormals);
+            }
             // fixed expanded bounds once — per-frame RecalculateBounds is a full-mesh scan
             if (!dispBoundsSet) { display.bounds = new Bounds(display.bounds.center, display.bounds.size + Vector3.one * 2f); dispBoundsSet = true; }
             if (overlayOn && overlayMode == 1) RefreshSharpColors();   // live jaggedness view
 
             msSim = Mathf.Lerp(msSim, (float)swDbg.Elapsed.TotalMilliseconds, 0.08f);
+            SoftBodySuite.Field.FieldDiag.Mark("jel_run", (float)swDbg.Elapsed.TotalMilliseconds);
             DrawDebug();
             if (debugDraw && (dbgLogT += dt) > 2f)
             {
@@ -1986,6 +3485,10 @@ namespace SoftBodySuite.Jello
             if (!Alive || cfg == null) return;
             BuildSims(avatar, anim);
             ResolveColliderMeshes(avatar);
+            // paint / region bones changed: "dead" garments get another chance right away
+            for (int i = 0; i < folDead.Count; i++) if (folDead[i] != null) folFailed.Add(folDead[i]);
+            folDead.Clear();
+            shareBones = null;   // flesh-bone data is rebuilt from the new paint
         }
 
         // In cage mode the solver runs on a CLONE of the source region, so live slider
@@ -2104,24 +3607,6 @@ namespace SoftBodySuite.Jello
                 Newtonsoft.Json.JsonConvert.SerializeObject(src));
             reg.name = "(cage) " + src.name;
             reg.enabled = true;
-            // The clone above is a JSON round-trip, and StageRegion.colliders is
-            // [JsonIgnore] (SuiteConfig.cs:35) — Sync() wires it as a REFERENCE to the
-            // painted region's list (SuiteConfig.cs:186) rather than duplicating it per
-            // stage, so it deliberately does not serialise. That means the round-trip
-            // hands back a region with NO colliders, and the merge loop below only adds
-            // them from OTHER regions (it skips `src` by design, on the assumption the
-            // clone already carried them). With a single painted region — or with the
-            // colliders on the first enabled one, which is the ordinary case — the cage
-            // sim was therefore built with an empty collider list and its collision did
-            // nothing at all.
-            //
-            // Copy them across explicitly, deep, so the cage sim cannot mutate the
-            // painted region's own list.
-            reg.colliders = new List<SquishCollider>();
-            for (int sc = 0; sc < src.colliders.Count; sc++)
-                if (src.colliders[sc] != null)
-                    reg.colliders.Add(Newtonsoft.Json.JsonConvert.DeserializeObject<SquishCollider>(
-                        Newtonsoft.Json.JsonConvert.SerializeObject(src.colliders[sc])));
             reg.vertIndex = new List<int>(); reg.weight = new List<float>();
             for (int i = 0; i < c.SimVertCount; i++) { reg.vertIndex.Add(i); reg.weight.Add(c.simWeight[i]); }
             for (int r = 0; r < cfg.regions.Count; r++)
@@ -2151,13 +3636,9 @@ namespace SoftBodySuite.Jello
             cage = c; cageSim = sim; cageSrc = src; sims.Add(sim);
             cageHeldValid = false;   // fresh cage: don't lerp followers from the old field
             ResolveColliderMeshes(avatarRef);
-            // The collider count is on this line because it silently read ZERO for a long
-            // time: the synthetic region above is a JSON clone, and colliders are
-            // [JsonIgnore], so the cage sim was built with none and its collision did
-            // nothing while every other number here looked perfectly healthy.
             Debug.Log("[Jello] remesh cage LIVE: " + c.SimVertCount + " verts, edge=" + c.usedEdge.ToString("0.0000")
                 + " m, built in " + (cageSw != null ? cageSw.ElapsedMilliseconds : 0) + " ms (union of all regions); valley gate: "
-                + c.gateUsed + " gated / " + c.gateFallback + " fallback; colliders: " + reg.colliders.Count);
+                + c.gateUsed + " gated / " + c.gateFallback + " fallback");
         }
 
         public void ToggleCageViz()
@@ -2335,30 +3816,45 @@ namespace SoftBodySuite.Jello
                 int[] nb = wAdj[gg];
                 for (int j = 0; j < nb.Length; j++) grpDisp[nb[j]] = disp[grpRep[nb[j]]];
             }
+            // Every pass reads grpDisp and writes only its own grpDisp2 slot (band groups
+            // are unique), and weld groups own disjoint render verts, so all three loops
+            // split across cores with exactly the serial result. This pass was 1.5 ms.
+            int[] band = seamBand; float[] sDist = seamDist; int[][] adj = wAdj;
+            Vector3[] gA = grpDisp, gB = grpDisp2;
             for (int pass = 0; pass < passes; pass++)
             {
-                for (int i = 0; i < active; i++)
+                SoftBodySuite.Field.ParallelLoop.For(active, 512, delegate (int lo, int hi)
                 {
-                    int gg = seamBand[i];
-                    float bw = 1f - seamDist[gg] * invR;      // 1 at the seam, 0 at the band edge
-                    if (bw <= 0f) { grpDisp2[gg] = grpDisp[gg]; continue; }
-                    int[] nb = wAdj[gg];
-                    if (nb.Length < 2) { grpDisp2[gg] = grpDisp[gg]; continue; }
-                    Vector3 avg = Vector3.zero;
-                    for (int j = 0; j < nb.Length; j++) avg += grpDisp[nb[j]];
-                    avg /= nb.Length;
-                    grpDisp2[gg] = Vector3.Lerp(grpDisp[gg], avg, bw);
-                }
-                for (int i = 0; i < active; i++) { int gg = seamBand[i]; grpDisp[gg] = grpDisp2[gg]; }
+                    for (int i = lo; i < hi; i++)
+                    {
+                        int gg = band[i];
+                        float bw = 1f - sDist[gg] * invR;      // 1 at the seam, 0 at the band edge
+                        if (bw <= 0f) { gB[gg] = gA[gg]; continue; }
+                        int[] nb = adj[gg];
+                        if (nb.Length < 2) { gB[gg] = gA[gg]; continue; }
+                        Vector3 avg = Vector3.zero;
+                        for (int j = 0; j < nb.Length; j++) avg += gA[nb[j]];
+                        avg /= nb.Length;
+                        gB[gg] = Vector3.Lerp(gA[gg], avg, bw);
+                    }
+                });
+                SoftBodySuite.Field.ParallelLoop.For(active, 4096, delegate (int lo, int hi)
+                {
+                    for (int i = lo; i < hi; i++) { int gg = band[i]; gA[gg] = gB[gg]; }
+                });
             }
             // scatter smoothed group displacement back to every render member (active band)
-            for (int i = 0; i < active; i++)
+            List<int>[] members = weldMembers;
+            SoftBodySuite.Field.ParallelLoop.For(active, 1024, delegate (int lo, int hi)
             {
-                int gg = seamBand[i];
-                List<int> mem = weldMembers[gg];
-                Vector3 d = grpDisp[gg];
-                for (int m = 0; m < mem.Count; m++) disp[mem[m]] = d;
-            }
+                for (int i = lo; i < hi; i++)
+                {
+                    int gg = band[i];
+                    List<int> mem = members[gg];
+                    Vector3 d = gA[gg];
+                    for (int m = 0; m < mem.Count; m++) disp[mem[m]] = d;
+                }
+            });
             // SEAM MAX STRETCH — displacement RAMP limit ("cone clamp"). F11 evidence: the
             // whole 0→full transition packs into the smoothing band (avg +214% edge stretch),
             // pinned between the still body and the moving interior — edge clamps inside the
@@ -2370,18 +3866,22 @@ namespace SoftBodySuite.Jello
             if (maxStretch > 0.0001f)
             {
                 float slope = maxStretch / Mathf.Max(range, 0.0005f);
-                for (int i = 0; i < seamBand.Length; i++)
+                // each group reads and writes only its own members
+                SoftBodySuite.Field.ParallelLoop.For(band.Length, 1024, delegate (int lo, int hi)
                 {
-                    int gg = seamBand[i];
-                    float allowed = seamDist[gg] * slope;
-                    List<int> mem = weldMembers[gg];
-                    if (mem.Count == 0) continue;
-                    Vector3 d = disp[mem[0]];
-                    float dm = d.magnitude;
-                    if (dm <= allowed || dm < 1e-9f) continue;
-                    d *= allowed / dm;
-                    for (int m = 0; m < mem.Count; m++) disp[mem[m]] = d;
-                }
+                    for (int i = lo; i < hi; i++)
+                    {
+                        int gg = band[i];
+                        float allowed = sDist[gg] * slope;
+                        List<int> mem = members[gg];
+                        if (mem.Count == 0) continue;
+                        Vector3 d = disp[mem[0]];
+                        float dm = d.magnitude;
+                        if (dm <= allowed || dm < 1e-9f) continue;
+                        d *= allowed / dm;
+                        for (int m = 0; m < mem.Count; m++) disp[mem[m]] = d;
+                    }
+                });
             }
         }
 

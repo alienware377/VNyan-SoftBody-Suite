@@ -347,10 +347,11 @@ namespace SoftBodySuite
 
         // Returns the merged config, writing it and a log next to the old files.
         // dir is VNyan's persistentDataPath.
-        public static SuiteConfig RunIfNeeded(string dir, out bool migrated)
+        public static SuiteConfig RunIfNeeded(string dir, string targetName, string upstreamName,
+                                              string logName, out bool migrated)
         {
             migrated = false;
-            string target = Path.Combine(dir, "softbodysuite.json");
+            string target = Path.Combine(dir, targetName);
             if (File.Exists(target))
             {
                 try
@@ -360,27 +361,105 @@ namespace SoftBodySuite
                     loaded.Sync();
                     return loaded;
                 }
-                catch { return new SuiteConfig(); }
+                catch (System.Exception e)
+                {
+                    // An unreadable config used to be replaced by defaults with no backup
+                    // and no log line: every painted region silently gone. Keep it.
+                    // Copy, not Move - a Move that then fails to write leaves the user
+                    // with nothing at the path they expect.
+                    string bak = target + ".corrupt-" + System.DateTime.Now.ToString("yyyyMMdd-HHmmss");
+                    try { File.Copy(target, bak, true); } catch { }
+                    UnityEngine.Debug.LogError("[SfxField] config unreadable (" + e.Message + ") — kept a copy at "
+                                   + bak + ", starting from defaults");
+                    return new SuiteConfig();
+                }
             }
 
             Report rep = new Report();
+
+            // This fork writes its own file. If it has never run but the shipped plugin's
+            // config is sitting there, take a copy of it once - before the three-old-studios
+            // path, which would otherwise import from files this user stopped using long ago.
+            string upstream = Path.Combine(dir, upstreamName);
+            if (!string.IsNullOrEmpty(upstreamName) && File.Exists(upstream))
+            {
+                SuiteConfig imported = ImportUpstream(dir, upstreamName, targetName, logName, rep,
+                                                      ref migrated);
+                if (imported != null) return imported;
+            }
+
             SuiteConfig cfg = Migrate(ReadOrNull(Path.Combine(dir, "squishstudio.json")),
                                       ReadOrNull(Path.Combine(dir, "jellostudio.json")),
                                       ReadOrNull(Path.Combine(dir, "wobblestudio.json")), rep);
             if (!rep.ran) return cfg;
 
             StringBuilder sb = new StringBuilder();
-            sb.AppendLine("Soft Body Suite — imported the three old configs.");
+            sb.AppendLine("Soft Body Suite 3: imported the three old configs.");
             sb.AppendLine("meshes=" + rep.meshes + " regions=" + rep.regions +
                           " values=" + rep.valuesCopied + " gaps=" + rep.mismatches);
             for (int i = 0; i < rep.lines.Count; i++) sb.AppendLine("  " + rep.lines[i]);
             try
             {
                 File.WriteAllText(target, JsonConvert.SerializeObject(cfg, Formatting.Indented));
-                File.WriteAllText(Path.Combine(dir, "softbodysuite.migration.log"), sb.ToString());
+                File.WriteAllText(Path.Combine(dir, logName), sb.ToString());
                 migrated = true;
             }
             catch { }
+            return cfg;
+        }
+
+        // One shot, read-only. NEVER opens upstreamName for writing and never deletes
+        // it: going back to the shipped plugin has to stay possible forever.
+        // Returns null if the file could not be used, so the caller falls through to the
+        // three-old-studios path instead of starting the user from nothing.
+        static SuiteConfig ImportUpstream(string dir, string upstreamName, string targetName,
+                                          string logName, Report rep, ref bool migrated)
+        {
+            string upstream = Path.Combine(dir, upstreamName);
+            SuiteConfig cfg;
+            try
+            {
+                cfg = JsonConvert.DeserializeObject<SuiteConfig>(File.ReadAllText(upstream));
+            }
+            catch (System.Exception e)
+            {
+                UnityEngine.Debug.LogWarning("[SfxField] could not read " + upstreamName + " (" + e.Message
+                                 + ") — falling back to the older configs");
+                return null;
+            }
+            if (cfg == null) return null;
+            if (cfg.settings == null) cfg.settings = new SuiteSettings();
+            if (cfg.meshes == null) cfg.meshes = new List<SuiteMesh>();
+            cfg.Sync();                    // FieldRegion has no paint until this runs
+            cfg.settings.version = 3;      // it is a Field config from here on
+
+            int regions = 0;
+            for (int m = 0; m < cfg.meshes.Count; m++)
+                if (cfg.meshes[m] != null && cfg.meshes[m].regions != null)
+                    regions += cfg.meshes[m].regions.Count;
+
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("Soft Body Suite 3: imported " + upstreamName + " once.");
+            sb.AppendLine("meshes=" + cfg.meshes.Count + " regions=" + regions);
+            sb.AppendLine("The original " + upstreamName + " was NOT modified or deleted:");
+            sb.AppendLine("going back to the classic Soft Body Suite stays possible.");
+            sb.AppendLine("Every region's field stage starts at factory defaults with");
+            sb.AppendLine("Field Mix 0, so this renders exactly as the classic suite did.");
+            for (int i = 0; i < rep.lines.Count; i++) sb.AppendLine("  " + rep.lines[i]);
+
+            try
+            {
+                File.WriteAllText(Path.Combine(dir, targetName),
+                                  JsonConvert.SerializeObject(cfg, Formatting.Indented));
+                File.WriteAllText(Path.Combine(dir, logName), sb.ToString());
+                migrated = true;
+            }
+            catch (System.Exception e)
+            {
+                // The config is good in memory even if the disk write failed; use it.
+                UnityEngine.Debug.LogWarning("[SfxField] imported " + upstreamName
+                                 + " but could not write " + targetName + ": " + e.Message);
+            }
             return cfg;
         }
 

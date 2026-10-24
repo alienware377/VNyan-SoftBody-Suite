@@ -349,8 +349,11 @@ namespace SoftBodySuite.Wobble
                     if (halfRateLerp)
                     {
                         if (heldDisp == null || heldDisp.Length != disp.Length) heldDisp = new Vector3[disp.Length];
-                        for (int li = 0; li < disp.Length; li++)
-                            heldDisp[li] = Vector3.Lerp(heldDisp[li], asyncOut[li], 0.5f);
+                        Vector3[] hd = heldDisp, ao = asyncOut;
+                        SoftBodySuite.Field.ParallelLoop.For(hd.Length, delegate (int lo, int hi)
+                        {
+                            for (int li = lo; li < hi; li++) hd[li] = Vector3.Lerp(hd[li], ao[li], 0.5f);
+                        });
                         System.Array.Copy(heldDisp, disp, disp.Length);
                     }
                     else System.Array.Copy(asyncOut, disp, disp.Length);
@@ -406,11 +409,32 @@ namespace SoftBodySuite.Wobble
                 heldValid = true;
             }
 
-            for (int i = 0; i < bakedVerts.Length; i++) bakedVerts[i] += disp[i];
-            display.SetVertices(bakedVerts);
-            display.SetNormals(bakedNormals);
+            Vector3[] bvw = bakedVerts, dpw = disp;
+            // overall jiggle strength: scale the shown offset (the sim's own state is untouched,
+            // so the motion keeps its timing and shape). Downstream stages read this disp.
+            float js = SoftBodySuite.JiggleGlobal.strength;
+            if (js != 1f) SoftBodySuite.Field.ParallelLoop.For(dpw.Length, delegate (int lo, int hi)
+            {
+                for (int i = lo; i < hi; i++) dpw[i] *= js;
+            });
+            SoftBodySuite.Field.ParallelLoop.For(bvw.Length, delegate (int lo, int hi)
+            {
+                for (int i = lo; i < hi; i++) bvw[i] += dpw[i];
+            });
+            // Upload only what someone can see. In the suite jell-o always runs after us,
+            // so this mesh is hidden and the next stage takes our arrays directly: pushing
+            // all 38k verts + normals into it every frame was pure cost.
+            if ((mr != null && mr.enabled) || overlayGO != null) UploadDisplay();
+            wobFramed = true;
             // fixed expanded bounds once — per-frame RecalculateBounds is a full-mesh scan
             if (!dispBoundsSet) { display.bounds = new Bounds(display.bounds.center, display.bounds.size + Vector3.one * 2f); dispBoundsSet = true; }
+        }
+
+        bool wobFramed;   // bakedVerts holds a real frame (all zeros before the first one)
+        void UploadDisplay()
+        {
+            display.SetVertices(bakedVerts);
+            display.SetNormals(bakedNormals);
         }
 
         public static bool asyncSim;                 // physics on a worker thread
@@ -655,6 +679,9 @@ namespace SoftBodySuite.Wobble
         public void RebuildSims(GameObject avatar, Animator anim)
         {
             if (!Alive || cfg == null) return;
+            // the sims are built from the display mesh, which is no longer uploaded while
+            // hidden: give it this frame's shape first, exactly what it used to hold
+            if (wobFramed && bakedVerts != null && display != null && display.vertexCount == bakedVerts.Length) UploadDisplay();
             sims.Clear();
             for (int r = 0; r < cfg.regions.Count; r++)
             {

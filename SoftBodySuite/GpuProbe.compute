@@ -1,0 +1,13 @@
+// M0 go/no-go: can a plugin loaded from a .vnobj run a compute shader inside VNyan?
+// One kernel, one buffer: out[i] = in[i] * 2 + i. The C# side checks every value.
+#pragma kernel Probe
+
+RWStructuredBuffer<float> Data;
+uint Count;
+
+[numthreads(64, 1, 1)]
+void Probe(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= Count) return;
+    Data[id.x] = Data[id.x] * 2.0 + (float)id.x;
+}

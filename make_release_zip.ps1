@@ -1,10 +1,10 @@
 # Build the release zip.
-#   .\make_release_zip.ps1 -Version 2.0.1
+#   .\make_release_zip.ps1 -Version 3.0.0
 #
 # Entries are written one at a time with FORWARD SLASHES. Both Compress-Archive and
 # ZipFile.CreateFromDirectory write backslash separators, which several unzip tools
-# treat as part of the filename rather than as a folder — producing one flat pile of
-# files called "SoftBodySuite\SoftBodySuite.dll".
+# treat as part of the filename rather than as a folder, producing one flat pile of
+# files called "SoftFleshField\SoftFleshField.dll".
 param([Parameter(Mandatory=$true)][string]$Version)
 
 $ErrorActionPreference = 'Stop'
@@ -13,8 +13,8 @@ $out  = Join-Path 'C:\Temp\sbs-build' "VNyan-SoftBody-Suite-v$Version.zip"
 
 # published path -> source file
 $items = [ordered]@{
-  'SoftBodySuite/SoftBodySuite.dll'   = Join-Path $root 'plugins\SoftBodySuite\SoftBodySuite.dll'
-  'SoftBodySuite/SoftBodySuite.vnobj' = Join-Path $root 'plugins\SoftBodySuite\SoftBodySuite.vnobj'
+  'SoftFleshField/SoftFleshField.dll'   = Join-Path $root 'plugins\SoftFleshField\SoftFleshField.dll'
+  'SoftFleshField/SoftFleshField.vnobj' = Join-Path $root 'plugins\SoftFleshField\SoftFleshField.vnobj'
   'install.bat'                       = Join-Path $root 'install.bat'
   'install.ps1'                       = Join-Path $root 'install.ps1'
   'README.md'                         = Join-Path $root 'README.md'

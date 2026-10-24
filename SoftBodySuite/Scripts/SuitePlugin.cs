@@ -14,6 +14,7 @@ namespace SoftBodySuite
     using WobbleProxy = SoftBodySuite.Wobble.MeshProxy;
     using JelloProxy = SoftBodySuite.Jello.MeshProxy;
     using MeshProxy = SoftBodySuite.Squish.MeshProxy;
+    using FieldProxy = SoftBodySuite.Field.FieldProxy;
     using SquishSim = SoftBodySuite.Squish.SquishSim;
     using SquishMesh = SoftBodySuite.SuiteMesh;
     using SquishConfig = SoftBodySuite.SuiteConfig;
@@ -27,9 +28,24 @@ namespace SoftBodySuite
     public class SquishPlugin : MonoBehaviour, VNyanInterface.IButtonClickedHandler
     {
         const string BUTTON_NAME = "Soft Body Suite";
-        const string CONFIG_FILE = "softbodysuite.json";
+        // Every path this fork owns, in one place. ConfigMigrate is passed these
+        // rather than repeating the literals - the shipped build had the write
+        // path and the read path hardcoded separately in two files.
+        public const string CONFIG_FILE       = "softfleshfield.json";
+        public const string PRESET_FILE       = "softfleshfield.presets.json";
+        public const string MIGRATE_LOG       = "softfleshfield.migration.log";
+        public const string UPSTREAM_CONFIG   = "softbodysuite.json";
+        public const string UPSTREAM_PRESETS  = "softbodysuite.presets.json";
+        // 1 = the three old studio plugins, 2 = the merged suite, 3 = this fork (adds the
+        // per-region `field` block and the `field` stage settings). SuiteSettings.version
+        // has been written since v2; ConfigMigrate stamps this on every config it upgrades.
+        public const int    CONFIG_VERSION    = 3;
 
         public GameObject windowPrefab;
+        // M0 GPU probe: assigned by SuiteBuild, so it travels inside the .vnobj as a
+        // dependency of this prefab. If it arrives non-null and runs, the field can move
+        // to the GPU; if not, it cannot, and nothing else in the suite changes.
+        public ComputeShader gpuProbe;
 
         GameObject window;
         Text statusLabel;
@@ -113,6 +129,7 @@ namespace SoftBodySuite
             public Dictionary<string, float> setF = new Dictionary<string, float>();
             public Dictionary<string, bool> setB = new Dictionary<string, bool>();
             public string key; public float time;
+            public string blocks;   // the region's four stage blocks (JSON): GrabFields only saw its top level
         }
         readonly List<ParamSnap> pUndo = new List<ParamSnap>();
         readonly List<ParamSnap> pRedo = new List<ParamSnap>();
@@ -145,6 +162,7 @@ namespace SoftBodySuite
             s.key = key; s.time = Time.realtimeSinceStartup; s.region = selRegion;
             GrabFields(selRegion, s.regF, s.regB);
             GrabFields(config != null ? config.settings : null, s.setF, s.setB);
+            s.blocks = BlocksJson(selRegion);
             return s;
         }
 
@@ -166,12 +184,25 @@ namespace SoftBodySuite
 
         void ApplyParams(ParamSnap s)
         {
+            // Rebind only when a SUITE setting actually changed: rebinding rebuilds every cage,
+            // which leaves the field inert for seconds, and a region slider never needs it.
+            Dictionary<string, float> nowF = new Dictionary<string, float>();
+            Dictionary<string, bool> nowB = new Dictionary<string, bool>();
+            GrabFields(config != null ? config.settings : null, nowF, nowB);
+            bool settingsChanged = false;
+            foreach (KeyValuePair<string, float> kv in s.setF) { float v; if (!nowF.TryGetValue(kv.Key, out v) || v != kv.Value) { settingsChanged = true; break; } }
+            if (!settingsChanged)
+                foreach (KeyValuePair<string, bool> kv in s.setB) { bool v; if (!nowB.TryGetValue(kv.Key, out v) || v != kv.Value) { settingsChanged = true; break; } }
             PutFields(config != null ? config.settings : null, s.setF, s.setB);
-            if (s.region != null && RegionLive(s.region)) PutFields(s.region, s.regF, s.regB);
+            if (s.region != null && RegionLive(s.region))
+            {
+                PutFields(s.region, s.regF, s.regB);
+                if (!string.IsNullOrEmpty(s.blocks)) RestoreBlocks(s.region, s.blocks);
+            }
             suppress = true;
             PushRegionToUI();
             suppress = false;
-            Rebind();
+            if (settingsChanged) Rebind();
             SaveConfig();
         }
 
@@ -225,6 +256,7 @@ namespace SoftBodySuite
             {
                 selProxy.RebuildSims(boundAvatar, boundAnimator);
                 if (selProxy.overlayOn) selProxy.RefreshOverlayColors(selRegion);
+                QueueStageRebuild(selProxy);
             }
             SaveConfig();   // regions are the source of truth for Wobble Studio's mirror — keep the file fresh
         }
@@ -250,12 +282,39 @@ namespace SoftBodySuite
                 if (MeshProxy.debugDraw)
                     for (int i = 0; i < proxies.Count; i++)
                         if (proxies[i] != null && proxies[i].Alive) proxies[i].LogColliderInfo();
+                FieldProxy.debugDraw = MeshProxy.debugDraw;
+                SoftBodySuite.Jello.MeshProxy.followDiag = MeshProxy.debugDraw || FollowDiagFileOn();   // the follow logger rides the collider view
+                if (FieldProxy.debugDraw)
+                    for (int i = 0; i < fldProxies.Count; i++)
+                        if (fldProxies[i] != null && fldProxies[i].Alive) fldProxies[i].LogFieldInfo();
+            }
+
+            // F9: the M1 identity check. With no source active this must report a maxDelta
+            // of exactly 0 every frame at Field Mix 0 AND at 1 — the publish path is a
+            // memcpy, so there is no epsilon here and anything non-zero is a real bug.
+            if (Input.GetKeyDown(KeyCode.F9))
+            {
+                SoftBodySuite.Field.FieldDiag.identityWatch = !SoftBodySuite.Field.FieldDiag.identityWatch;
+                Debug.Log("[SfxField] identity watch " +
+                          (SoftBodySuite.Field.FieldDiag.identityWatch ? "ON" : "OFF"));
+                for (int i = 0; i < fldProxies.Count; i++)
+                {
+                    if (fldProxies[i] == null || !fldProxies[i].Alive) continue;
+                    float md;
+                    bool ok = fldProxies[i].VerifyIdentityNow(out md);
+                    Debug.Log("[SfxField]   identity now: " + (ok ? "BIT-IDENTICAL" : "DIFFERS")
+                              + " maxDelta=" + md.ToString("R"));
+                }
             }
 
             // F11: dump displaced/rest mesh + solver fields for offline analysis
             if (Input.GetKeyDown(KeyCode.F11))
+            {
                 for (int i = 0; i < proxies.Count; i++)
                     if (proxies[i] != null && proxies[i].Alive) proxies[i].DumpDebug();
+                for (int i = 0; i < fldProxies.Count; i++)
+                    if (fldProxies[i] != null && fldProxies[i].Alive) fldProxies[i].DumpDebug();
+            }
 
             // Ctrl+Z / Ctrl+Shift+Z while the window is open
             if (window == null || !window.activeSelf) return;
@@ -268,8 +327,47 @@ namespace SoftBodySuite
         }
 
         // ==================== lifecycle ====================
+        void RunGpuProbe()
+        {
+            try
+            {
+                if (!SystemInfo.supportsComputeShaders)
+                { Debug.Log("[GPU] probe: this device reports NO compute shader support (" + SystemInfo.graphicsDeviceName + ")"); return; }
+                if (gpuProbe == null)
+                { Debug.Log("[GPU] probe: the compute shader did NOT arrive in the bundle (field is null)"); return; }
+                int k = gpuProbe.FindKernel("Probe");
+                const int N = 4096;
+                float[] data = new float[N];
+                for (int i = 0; i < N; i++) data[i] = i * 0.5f;
+                ComputeBuffer buf = new ComputeBuffer(N, 4);
+                buf.SetData(data);
+                gpuProbe.SetBuffer(k, "Data", buf);
+                gpuProbe.SetInt("Count", N);
+                System.Diagnostics.Stopwatch sw = System.Diagnostics.Stopwatch.StartNew();
+                gpuProbe.Dispatch(k, (N + 63) / 64, 1, 1);
+                float[] back = new float[N];
+                buf.GetData(back);
+                float ms = (float)sw.Elapsed.TotalMilliseconds;
+                buf.Release();
+                int bad = 0;
+                for (int i = 0; i < N; i++) if (Mathf.Abs(back[i] - (i * 0.5f * 2f + i)) > 1e-3f) bad++;
+                Debug.Log("[GPU] probe: " + (bad == 0 ? "PASS" : ("FAIL, " + bad + " wrong values"))
+                    + " - kernel ran on " + SystemInfo.graphicsDeviceName + " (" + SystemInfo.graphicsDeviceType
+                    + "), dispatch + readback " + ms.ToString("0.00") + " ms");
+            }
+            catch (Exception e) { Debug.Log("[GPU] probe: threw " + e.GetType().Name + ": " + e.Message); }
+        }
+
         void Awake()
         {
+            RunGpuProbe();
+            // the clothes logger can also be switched on with no clicking: drop an empty
+            // file called softfleshfield.followdiag.on next to the settings
+            if (FollowDiagFileOn())
+            {
+                SoftBodySuite.Jello.MeshProxy.followDiag = true;
+                Debug.Log("[SfxField] follow logger ON (softfleshfield.followdiag.on exists)");
+            }
             try { VNyanInterface.VNyanInterface.VNyanUI.registerPluginButton(BUTTON_NAME, this); }
             catch (Exception e) { Debug.LogWarning("[Squish] registerPluginButton failed: " + e.Message); }
             savePath = Path.Combine(Application.persistentDataPath, CONFIG_FILE);
@@ -309,7 +407,9 @@ namespace SoftBodySuite
         // one entry per configured mesh, index-aligned with `proxies` (the squish stage)
         readonly List<WobbleProxy> wobProxies = new List<WobbleProxy>();
         readonly List<JelloProxy> jelProxies = new List<JelloProxy>();
+        readonly List<FieldProxy> fldProxies = new List<FieldProxy>();
         int lastStageFlags = -1;
+        bool guardWarned;
 
         // ---------- presets ----------
         // One preset now carries the whole look: all three stages' numbers, the paint and
@@ -324,7 +424,24 @@ namespace SoftBodySuite
         void EnsurePresets()
         {
             if (presets != null) return;
-            presetPath = Path.Combine(Application.persistentDataPath, "softbodysuite.presets.json");
+            presetPath = Path.Combine(Application.persistentDataPath, PRESET_FILE);
+            // One-shot import of the shipped plugin's presets. Copy, never move: going
+            // back to Soft Body Suite must stay possible, so its file is never touched.
+            if (!File.Exists(presetPath))
+            {
+                string upPresets = Path.Combine(Application.persistentDataPath, UPSTREAM_PRESETS);
+                if (File.Exists(upPresets))
+                {
+                    try
+                    {
+                        File.Copy(upPresets, presetPath, false);
+                        Debug.Log("[SfxField] imported presets from " + UPSTREAM_PRESETS
+                                  + " (the original is untouched)");
+                    }
+                    catch (Exception e)
+                    { Debug.LogWarning("[SfxField] preset import failed: " + e.Message); }
+                }
+            }
             presets = PresetStore.Load(presetPath);
         }
 
@@ -379,7 +496,76 @@ namespace SoftBodySuite
 
         void ApplyPreset(SquishConfig src, string label)
         {
+            // A preset written before v3 carries NO field data at all, so cloning it
+            // silently resets the whole field stage to its defaults - stage OFF (see
+            // FieldStageSettings's constructor), every region's sfxMix back to 0, and the
+            // cage's own remeshSize back to the factory 0.008 - and stamps the config back
+            // to version 2. Preset auto-load fires on every model change, so in practice
+            // the field could never stay on, and from the outside that looks exactly like
+            // "the new code does nothing". A preset that cannot describe the stage must not
+            // be allowed to erase it.
+            //
+            // Keeping settings.field WHOLE is also what keeps the cage tuning: remeshSize,
+            // remeshPasses, projAvg and proxySmooth all live inside that object, and moving
+            // the cage edge back to 0.008 invalidates every footprint number tuned against
+            // the real edge.
+            bool srcHasField = src != null && src.settings != null
+                               && src.settings.version >= CONFIG_VERSION;
+            FieldStageSettings keepStage = null;
+            Dictionary<string, FieldRegion> keepRegions = null;
+            if (!srcHasField && config != null && config.settings != null)
+            {
+                keepStage = config.settings.field;
+                keepRegions = new Dictionary<string, FieldRegion>();
+                if (config.meshes != null)
+                    for (int m = 0; m < config.meshes.Count; m++)
+                    {
+                        SquishMesh sm = config.meshes[m];
+                        if (sm == null || sm.regions == null) continue;
+                        for (int r = 0; r < sm.regions.Count; r++)
+                        {
+                            SuiteRegion reg = sm.regions[r];
+                            if (reg == null || reg.field == null) continue;
+                            keepRegions[sm.mesh + "/" + reg.name] = reg.field;
+                        }
+                    }
+            }
+
             config = PresetStore.Clone(src);
+
+            // BEFORE Sync(): a kept FieldRegion still points at the OLD region's paint
+            // arrays, and Sync is what re-wires every stage block to the region it now
+            // hangs off. Restoring after it would leave the field solving last avatar's
+            // vertices.
+            if (keepStage != null && config.settings != null)
+            {
+                config.settings.field = keepStage;
+                config.settings.version = CONFIG_VERSION;
+                int restored = 0;
+                if (config.meshes != null)
+                    for (int m = 0; m < config.meshes.Count; m++)
+                    {
+                        SquishMesh sm = config.meshes[m];
+                        if (sm == null || sm.regions == null) continue;
+                        for (int r = 0; r < sm.regions.Count; r++)
+                        {
+                            SuiteRegion reg = sm.regions[r];
+                            if (reg == null) continue;
+                            FieldRegion had;
+                            if (keepRegions.TryGetValue(sm.mesh + "/" + reg.name, out had) && had != null)
+                            { reg.field = had; restored++; }
+                        }
+                    }
+                Debug.Log("[SfxField] preset '" + label + "' predates the field stage - kept the"
+                          + " current settings (stage + " + restored.ToString() + " region block(s))"
+                          + " instead of resetting them.");
+            }
+
+            // Clone round-trips through JSON, so every [JsonIgnore] paint pointer on every
+            // stage block — FieldRegion included — comes back null. Rebind runs before
+            // SaveConfig's own Sync(), so it has to happen here or the stages attach to a
+            // region with no paint, no colliders and no refBone, silently.
+            config.Sync();
             Rebind();
             RefreshMeshList();
             PushRegionToUI();
@@ -467,26 +653,156 @@ namespace SoftBodySuite
         }
 
 
+        // ---- PERF PROBE: where the frame actually goes, every 4 s ----
+        readonly System.Diagnostics.Stopwatch perfSw = new System.Diagnostics.Stopwatch();
+        float perfJel, perfFld, perfClo, perfT; int perfFrames;
+        // wobble, squish and the whole plugin were not in the probe at all, so the
+        // biggest unknowns were the ones nobody could see. "slow" counts frames that
+        // missed a 60 fps cap (over 17.5 ms), "worst" is the longest frame in the window.
+        readonly System.Diagnostics.Stopwatch perfAllSw = new System.Diagnostics.Stopwatch();
+        float perfWob, perfSq, perfAll, perfWorst; int perfSlow, perfGc0 = -1;
+        double perfDispatchUs = -1;
+        float pkAll, pkWob, pkJel, pkFld, pkClo; int perfSlowOurs;
+        float fWob, fJel, fFld, fClo;   // this frame's stage times
+        // ---- LOOK PROBE: how much the body really moves, so a cheaper setting can be
+        // held against the old one by numbers instead of by eye. Every 37th vert only
+        // (about 1000 on a 38k body), so it costs microseconds. Offset = wobble + jell-o.
+        const int LOOK_STRIDE = 37;
+        Vector3[] lookPrev; bool lookPrevValid;
+        double lookSum, lookSpeed2; float lookMax, lookWobMax; int lookN, lookNv;
+        void LookSample(Vector3[] a, Vector3[] b, float dt)
+        {
+            int n = a != null ? a.Length : (b != null ? b.Length : 0);
+            if (n == 0 || dt <= 0f) { lookPrevValid = false; return; }
+            int ns = (n + LOOK_STRIDE - 1) / LOOK_STRIDE;
+            if (lookPrev == null || lookPrev.Length != ns) { lookPrev = new Vector3[ns]; lookPrevValid = false; }
+            float inv2 = 1f / (dt * dt);
+            for (int i = 0, k = 0; i < n; i += LOOK_STRIDE, k++)
+            {
+                Vector3 o = Vector3.zero;
+                if (a != null && i < a.Length)
+                {
+                    o += a[i];
+                    float wm = a[i].sqrMagnitude;
+                    if (wm > lookWobMax) lookWobMax = wm;   // wobble's own share, squared
+                }
+                if (b != null && i < b.Length) o += b[i];
+                float m = o.magnitude;
+                if (m > 0.00005f) { lookSum += m; lookN++; if (m > lookMax) lookMax = m; }
+                if (lookPrevValid)
+                {
+                    float v = (o - lookPrev[k]).sqrMagnitude;
+                    if (v > 1e-14f) { lookSpeed2 += v * inv2; lookNv++; }
+                }
+                lookPrev[k] = o;
+            }
+            lookPrevValid = true;
+        }
+
+        float perfFileT = -10f; bool perfFileOn;
+        bool PerfFileOn()
+        {
+            if (Time.realtimeSinceStartup - perfFileT < 10f) return perfFileOn;
+            perfFileT = Time.realtimeSinceStartup;
+            try { perfFileOn = File.Exists(Path.Combine(Application.persistentDataPath, "softfleshfield.perf.on")); }
+            catch (System.Exception) { perfFileOn = false; }
+            return perfFileOn;
+        }
+
+        void PerfTick()
+        {
+            perfFrames++;
+            float dt = Time.unscaledDeltaTime;
+            perfT += dt;
+            if (dt > perfWorst) perfWorst = dt;
+            if (dt > 0.0175f) perfSlow++;
+            if (perfT < 4f) return;
+            float f = Mathf.Max(1, perfFrames);
+            int gc = System.GC.CollectionCount(0);
+            // Quiet in normal use: the perf line (and the pass timers behind it) only run when
+            // the softfleshfield.perf.on flag file exists or the collider view is up.
+            SoftBodySuite.Field.FieldDiag.verbose = PerfFileOn() || SoftBodySuite.Squish.MeshProxy.debugDraw;
+            if (SoftBodySuite.Field.FieldDiag.verbose)
+            Debug.Log("[Perf] fps=" + (perfFrames / perfT).ToString("0.0")
+                + "  per frame: wobble=" + (perfWob / f).ToString("0.00") + "ms"
+                + " jello-stage=" + (perfJel / f).ToString("0.00") + "ms"
+                + " squish=" + (perfSq / f).ToString("0.00") + "ms"
+                + " field-stage=" + (perfFld / f).ToString("0.00") + "ms"
+                + " clothes=" + (perfClo / f).ToString("0.00") + "ms"
+                + " plugin-total=" + (perfAll / f).ToString("0.00") + "ms"
+                + " slow=" + perfSlow + "/" + perfFrames
+                + " worst=" + (perfWorst * 1000f).ToString("0.0") + "ms"
+                + " gc=" + (perfGc0 < 0 ? 0 : gc - perfGc0)
+                + " peak[all=" + pkAll.ToString("0.0") + " wob=" + pkWob.ToString("0.0") + " jel=" + pkJel.ToString("0.0")
+                + " fld=" + pkFld.ToString("0.0") + " clo=" + pkClo.ToString("0.0") + "] slowOurs=" + perfSlowOurs
+                + " bindMax=" + SoftBodySuite.Jello.MeshProxy.bindMaxMs.ToString("0.0") + "ms"
+                + " pool=" + (SoftBodySuite.Field.ParallelLoop.PoolCalls / f).ToString("0.0")
+                + " par=" + (SoftBodySuite.Field.ParallelLoop.ParCalls / f).ToString("0.0")
+                + "/" + (SoftBodySuite.Field.ParallelLoop.SerialCalls / f).ToString("0.0")
+                + (perfDispatchUs >= 0 ? " dispatch=" + perfDispatchUs.ToString("0.0") + "us" : "")
+                + "\n[Look] moving=" + (lookN / f).ToString("0.0")
+                + " mean=" + (lookN > 0 ? lookSum / lookN * 1000.0 : 0.0).ToString("0.000") + "mm"
+                + " max=" + (lookMax * 1000f).ToString("0.00") + "mm"
+                + " speed=" + (lookNv > 0 ? System.Math.Sqrt(lookSpeed2 / lookNv) * 1000.0 : 0.0).ToString("0.0") + "mm/s"
+                + " wobbleMax=" + (Mathf.Sqrt(lookWobMax) * 1000f).ToString("0.000") + "mm"
+                + "\n" + SoftBodySuite.Field.FieldDiag.Report());
+            lookSum = lookSpeed2 = 0.0; lookMax = lookWobMax = 0f; lookN = lookNv = 0;
+            perfGc0 = gc;
+            // measured once, a minute in (pool warm, avatar loaded): the floor every
+            // parallel loop pays before doing any work
+            if (perfDispatchUs < 0 && Time.realtimeSinceStartup > 60f && SoftBodySuite.Field.FieldDiag.verbose)
+                perfDispatchUs = SoftBodySuite.Field.ParallelLoop.MeasureDispatchUs(200);
+            System.Threading.Interlocked.Exchange(ref SoftBodySuite.Field.ParallelLoop.ParCalls, 0);
+            System.Threading.Interlocked.Exchange(ref SoftBodySuite.Field.ParallelLoop.SerialCalls, 0);
+            System.Threading.Interlocked.Exchange(ref SoftBodySuite.Field.ParallelLoop.PoolCalls, 0);
+            SoftBodySuite.Jello.MeshProxy.bindMaxMs = 0f;
+            pkAll = pkWob = pkJel = pkFld = pkClo = 0f; perfSlowOurs = 0;
+            perfJel = perfFld = perfClo = perfT = perfWob = perfSq = perfAll = perfWorst = 0f;
+            perfFrames = 0; perfSlow = 0;
+        }
+
         void DetachAll()
         {
             for (int i = 0; i < wobProxies.Count; i++) wobProxies[i].Detach();
             for (int i = 0; i < jelProxies.Count; i++) jelProxies[i].Detach();
             for (int i = 0; i < proxies.Count; i++) proxies[i].Detach();
+            for (int i = 0; i < fldProxies.Count; i++) fldProxies[i].Detach();
             wobProxies.Clear();
             jelProxies.Clear();
             proxies.Clear();
+            fldProxies.Clear();
             selProxy = null;
         }
 
         void Rebind()
         {
+            // WHICH STAGES ARE ACTUALLY LIVE, printed every time the binding changes.
+            //
+            // The config file is NOT the answer to this question. A preset auto-load runs
+            // after the file is read and restores the PRESET's stage toggles, so a file that
+            // says "all four off" can be a session with all four on - which is exactly how a
+            // measurement of "the field stage alone" was taken with Wobble, Jell-o, Squish
+            // and Clothes all running underneath it. Read this line, not the JSON.
+            if (config != null && config.settings != null)
+            {
+                SuiteSettings ss = config.settings;
+                Debug.Log("[SfxField] STAGES LIVE: wobble=" + ss.wobble.enabled
+                    + " jello=" + ss.jello.enabled + " squish=" + ss.squish.enabled
+                    + " field=" + ss.field.enabled + " cloth=" + ss.cloth.enabled
+                    + "  (master=" + ss.enabled + ")");
+            }
             DetachAll();
+            lookPrevValid = false;   // a new binding is not a continuation of the old motion
             JelloProxy.directChain = true;
             MeshProxy.directChain = true;
             MeshProxy.settingsRef = config.settings;
             MeshProxy.configRef = config;
             JelloProxy.settingsRef = config.settings;
             JelloProxy.configRef = config;
+            FieldProxy.settingsRef = config.settings;
+            FieldProxy.configRef = config;
+            SoftBodySuite.Field.FieldDiag.identityWatch =
+                config.settings != null && config.settings.field.diagIdentityWatch;
             if (boundAvatar == null || config.meshes == null) return;
             SkinnedMeshRenderer[] rends = boundAvatar.GetComponentsInChildren<SkinnedMeshRenderer>(true);
             for (int m = 0; m < config.meshes.Count; m++)
@@ -509,11 +825,36 @@ namespace SoftBodySuite
                 MeshProxy p = new MeshProxy();
                 p.Attach(target, sm, boundAvatar, boundAnimator);
                 proxies.Add(p);
+                // Constructed either way so fldProxies stays index-aligned with proxies,
+                // but only ATTACHED when the stage is on: Attach kicks off a cage remesh
+                // per mesh, and an off stage must cost nothing. Toggling the stage flips a
+                // bit in `flags` above, which forces a Rebind, so this is never stale.
+                FieldProxy fp = new FieldProxy();
+                if (config.settings != null && config.settings.field.enabled)
+                    fp.Attach(target, sm, boundAvatar, boundAnimator);
+                fldProxies.Add(fp);
                 // Clothes follow the FINISHED body — but only ask the squish stage for it
                 // while that stage is actually running. Switched off, its verts are last
                 // frame's leftovers, and the clothes were being dragged onto them.
-                jp.finalBodySource = () => (config.settings != null && config.settings.squish.enabled)
-                                           ? p.OutVerts : null;
+                // The garments are fitted to the FINISHED body, so this has to name the LAST
+                // enabled deformer - field if it is on, else squish, else nothing. Point it at
+                // the squish stage while the field runs and the clothes lag one whole stage
+                // behind, which reads as a cloth bug rather than a wiring one.
+                jp.finalBodySource = delegate ()
+                {
+                    SuiteSettings fs = config.settings;
+                    if (fs == null) return null;
+                    if (fs.field.enabled) return fp.OutVerts;
+                    if (fs.squish.enabled) return p.OutVerts;
+                    return null;
+                };
+                // Field on, squish off: the field's input IS jell-o's output, so a
+                // pass-through frame means the clothes see exactly jell-o's verts.
+                jp.finalIsOwnOutput = delegate ()
+                {
+                    SuiteSettings fs = config.settings;
+                    return fs != null && fs.field.enabled && !fs.squish.enabled && fp.passThrough;
+                };
                 // NOTE: do NOT feed wobble's displacement in here. The cage re-samples the
                 // body every frame, so wobble is already in the surface the clothes wrap
                 // to; adding it again drove them twice as far and smeared them.
@@ -530,9 +871,35 @@ namespace SoftBodySuite
             ApplyNativeOverride();
         }
 
+        static bool FollowDiagFileOn()
+        {
+            try { return File.Exists(Path.Combine(Application.persistentDataPath, "softfleshfield.followdiag.on")); }
+            catch (Exception) { return false; }
+        }
+
         void OnDestroy() { RestoreNative(); DetachAll(); }
 
+        // The probe wraps the whole pass, so it also ticks with the master off: that
+        // run is the budget everything else gets measured against.
         void LateUpdate()
+        {
+            perfAllSw.Reset(); perfAllSw.Start();
+            fWob = fJel = fFld = fClo = 0f;
+            LateUpdateBody();
+            float all = (float)perfAllSw.Elapsed.TotalMilliseconds;
+            perfAll += all;
+            if (all > pkAll) pkAll = all;
+            if (fWob > pkWob) pkWob = fWob;
+            if (fJel > pkJel) pkJel = fJel;
+            if (fFld > pkFld) pkFld = fFld;
+            if (fClo > pkClo) pkClo = fClo;
+            if (Time.unscaledDeltaTime > 0.0175f && lastAll > 8f) perfSlowOurs++;
+            lastAll = all;
+            PerfTick();
+        }
+        float lastAll;   // the plugin's time LAST frame (a long frame shows up as the next dt)
+
+        void LateUpdateBody()
         {
             EnsureAvatar();
             if (boundAvatar == null) return;
@@ -543,16 +910,19 @@ namespace SoftBodySuite
             }
 
             SuiteSettings st = config.settings;
+            JiggleGlobal.strength = Mathf.Clamp(st.jiggleStrength, 0f, 1f);
+            JiggleGlobal.decayMul = 1f / Mathf.Clamp(st.jiggleSettle, 0.1f, 1f);
 
             // Turning a stage off leaves its arrays and bindings where they were; turning it
             // back on has to start clean, or it carries on from a stale frame. This is what
             // the master switch was doing by hand.
             int flags = (st.wobble.enabled ? 1 : 0) | (st.jello.enabled ? 2 : 0)
                       | (st.squish.enabled ? 4 : 0) | (st.cloth.enabled ? 8 : 0)
-                      | (st.cloth.follow.enabled ? 16 : 0) | (st.cloth.guard.enabled ? 32 : 0);
+                      | (st.cloth.follow.enabled ? 16 : 0) | (st.cloth.guard.enabled ? 32 : 0)
+                      | (st.field.enabled ? 64 : 0);
             if (flags != lastStageFlags) { lastStageFlags = flags; Rebind(); return; }
 
-            if (!st.wobble.enabled && !st.jello.enabled && !st.squish.enabled)
+            if (!st.wobble.enabled && !st.jello.enabled && !st.squish.enabled && !st.field.enabled)
             {
                 if (proxies.Count > 0) DetachAll();   // nothing left to draw — give the body back
                 return;
@@ -568,11 +938,17 @@ namespace SoftBodySuite
             MeshProxy.halfRate = st.squish.halfRate;
             MeshProxy.halfRateLerp = st.squish.halfRateLerp;
             MeshProxy.asyncSim = st.squish.asyncSim;
+            FieldProxy.halfRate = st.field.halfRate;
+            FieldProxy.halfRateLerp = st.field.halfRateLerp;
+            // FieldProxy forces this false internally until the capture/solve split is
+            // measured; assign it anyway so turning it on later is one line, not a hunt.
+            FieldProxy.asyncSim = st.field.asyncSim;
 
             float dtW = Mathf.Min(Time.deltaTime, st.wobble.maxDeltaTime);
             float dtJ = Mathf.Min(Time.deltaTime, st.jello.maxDeltaTime);
             float dtS = Mathf.Min(Time.deltaTime, st.squish.maxDeltaTime);
-            if (dtW <= 0f || dtJ <= 0f || dtS <= 0f) return;
+            float dtF = Mathf.Min(Time.deltaTime, st.field.maxDeltaTime);
+            if (dtW <= 0f || dtJ <= 0f || dtS <= 0f || dtF <= 0f) return;
 
             bool anyDead = false;
             for (int i = 0; i < proxies.Count; i++)
@@ -580,13 +956,17 @@ namespace SoftBodySuite
                 WobbleProxy wp = wobProxies[i];
                 JelloProxy jp = jelProxies[i];
                 MeshProxy sp = proxies[i];
+                FieldProxy fp = fldProxies[i];
 
                 // Each stage hands its verts to the next one that is switched on; the last
                 // one running is the only one on screen.
                 Vector3[] v = null, nrm = null;
                 if (st.wobble.enabled)
                 {
+                    perfSw.Reset(); perfSw.Start();
                     wp.Frame(dtW, Mathf.Clamp(st.wobble.substeps, 1, 8), Vector3.down, true);
+                    fWob += (float)perfSw.Elapsed.TotalMilliseconds;
+                    perfWob += (float)perfSw.Elapsed.TotalMilliseconds;
                     v = wp.OutVerts; nrm = wp.OutNormals;
                 }
                 // The jell-o stage ALWAYS runs, even switched off — with its sim disabled it
@@ -594,33 +974,120 @@ namespace SoftBodySuite
                 // from here, and they need a body that is up to date this frame.
                 jp.upVerts = v; jp.upNormals = nrm;
                 jp.upDisp = st.wobble.enabled ? wp.Disp : null;   // lets it attach clothes un-wobbled
+                perfSw.Reset(); perfSw.Start();
                 jp.Frame(dtJ, Mathf.Clamp(st.jello.substeps, 1, 8), Vector3.down, st.jello.enabled);
+                fJel += (float)perfSw.Elapsed.TotalMilliseconds;
+                perfJel += (float)perfSw.Elapsed.TotalMilliseconds;
                 v = jp.OutVerts; nrm = jp.OutNormals;
                 if (st.squish.enabled)
                 {
                     sp.upVerts = v; sp.upNormals = nrm;
+                    perfSw.Reset(); perfSw.Start();
                     sp.Frame(dtS, Mathf.Clamp(st.squish.substeps, 1, 8), Vector3.down, true);
+                    perfSq += (float)perfSw.Elapsed.TotalMilliseconds;
+                    v = sp.OutVerts; nrm = sp.OutNormals;
+                }
+                // stage 4 runs AFTER squish and BEFORE the cloth passes
+                if (st.field.enabled)
+                {
+                    fp.upVerts = v; fp.upNormals = nrm;
+                    perfSw.Reset(); perfSw.Start();
+                    fp.Frame(dtF, Vector3.down, true);
+                    fFld += (float)perfSw.Elapsed.TotalMilliseconds;
+                    perfFld += (float)perfSw.Elapsed.TotalMilliseconds;
                 }
 
+                // Exactly ONE of these is on screen. Get it wrong and you get two
+                // overlapping copies of the body, which is how this class of bug always
+                // shows up first.
                 wp.SetVisible(false);              // jell-o always runs downstream of it
-                jp.SetVisible(!st.squish.enabled);
-                sp.SetVisible(st.squish.enabled);
+                jp.SetVisible(!st.squish.enabled && !st.field.enabled);
+                sp.SetVisible(st.squish.enabled && !st.field.enabled);
+                fp.SetVisible(st.field.enabled);
 
                 // ----- clothes, once, at the very end -----
                 // The garments are fitted to the finished body first; only then does the
                 // guard tuck any remaining poke-through back inside them.
                 // when the pass cannot run the garments must be handed back, or they
                 // freeze at whatever shape we last drove them to
+                perfSw.Reset(); perfSw.Start();
                 if (st.cloth.enabled && st.cloth.follow.enabled) jp.LateFollowUpdate();
                 else jp.ReleaseFollowers();
-                if (st.cloth.enabled && st.cloth.guard.enabled && st.squish.enabled)
+                fClo += (float)perfSw.Elapsed.TotalMilliseconds;
+                perfClo += (float)perfSw.Elapsed.TotalMilliseconds;
+                // The guard moves the BODY back inside the clothes, and it only knows how
+                // to move the squish stage's copy. With the field on, that copy is hidden
+                // and one stage out of date, so running it would poke a mesh nobody can
+                // see. It is switched off instead of quietly doing the wrong thing — the
+                // field stage has no guard of its own yet.
+                if (st.cloth.enabled && st.cloth.guard.enabled && st.squish.enabled && !st.field.enabled)
                     sp.RunClipGuard();
+                else if (st.cloth.enabled && st.cloth.guard.enabled && st.field.enabled && !guardWarned)
+                {
+                    guardWarned = true;
+                    Debug.LogWarning("[SfxField] the clip guard is off while the field stage is the "
+                        + "final deformer: it can only correct the squish stage's copy of the body, "
+                        + "which the field then replaces. Turn the field stage off to use it.");
+                }
 
+                // fp is deliberately unattached while the stage is off; only a field
+                // proxy that was SUPPOSED to be alive counts as a dead one.
+                if (i == 0) LookSample(st.wobble.enabled ? wp.Disp : null, st.jello.enabled ? jp.Disp : null, Time.deltaTime);
                 if (!sp.Alive || !jp.Alive || !wp.Alive) anyDead = true;
+                if (st.field.enabled && !fp.Alive) anyDead = true;
             }
             if (anyDead) { Rebind(); return; }   // a stage self-detached (mesh swap) — reattach cleanly
 
             HandlePainting();
+            HandleRipplePick();
+            RunQueuedStageRebuild();
+        }
+
+        // ==================== ripple start points ====================
+        bool ripplePick;
+
+        void HookRipplePickButtons()
+        {
+            Button pick = FindControl<Button>("Button_fx_ripplepick");
+            if (pick != null) pick.onClick.AddListener(delegate ()
+            {
+                ripplePick = !ripplePick;
+                if (ripplePick && paintToggle != null && paintToggle.isOn) paintToggle.isOn = false;   // one click mode at a time
+                FieldProxy.showOrigins = ripplePick;
+                SetStatus(ripplePick
+                    ? "ripple points: click the body to add one, click a dot to remove it, press Pick again when done"
+                    : "ripple point picking off");
+            });
+            Button clr = FindControl<Button>("Button_fx_rippleclear");
+            if (clr != null) clr.onClick.AddListener(delegate ()
+            {
+                if (selRegion == null) { SetStatus("select a region first"); return; }
+                selRegion.field.ripplePoints.Clear();
+                SetStatus("ripple points cleared on '" + selRegion.name + "'");
+            });
+        }
+
+        void HandleRipplePick()
+        {
+            if (!ripplePick || selRegion == null || !Input.GetMouseButtonDown(0)) return;
+            if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject()) return;
+            Camera cam = Camera.main;
+            if (cam == null && Camera.allCamerasCount > 0) cam = Camera.allCameras[0];
+            if (cam == null) return;
+            int pi = proxies.IndexOf(selProxy);
+            FieldProxy fp = (pi >= 0 && pi < fldProxies.Count) ? fldProxies[pi] : null;
+            if (fp == null || !fp.Alive) { SetStatus("switch the Field stage on for this mesh first"); return; }
+            int v;
+            if (!fp.PickVertex(cam.ScreenPointToRay(Input.mousePosition), out v))
+            { SetStatus("missed the body: click right on the skin"); return; }
+            if (selRegion.field.ripplePoints == null) selRegion.field.ripplePoints = new List<int>();
+            List<int> pts = selRegion.field.ripplePoints;
+            int near = fp.NearestPicked(pts, v, 0.02f);
+            if (near >= 0) { pts.RemoveAt(near); SetStatus("ripple point removed (" + pts.Count + " left)"); return; }
+            if (pts.Count >= 6) { SetStatus("6 points max per region: click a dot to remove one"); return; }
+            pts.Add(v);
+            SetStatus("ripple point added (" + pts.Count + ")"
+                + (selRegion.field.rippleFromPicked < 0.5f ? ": switch on 'Start: my picked points' to use them" : ""));
         }
 
         // ==================== painting ====================
@@ -644,6 +1111,36 @@ namespace SoftBodySuite
             stroking = false;
             // stroke finished — apply the new weights to the live sim
             if (selProxy != null) selProxy.RebuildSims(boundAvatar, boundAnimator);
+            QueueStageRebuild(selProxy);
+        }
+
+        // Paint edits used to rebuild ONLY the Squish stage. The field's per-region cages, the
+        // jell-o cage the clothes ride and the wobble sims kept the OLD paint until a restart,
+        // so a freshly painted region simply did nothing. Debounced: a cage build takes
+        // seconds, so it waits until the strokes stop.
+        MeshProxy stageRebuildFor;
+        float stageRebuildAt = -1f;
+
+        void QueueStageRebuild(MeshProxy sp)
+        {
+            if (sp == null) return;
+            stageRebuildFor = sp;
+            stageRebuildAt = Time.realtimeSinceStartup + 0.8f;
+        }
+
+        void RunQueuedStageRebuild()
+        {
+            if (stageRebuildAt < 0f || Time.realtimeSinceStartup < stageRebuildAt) return;
+            if (stroking) { stageRebuildAt = Time.realtimeSinceStartup + 0.4f; return; }
+            stageRebuildAt = -1f;
+            int i = proxies.IndexOf(stageRebuildFor);
+            stageRebuildFor = null;
+            if (i < 0) return;
+            if (i < wobProxies.Count && wobProxies[i] != null && wobProxies[i].Alive) wobProxies[i].RebuildSims(boundAvatar, boundAnimator);
+            if (i < jelProxies.Count && jelProxies[i] != null && jelProxies[i].Alive) jelProxies[i].RebuildSims(boundAvatar, boundAnimator);
+            if (i < fldProxies.Count && fldProxies[i] != null && fldProxies[i].Alive) fldProxies[i].RebuildSims(boundAvatar, boundAnimator);
+            Debug.Log("[SfxField] paint changed: rebuilt the wobble, jell-o and field stages for '"
+                + (i < proxies.Count && proxies[i] != null && proxies[i].cfg != null ? proxies[i].cfg.mesh : "?") + "'");
         }
 
         // ==================== window ====================
@@ -735,6 +1232,14 @@ namespace SoftBodySuite
                 { "Dropdown_ColBonePick", "Pick a bone from the avatar for a manual sphere collider (no typing needed)." },
                 { "Button_ShowCol", "Toggle translucent capsules showing every ACTIVE collider (same as F10). The colliders made here are used by all three stages." },
                 { "Toggle_clipguard", "OPTIONAL, and it reshapes the BODY: flesh is tucked inside the clothes covering it. Prefer 'Keep clothes off the skin' above, which fixes clipping by moving the CLOTHES instead and leaves your body silhouette untouched. Only use this for garments that aren't moved onto the body.\n\nOriginal note: anti-clip guarantee. Runs at the very end of the pipeline, on the body that actually renders: every painted vertex is bound to the clothes covering it and is held INSIDE that cloth. Works no matter how well the clothes track the body — nothing can poke through. Prefers a garment's deformed (soft-body driven) shape when one exists." },
+                { "Toggle_skinguard", "The last clothes pass. Any part of a garment near the skin, followed or not, is pushed back OUT of the body you actually see this frame, with a soft bulge around each push. Only where the body was moved by the jiggle; everywhere else the clothes are left exactly as they were. Rigid floating parts (bows) are skipped." },
+                { "Slider_sggap", "How close the cloth may come to the skin, in metres. Cloth that sat closer than this when it was fitted keeps its own smaller gap, so a tight top is never puffed up. Raise a little if you still see skin graze through." },
+                { "Slider_sgreach", "Only cloth within this distance of the skin is watched, in metres. Raise it for loose garments; lower it if parts far from the body get nudged. Changing it refits the clothes." },
+                { "Slider_sgsoft", "How far each push spreads. 1 = a 30 mm push fades out over 30 mm of cloth around it. Higher = a broader, softer bulge; lower = only the cloth right over the flesh moves." },
+                { "Slider_sgstr", "How much of the push is applied. 1 = skin never shows through; lower lets some through, if the full push looks too stiff." },
+                { "Slider_jigstrength", "How BIG all the soft-body jiggle is, every stage at once (wobble, jell-o, squish, field) and the clothes riding it. 1 = your tuned look; 0.5 = the same motion at half the size. It only scales the result, so the timing and the shape of the movement stay exactly the same." },
+                { "Slider_jigsettle", "How LONG all the soft-body jiggle keeps going after a movement, every stage at once. 1 = your tuned look; 0.5 = every bounce, wobble, sway and ripple dies down in about half the time. The speed of each wobble stays the same; only how quickly it fades changes." },
+                { "Slider_sgsunk", "For models whose clothes already dip INTO the skin in places (often under and between the breasts). Cloth sunk in by up to this much, in metres, is watched too and lifted to just above the skin, even while nothing moves. 0 = leave the model's own clipping alone. Raise slowly: too high can catch a sleeve or strap that genuinely sits behind the body. Changing it refits the clothes." },
                 { "Slider_clipclear", "EXTRA margin (m) beyond the fit measured when the guard bound. 0 preserves the exact rest relationship (nothing moves while idle) and only holds the flesh back when a sim pushes it toward the cloth. Raise a millimetre or two if you still see the surface graze through." },
                 { "Slider_cliprange", "Bind range: painted body verts within this distance of a garment are guarded by it. Raise it if deep flesh still escapes, lower it to limit the guard to skin-tight areas." },
                 { "Slider_clipstr", "Blend of the correction (1 = never allowed through, lower = soft/partial). Use below 1 only if the flattening reads too hard." },
@@ -744,7 +1249,7 @@ namespace SoftBodySuite
                 { "Toggle_AsyncSim", "ASYNC physics: run the whole simulation on a background worker thread — the main thread only captures inputs and applies last frame's result, so almost the entire physics cost disappears from the frame. Costs 1 frame of physics latency. Mutually exclusive with the half-rate options; disabled while F10 debug is on." },
                 { "Toggle_NativeScoped", "Only disable native physics on bones that drive painted regions (instead of everywhere)." },
                 { "Button_Reload", "Re-read the saved config from disk and re-bind." },
-                { "Button_Save", "Write everything to softbodysuite.json." },
+                { "Button_Save", "Write everything to " + CONFIG_FILE + "." },
                 { "Button_Close", "Hide this window (plugin keeps running)." },
             });
             HookToggle(regionEnabledToggle, v => { if (selRegion != null) selRegion.enabled = v; });
@@ -773,8 +1278,17 @@ namespace SoftBodySuite
                 if (MeshProxy.debugDraw)
                     for (int i = 0; i < proxies.Count; i++)
                         if (proxies[i] != null && proxies[i].Alive) proxies[i].LogColliderInfo();
+                // the field stage draws its own (orange) capsules; this button used to
+                // leave it off, so with Field running alone nothing ever appeared
+                FieldProxy.debugDraw = MeshProxy.debugDraw;
+                SoftBodySuite.Jello.MeshProxy.followDiag = MeshProxy.debugDraw || FollowDiagFileOn();   // the follow logger rides the collider view
+                int fc = 0;
+                for (int i = 0; i < fldProxies.Count; i++)
+                    if (fldProxies[i] != null && fldProxies[i].Alive) fc += fldProxies[i].CapsuleCount;
+                if (MeshProxy.debugDraw) SetStatus("collider visualisation ON - field capsules: " + fc);
             });
             WireButton("Button_BlurWeights", OnBlurWeights);
+            SetupRegionPresetUi();
             WireButton("Button_ApplyMulti", OpenApplyPanel);
             // Each stage has its own frame-rate cheats now, so each gets its own row.
             // Half-rate and half-rate-lerp are two ways of doing the same thing, so
@@ -839,7 +1353,12 @@ namespace SoftBodySuite
             HookSlider("boostmax", 0.001f, 0.05f, v => { if (config.settings != null) config.settings.jello.boostMax = v; });
             HookSlider("slapsens", 0f, 2f, v => { if (config.settings != null) config.settings.jello.slapSens = v; });
             HookSlider("slappower", 0f, 2f, v => { if (config.settings != null) config.settings.jello.slapPower = v; });
-            HookSlider("cagefollow", 0.005f, 0.5f, v => { if (config.settings != null) config.settings.cloth.follow.range = v; });
+            HookSlider("cagefollow", 0.005f, JelloProxy.FOLLOW_RANGE_MAX, v => { if (config.settings != null) config.settings.cloth.follow.range = v; });
+            HookSlider("cagefolx", -0.5f, 0.5f, v => { if (config.settings != null) config.settings.cloth.follow.offsetX = v; });
+            HookSlider("cagefoly", -0.5f, 0.5f, v => { if (config.settings != null) config.settings.cloth.follow.offsetY = v; });
+            HookSlider("cagefolz", -0.5f, 0.5f, v => { if (config.settings != null) config.settings.cloth.follow.offsetZ = v; });
+            HookSlider("cagerigid", 0f, 1f, v => { if (config.settings != null) config.settings.cloth.follow.rigidFloat = v; });
+            HookSlider("cagefloat", 0.002f, 0.1f, v => { if (config.settings != null) config.settings.cloth.follow.floatDist = v; });
             HookSlider("cagefit", 0.25f, 1.5f, v => { if (config.settings != null) config.settings.cloth.follow.fitStrength = v; });
             HookSlider("cageinflate", 0f, 0.02f, v => { if (config.settings != null) config.settings.cloth.follow.inflate = v; });
             HookSlider("cageinflatedyn", 0f, 1f, v => { if (config.settings != null) config.settings.cloth.follow.inflateDyn = v; });
@@ -848,6 +1367,14 @@ namespace SoftBodySuite
             HookSlider("cageminclear", 0f, 0.02f, v => { if (config.settings != null) config.settings.cloth.follow.minClear = v; });
             HookSlider("cagefolsharp", 0f, 1f, v => { if (config.settings != null) config.settings.cloth.follow.folSharp = v; });
             HookSlider("cagefolsm", 0f, 40f, v => { if (config.settings != null) config.settings.cloth.follow.folSmooth = v; });
+            HookToggle(FindControl<Toggle>("Toggle_skinguard"), v => { if (config.settings != null) config.settings.cloth.follow.skinGuard = v; });
+            HookSlider("sggap", 0f, 0.03f, v => { if (config.settings != null) config.settings.cloth.follow.guardGap = v; });
+            HookSlider("sgreach", 0.01f, 0.2f, v => { if (config.settings != null) config.settings.cloth.follow.guardReach = v; });
+            HookSlider("sgsoft", 0.1f, 6f, v => { if (config.settings != null) config.settings.cloth.follow.guardSoft = v; });
+            HookSlider("sgstr", 0f, 1f, v => { if (config.settings != null) config.settings.cloth.follow.guardStrength = v; });
+            HookSlider("sgsunk", 0f, 0.05f, v => { if (config.settings != null) config.settings.cloth.follow.guardSunk = v; });
+            HookSlider("jigstrength", 0f, 1f, v => { if (config.settings != null) config.settings.jiggleStrength = v; });
+            HookSlider("jigsettle", 0.1f, 1f, v => { if (config.settings != null) config.settings.jiggleSettle = v; });
             HookSlider("cliprimfade", 0f, 0.1f, v => { if (config.settings != null) config.settings.cloth.guard.rimFade = v; });
             HookSlider("wob_substeps", 1f, 8f, v => { if (config.settings != null) config.settings.wobble.substeps = Mathf.RoundToInt(v); });
             HookSlider("jel_substeps", 1f, 8f, v => { if (config.settings != null) config.settings.jello.substeps = Mathf.RoundToInt(v); });
@@ -998,9 +1525,175 @@ namespace SoftBodySuite
             HookRegionSlider("sq_evacall", 0f, 2f, (r, v) => r.squish.evacAllBones = v, r => r.squish.evacAllBones);
             HookRegionSlider("sq_evacblob", 0f, 2f, (r, v) => r.squish.evacBlob = v, r => r.squish.evacBlob);
 
+            // Belt as well as braces: the Field UI is one section of this window, and a
+            // throw inside it used to take SetupWindow - and therefore every OTHER control
+            // in the plugin - down with it, from Awake, before anything was wired.
+            try { BuildFieldUi(); }
+            catch (Exception e)
+            {
+                Debug.LogWarning("[SfxField] the field UI failed to build: " + e.Message
+                    + " - the rest of the window is still being set up.");
+            }
+
             PushSettingsToUI();
             BuildSections();
             window.SetActive(false);
+        }
+
+        // ==================== stage 4: the field UI ====================
+        // Every field control is DECLARED by the source that owns it and CLONED from a
+        // template row at runtime, so there is no prefab to keep in step. SelfCheck is the
+        // whole point: the shipped build hooks 142 slider keys against 78 prefab rows and
+        // says nothing about the 64 that are invisible. If `missing` is ever non-zero that
+        // is a bug to fix, not a line to filter.
+        SoftBodySuite.Field.UiSchema fieldSchema;
+        readonly Dictionary<string, SoftBodySuite.Field.UiRow> fieldToggles =
+            new Dictionary<string, SoftBodySuite.Field.UiRow>();
+
+        void BuildFieldUi()
+        {
+            if (window == null) return;
+            fieldSchema = new SoftBodySuite.Field.UiSchema();
+            SoftBodySuite.Field.FieldPresets.DescribeAll(fieldSchema);
+            DescribeFieldStageRows(fieldSchema);
+            DescribeFieldPresetButtons(fieldSchema);
+
+            // sectionContent is normally assigned inside BuildSections, which has not run
+            // yet — Materialise has to go first so BuildSections picks the clones up when
+            // it rescans child names. So find the scroll content once, here.
+            Transform content = FindDeep(window.transform, "Content");
+            sectionContent = content as RectTransform;
+            if (sectionContent == null)
+            {
+                Debug.LogWarning("[SfxField] no 'Content' transform in the window — no field rows built");
+                return;
+            }
+
+            int made = fieldSchema.Materialise(window.transform, sectionContent);
+            AddTooltips(fieldSchema.Tooltips());
+            int missing, orphaned;
+            fieldSchema.SelfCheck(window.transform, out missing, out orphaned);
+            Debug.Log("[SfxField] UI schema: " + fieldSchema.Count + " rows, " + made
+                      + " materialised, " + missing + " missing, " + orphaned + " orphaned");
+
+            for (int i = 0; i < fieldSchema.Count; i++)
+            {
+                SoftBodySuite.Field.UiRow captured = fieldSchema.Get(i);
+                if (captured == null || captured.get == null || captured.set == null) continue;
+
+                if (captured.kind == SoftBodySuite.Field.UiKind.Slider)
+                {
+                    HookRegionSlider(captured.key, captured.min, captured.max,
+                        delegate (SuiteRegion r, float vv) { captured.set(r.field, vv); },
+                        delegate (SuiteRegion r) { return captured.get(r.field); });
+                }
+                else if (captured.kind == SoftBodySuite.Field.UiKind.Toggle)
+                {
+                    // Toggles ride the same float field, so undo, presets and the region
+                    // copy all keep working without a second path.
+                    Toggle t = FindControl<Toggle>("Toggle_" + captured.key);
+                    if (t == null) continue;
+                    fieldToggles[captured.key] = captured;
+                    t.onValueChanged.AddListener(delegate (bool vv)
+                    {
+                        if (suppress || selRegion == null) return;
+                        captured.set(selRegion.field, vv ? 1f : 0f);
+                    });
+                }
+            }
+
+            HookFieldPresetButtons();
+            HookFieldStageRows();
+            HookRipplePickButtons();
+        }
+
+        // Per-STAGE rows: they sit on SuiteSettings.field, not on a region, so they carry
+        // no FieldRegion get/set and are hooked by hand below.
+        void DescribeFieldStageRows(SoftBodySuite.Field.UiSchema sch)
+        {
+            string sec = "Field · Cage";
+            sch.AddSection(sec);
+            sch.AddSlider(sec, "fld_remeshsize", "Cage Edge", 0.002f, 0.05f, 0.008f, null, null);
+            sch.AddSlider(sec, "fld_remeshpasses", "Remesh Passes", 0f, 16f, 8f, null, null);
+            sch.AddSlider(sec, "fld_projavg", "Projection Average", 0f, 8f, 0f, null, null);
+            sch.AddSlider(sec, "fld_proxysmooth", "Proxy Smooth", 0f, 8f, 0f, null, null);
+            sch.AddToggle(sec, "fld_HalfRate", "Half Rate", false, null, null);
+            sch.AddToggle(sec, "fld_HalfRateLerp", "Half Rate (blend)", false, null, null);
+            sch.AddToggle(sec, "fld_AsyncSim", "Async Sim", false, null, null);
+            sch.Tooltip("fld_remeshsize", "Target edge length of the field's own cage, in metres. "
+                        + "Smaller is finer and much slower; 0.008 is the size every default was tuned at.");
+            sch.Tooltip("fld_AsyncSim", "Runs the field maths on a background thread while the frame renders. Much higher fps; the effect shows one frame later. Replaces Half Rate while on.");
+        }
+
+        void HookFieldStageRows()
+        {
+            if (config == null || config.settings == null) return;
+            FieldStageSettings fs = config.settings.field;
+            HookSlider("fld_remeshsize", 0.002f, 0.05f, delegate (float v) { fs.remeshSize = v; });
+            HookSlider("fld_remeshpasses", 0f, 16f, delegate (float v) { fs.remeshPasses = v; });
+            HookSlider("fld_projavg", 0f, 8f, delegate (float v) { fs.projAvg = v; });
+            HookSlider("fld_proxysmooth", 0f, 8f, delegate (float v) { fs.proxySmooth = v; });
+            // canAsync false: it greys the toggle out exactly as the jell-o stage does.
+            WirePerf("fld", fs, true);   // the solve is Transform-free; see FieldProxy.SolveStep
+        }
+
+        // Twelve preset buttons, cloned like every other row. With Field Mix on a slider
+        // next to them, comparing two presets on a live avatar is two clicks.
+        void DescribeFieldPresetButtons(SoftBodySuite.Field.UiSchema sch)
+        {
+            string sec = "Field · Presets";
+            sch.AddSection(sec);
+            string[] names = SoftBodySuite.Field.FieldPresets.Names();
+            if (names == null) return;
+            for (int i = 0; i < names.Length; i++)
+            {
+                sch.AddButton(sec, PresetKey(names[i]), names[i]);
+                sch.Tooltip(PresetKey(names[i]), SoftBodySuite.Field.FieldPresets.Description(names[i]));
+            }
+        }
+
+        static string PresetKey(string name)
+        {
+            // a control name has to survive FindDeep's exact-name match, so keep it plain
+            char[] c = name.ToCharArray();
+            for (int i = 0; i < c.Length; i++)
+                if (!char.IsLetterOrDigit(c[i])) c[i] = '_';
+            return "fxp_" + new string(c);
+        }
+
+        void HookFieldPresetButtons()
+        {
+            string[] names = SoftBodySuite.Field.FieldPresets.Names();
+            if (names == null) return;
+            for (int i = 0; i < names.Length; i++)
+            {
+                string captured = names[i];
+                Button b = FindControl<Button>("Button_" + PresetKey(captured));
+                if (b == null) continue;
+                b.onClick.AddListener(delegate ()
+                {
+                    if (selRegion == null) { SetStatus("select a region first"); return; }
+                    PushUndo(selRegion);
+                    if (!SoftBodySuite.Field.FieldPresets.Apply(captured, selRegion.field))
+                    { SetStatus("field preset '" + captured + "' not found"); return; }
+                    PushRegionToUI();
+                    PushSettingsToUI();
+                    SetStatus("field preset '" + captured + "' applied to '" + selRegion.name
+                              + "' (Field Mix untouched)");
+                });
+            }
+        }
+
+        // The slider half of the field rows rides regionGetters, which PushRegionToUI
+        // already walks. The toggles need their own pass.
+        void PushFieldTogglesToUI()
+        {
+            if (selRegion == null) return;
+            foreach (KeyValuePair<string, SoftBodySuite.Field.UiRow> kv in fieldToggles)
+            {
+                Toggle t = FindControl<Toggle>("Toggle_" + kv.Key);
+                if (t != null && kv.Value.get != null) t.isOn = kv.Value.get(selRegion.field) > 0.5f;
+            }
         }
 
         float groupThreshold = 0.25f;
@@ -1009,6 +1702,7 @@ namespace SoftBodySuite
         {
             for (int i = 0; i < proxies.Count; i++)
                 for (int r = 0; r < proxies[i].sims.Count; r++) proxies[i].sims[r].ResetState();
+            for (int i = 0; i < fldProxies.Count; i++) fldProxies[i].ResetState();
         }
 
         void RebindSel()
@@ -1017,6 +1711,10 @@ namespace SoftBodySuite
             for (int r = 0; r < selProxy.sims.Count; r++)
                 selProxy.ResolveRegionRefs(selProxy.sims[r], boundAvatar, boundAnimator);
             selProxy.ResolveColliderMeshes(boundAvatar);
+            // the field kept its old collider list until a restart
+            int i = proxies.IndexOf(selProxy);
+            if (i >= 0 && i < fldProxies.Count && fldProxies[i] != null && fldProxies[i].Alive)
+                fldProxies[i].RefreshColliders(boundAvatar);
         }
 
         // ---------- UI helpers ----------
@@ -1118,6 +1816,11 @@ namespace SoftBodySuite
             SetSlider("slappower", st.jello.slapPower);
 
             SetSlider("cagefollow", st.cloth.follow.range);
+            SetSlider("cagefolx", st.cloth.follow.offsetX);
+            SetSlider("cagefoly", st.cloth.follow.offsetY);
+            SetSlider("cagefolz", st.cloth.follow.offsetZ);
+            SetSlider("cagerigid", st.cloth.follow.rigidFloat);
+            SetSlider("cagefloat", st.cloth.follow.floatDist);
             SetSlider("cagefit", st.cloth.follow.fitStrength);
             SetSlider("cageinflate", st.cloth.follow.inflate);
             SetSlider("cageinflatedyn", st.cloth.follow.inflateDyn);
@@ -1126,11 +1829,26 @@ namespace SoftBodySuite
             SetSlider("cageminclear", st.cloth.follow.minClear);
             SetSlider("cagefolsharp", st.cloth.follow.folSharp);
             SetSlider("cagefolsm", st.cloth.follow.folSmooth);
+            SetTog("Toggle_skinguard", st.cloth.follow.skinGuard);
+            SetSlider("sggap", st.cloth.follow.guardGap);
+            SetSlider("sgreach", st.cloth.follow.guardReach);
+            SetSlider("sgsoft", st.cloth.follow.guardSoft);
+            SetSlider("sgstr", st.cloth.follow.guardStrength);
+            SetSlider("sgsunk", st.cloth.follow.guardSunk);
+            SetSlider("jigstrength", st.jiggleStrength);
+            SetSlider("jigsettle", st.jiggleSettle);
             SetSlider("cliprimfade", st.cloth.guard.rimFade);
 
             SetSlider("wob_substeps", st.wobble.substeps);
             SetSlider("jel_substeps", st.jello.substeps);
             SetSlider("sq_substeps", st.squish.substeps);
+
+            SetSlider("fld_remeshsize", st.field.remeshSize);
+            SetSlider("fld_remeshpasses", st.field.remeshPasses);
+            SetSlider("fld_projavg", st.field.projAvg);
+            SetSlider("fld_proxysmooth", st.field.proxySmooth);
+            SetTog("Toggle_fld_HalfRate", st.field.halfRate);
+            SetTog("Toggle_fld_HalfRateLerp", st.field.halfRateLerp);
 
             SetTog("Toggle_useremesh", st.jello.useRemesh > 0.5f);
             SetTog("Toggle_cagedrive", st.cloth.follow.enabled);
@@ -1325,6 +2043,8 @@ namespace SoftBodySuite
             public float hdrY, height;
             public bool open = false;
             public string baseText = "";   // label without the open/closed marker
+            public UiSection parent;       // tree menu: shown only while the parent is open
+            public float span;             // header-to-next-header distance, for hiding
         }
         readonly List<UiSection> sections = new List<UiSection>();
         RectTransform sectionContent;
@@ -1337,6 +2057,9 @@ namespace SoftBodySuite
         static string SectionStage(string label)
         {
             string l = label.ToLowerInvariant();
+            // the field family: only its Master header switches the stage; the effect
+            // sub-sections under it keep their own slider ticks
+            if (l.StartsWith("field")) return l.Contains("master") ? "field" : "";
             if (l.Contains("wobble")) return "wobble";
             if (l.Contains("jell")) return "jello";
             if (l.Contains("clothes")) return "cloth";
@@ -1351,6 +2074,7 @@ namespace SoftBodySuite
             if (stage == "jello") return config.settings.jello.enabled;
             if (stage == "squish") return config.settings.squish.enabled;
             if (stage == "cloth") return config.settings.cloth.enabled;
+            if (stage == "field") return config.settings.field.enabled;
             return true;
         }
 
@@ -1361,6 +2085,7 @@ namespace SoftBodySuite
             else if (stage == "jello") config.settings.jello.enabled = on;
             else if (stage == "squish") config.settings.squish.enabled = on;
             else if (stage == "cloth") config.settings.cloth.enabled = on;
+            else if (stage == "field") config.settings.field.enabled = on;
         }
 
         static bool SectionCanMute(string label)
@@ -1409,6 +2134,26 @@ namespace SoftBodySuite
                 cur.rowY.Add(rt.anchoredPosition.y);
                 if (rt.name.StartsWith("Slider_")) cur.keys.Add(rt.name.Substring(7));
             }
+
+            // TREE: every "Field ..." section is a child of "Field · Master", so the whole
+            // field stage folds down to one line until it is wanted.
+            UiSection master = null;
+            for (int s = 0; s < sections.Count; s++)
+                if (sections[s].label.StartsWith("Field") && sections[s].label.Contains("Master")) master = sections[s];
+            if (master != null)
+                for (int s = 0; s < sections.Count; s++)
+                {
+                    UiSection sec = sections[s];
+                    if (sec == master || !sec.label.StartsWith("Field")) continue;
+                    sec.parent = master;
+                    if (sec.hdr != null)   // indent children so the tree reads as a tree
+                    {
+                        RectTransform h = sec.hdr.rectTransform;
+                        h.anchoredPosition = new Vector2(h.anchoredPosition.x + 14f, h.anchoredPosition.y);
+                    }
+                }
+            for (int s = 0; s < sections.Count; s++)
+                sections[s].span = (s + 1 < sections.Count) ? sections[s].hdrY - sections[s + 1].hdrY : 0f;
 
             for (int s = 0; s < sections.Count; s++)
             {
@@ -1538,6 +2283,16 @@ namespace SoftBodySuite
             for (int s = 0; s < sections.Count; s++)
             {
                 UiSection sec = sections[s];
+                // a child of a closed parent is hidden outright: header, rows, tick box
+                if (sec.parent != null && !sec.parent.open)
+                {
+                    if (sec.hdr != null && sec.hdr.gameObject.activeSelf) sec.hdr.gameObject.SetActive(false);
+                    for (int r = 0; r < sec.rows.Count; r++)
+                        if (sec.rows[r] != null && sec.rows[r].gameObject.activeSelf) sec.rows[r].gameObject.SetActive(false);
+                    shift += sec.span > 0f ? sec.span : (sec.height + 24f);
+                    continue;
+                }
+                if (sec.hdr != null && !sec.hdr.gameObject.activeSelf) sec.hdr.gameObject.SetActive(true);
                 if (sec.hdr != null)
                 {
                     RectTransform h = sec.hdr.rectTransform;
@@ -1680,6 +2435,7 @@ namespace SoftBodySuite
             regionDropdown.value = Mathf.Max(0, sel); regionDropdown.RefreshShownValue();
             suppress = false;
             PushRegionToUI();
+            RefreshCopyRegionList();
         }
 
         void OnRegionSelected(int index)
@@ -1687,6 +2443,7 @@ namespace SoftBodySuite
             if (suppress || selMesh == null) return;
             if (index >= 0 && index < selMesh.regions.Count) selRegion = selMesh.regions[index];
             PushRegionToUI();
+            RefreshCopyRegionList();
             if (selProxy != null && selProxy.overlayOn) selProxy.RefreshOverlayColors(selRegion);
         }
 
@@ -1731,6 +2488,7 @@ namespace SoftBodySuite
                 if (sliders.TryGetValue(kv.Key, out s) && s != null)
                 { s.value = kv.Value(selRegion); SetValueLabel(kv.Key, s.value); }
             }
+            PushFieldTogglesToUI();
             suppress = false;
             RefreshColliderList();
         }
@@ -1870,6 +2628,298 @@ namespace SoftBodySuite
             selRegion.vertIndex.Clear(); selRegion.weight.Clear();
             AfterWeightEdit(selRegion);
             SetStatus("weights cleared");
+        }
+
+        // Scale the region's paint so its strongest vert is 1, keeping the shape. A region
+        // picked from bone weights can top out far below 1 (Nami's thighs: 0.19), and every
+        // stage multiplies by the paint, so such a region barely moves at any setting.
+        void OnNormalizeWeights()
+        {
+            if (selRegion == null) { SetStatus("select a mesh + region first"); return; }
+            float mx = 0f;
+            for (int i = 0; i < selRegion.weight.Count; i++) if (selRegion.weight[i] > mx) mx = selRegion.weight[i];
+            if (mx <= 1e-4f) { SetStatus("nothing painted to normalize"); return; }
+            if (mx >= 0.999f) { SetStatus("already full strength (strongest = " + (mx * 100f).ToString("0") + "%)"); return; }
+            PushUndo(selRegion);
+            float k = 1f / mx;
+            for (int i = 0; i < selRegion.weight.Count; i++) selRegion.weight[i] = Mathf.Clamp01(selRegion.weight[i] * k);
+            AfterWeightEdit(selRegion);
+            SetStatus("normalized '" + selRegion.name + "': strongest was " + (mx * 100f).ToString("0") + "%, now 100% (shape kept)");
+        }
+
+        // ==================== region presets / copy ====================
+        // A region's whole tuning (wobble, jell-o, squish and field blocks) as a named preset
+        // that can go onto any other region, plus a straight copy from another region. Paint,
+        // colliders, the name and picked ripple points stay with the region they belong to.
+        public class RegionPreset
+        {
+            public string savedFrom = "";
+            public string savedAt = "";
+            public bool gravityPoseOnly = true;
+            public WobbleRegion wobble;
+            public JelloRegion jello;
+            public SoftBodySuite.SquishRegion squish;
+            public FieldRegion field;
+        }
+        public class RegionPresetFile
+        {
+            public Dictionary<string, RegionPreset> presets = new Dictionary<string, RegionPreset>();
+        }
+        const string REGION_PRESET_FILE = "softfleshfield.regionpresets.json";
+        RegionPresetFile regPresets;
+        Dropdown regPresetDropdown, copyRegionDropdown;
+        InputField regPresetNameInput;
+        readonly List<SuiteRegion> copyRegionList = new List<SuiteRegion>();
+
+        static string BlocksJson(SuiteRegion r)
+        {
+            if (r == null) return null;
+            RegionPreset p = new RegionPreset();
+            p.gravityPoseOnly = r.gravityPoseOnly;
+            p.wobble = r.wobble; p.jello = r.jello; p.squish = r.squish; p.field = r.field;
+            return JsonConvert.SerializeObject(p);
+        }
+
+        static void ApplyBlocks(RegionPreset p, SuiteRegion dst)
+        {
+            if (p == null || dst == null) return;
+            // picked ripple points are vertex numbers on THIS region's mesh: never carried over
+            List<int> keepPts = dst.field != null ? dst.field.ripplePoints : null;
+            if (p.wobble != null) CopyStageParams(p.wobble, dst.wobble);
+            if (p.jello != null) CopyStageParams(p.jello, dst.jello);
+            if (p.squish != null) CopyStageParams(p.squish, dst.squish);
+            if (p.field != null) CopyStageParams(p.field, dst.field);
+            if (dst.field != null) dst.field.ripplePoints = keepPts != null ? keepPts : new List<int>();
+            dst.gravityPoseOnly = p.gravityPoseOnly;
+        }
+
+        static void RestoreBlocks(SuiteRegion dst, string json)
+        {
+            RegionPreset p = null;
+            try { p = JsonConvert.DeserializeObject<RegionPreset>(json); } catch (Exception) { p = null; }
+            if (p == null) return;
+            List<int> keepPts = dst.field != null ? dst.field.ripplePoints : null;
+            ApplyBlocks(p, dst);
+            // undo restores the points too (ApplyBlocks keeps the current ones)
+            if (p.field != null && p.field.ripplePoints != null && dst.field != null) dst.field.ripplePoints = new List<int>(p.field.ripplePoints);
+            else if (dst.field != null && keepPts != null) dst.field.ripplePoints = keepPts;
+        }
+
+        string RegPresetPath() { return Path.Combine(Application.persistentDataPath, REGION_PRESET_FILE); }
+
+        void LoadRegPresets()
+        {
+            regPresets = null;
+            try
+            {
+                if (File.Exists(RegPresetPath()))
+                    regPresets = JsonConvert.DeserializeObject<RegionPresetFile>(File.ReadAllText(RegPresetPath()));
+            }
+            catch (Exception e) { Debug.LogWarning("[SfxField] region presets unreadable, starting empty: " + e.Message); }
+            if (regPresets == null) regPresets = new RegionPresetFile();
+            if (regPresets.presets == null) regPresets.presets = new Dictionary<string, RegionPreset>();
+        }
+
+        bool SaveRegPresets()
+        {
+            try
+            {
+                string p = RegPresetPath(), tmp = p + ".tmp";
+                File.WriteAllText(tmp, JsonConvert.SerializeObject(regPresets, Formatting.Indented), new System.Text.UTF8Encoding(false));
+                if (File.Exists(p)) File.Replace(tmp, p, null); else File.Move(tmp, p);
+                return true;
+            }
+            catch (Exception e) { SetStatus("could not save region presets: " + e.Message); return false; }
+        }
+
+        void SetupRegionPresetUi()
+        {
+            LoadRegPresets();
+            regPresetDropdown = FindControl<Dropdown>("Dropdown_RegPreset");
+            regPresetNameInput = FindControl<InputField>("Input_RegPresetName");
+            copyRegionDropdown = FindControl<Dropdown>("Dropdown_CopyRegion");
+            FixDropdown(regPresetDropdown); FixDropdown(copyRegionDropdown);
+            WireButton("Button_RegPresetSave", OnRegPresetSave);
+            WireButton("Button_RegPresetApply", OnRegPresetApply);
+            WireButton("Button_RegPresetDelete", OnRegPresetDelete);
+            WireButton("Button_CopyRegion", OnCopyRegion);
+            WireButton("Button_NormalizeWeights", OnNormalizeWeights);
+            int found = 0;
+            string[] names = { "Dropdown_RegPreset", "Input_RegPresetName", "Dropdown_CopyRegion", "Button_RegPresetSave",
+                               "Button_RegPresetApply", "Button_RegPresetDelete", "Button_CopyRegion", "Button_NormalizeWeights" };
+            for (int i = 0; i < names.Length; i++) if (FindDeep(window.transform, names[i]) != null) found++;
+            Debug.Log("[SfxField] region presets UI: " + found + "/" + names.Length + " controls found, "
+                + regPresets.presets.Count + " saved region preset(s)");
+            AddTooltips(new Dictionary<string, string>
+            {
+                { "Dropdown_RegPreset", "Saved region presets: a region's whole tuning (wobble, jell-o, squish and field settings). Pick one, then Apply." },
+                { "Input_RegPresetName", "Name for a new region preset. Empty = overwrite the one picked above." },
+                { "Button_RegPresetSave", "Save the selected region's settings as a region preset. Paint, colliders and picked ripple points are not included." },
+                { "Button_RegPresetApply", "Put the picked region preset's settings onto the selected region. Its paint and colliders stay. Undo works." },
+                { "Button_RegPresetDelete", "Delete the picked region preset." },
+                { "Dropdown_CopyRegion", "Another region (any mesh) to copy settings from." },
+                { "Button_CopyRegion", "Copy every setting from the region picked on the left into the selected region. Paint and colliders stay. Undo works." },
+                { "Button_NormalizeWeights", "Raise this region's paint so its strongest spot is 100%, keeping the shape. Use it when a region barely moves at any setting (bone-picked paint can top out near 20%)." },
+            });
+            RefreshRegPresetList(null);
+            RefreshCopyRegionList();
+            try
+            {
+                if (File.Exists(Path.Combine(Application.persistentDataPath, "softfleshfield.selftest.on"))) RegionPresetSelfTest();
+            }
+            catch (Exception e) { Debug.LogWarning("[SfxField] region preset self-test threw: " + e); }
+        }
+
+        // Proves save -> file -> load -> apply -> undo round-trips every value, with no
+        // clicking. Runs only while softfleshfield.selftest.on exists; never touches the
+        // user's regions or preset file (it works on fresh copies and a temp file).
+        void RegionPresetSelfTest()
+        {
+            SuiteRegion src = null;
+            if (config != null && config.meshes != null)
+                for (int m = 0; m < config.meshes.Count && src == null; m++)
+                    if (config.meshes[m] != null && config.meshes[m].regions != null)
+                        for (int r = 0; r < config.meshes[m].regions.Count; r++)
+                            if (config.meshes[m].regions[r].vertIndex.Count > 0) { src = config.meshes[m].regions[r]; break; }
+            if (src == null) { Debug.Log("[SfxField] SELFTEST region presets: no painted region to test with"); return; }
+            string want = BlocksJson(src);
+            // 1) preset through a real file
+            RegionPresetFile f = new RegionPresetFile();
+            RegionPreset p = JsonConvert.DeserializeObject<RegionPreset>(want);
+            f.presets["selftest"] = p;
+            string tmp = Path.Combine(Application.persistentDataPath, "softfleshfield.selftest.tmp.json");
+            File.WriteAllText(tmp, JsonConvert.SerializeObject(f, Formatting.Indented));
+            RegionPresetFile back = JsonConvert.DeserializeObject<RegionPresetFile>(File.ReadAllText(tmp));
+            File.Delete(tmp);
+            // 2) apply onto a fresh region and compare (picked points are excluded by design)
+            SuiteRegion dst = new SuiteRegion();
+            dst.field.ripplePoints.Add(123);
+            ApplyBlocks(back.presets["selftest"], dst);
+            bool ptsKept = dst.field.ripplePoints.Count == 1 && dst.field.ripplePoints[0] == 123;
+            dst.field.ripplePoints = new List<int>(src.field.ripplePoints);
+            string got = BlocksJson(dst);
+            // 3) undo path
+            SuiteRegion und = new SuiteRegion();
+            RestoreBlocks(und, want);
+            string gotU = BlocksJson(und);
+            string diff = FirstDiff(want, got), diffU = FirstDiff(want, gotU);
+            Debug.Log("[SfxField] SELFTEST region presets (from '" + src.name + "', " + want.Length + " chars): "
+                + (diff == null ? "apply PASS" : "apply FAIL at " + diff)
+                + ", " + (diffU == null ? "undo PASS" : "undo FAIL at " + diffU)
+                + ", " + (ptsKept ? "picked points kept PASS" : "picked points FAIL"));
+        }
+
+        static string FirstDiff(string a, string b)
+        {
+            if (a == b) return null;
+            int i = 0, n = Mathf.Min(a.Length, b.Length);
+            while (i < n && a[i] == b[i]) i++;
+            int s0 = Mathf.Max(0, i - 60);
+            return "char " + i + ": ..." + a.Substring(s0, Mathf.Min(120, a.Length - s0)) + " | vs | " + b.Substring(s0, Mathf.Min(120, b.Length - s0));
+        }
+
+        void RefreshRegPresetList(string keep)
+        {
+            if (regPresetDropdown == null || regPresets == null) return;
+            List<string> names = new List<string>(regPresets.presets.Keys);
+            names.Sort(StringComparer.OrdinalIgnoreCase);
+            if (names.Count == 0) names.Add("(no region presets)");
+            suppress = true;
+            regPresetDropdown.ClearOptions(); regPresetDropdown.AddOptions(names);
+            int at = string.IsNullOrEmpty(keep) ? -1 : names.IndexOf(keep);
+            regPresetDropdown.value = at >= 0 ? at : 0;
+            ForceCaption(regPresetDropdown);
+            suppress = false;
+        }
+
+        string SelectedRegPreset()
+        {
+            if (regPresetDropdown == null || regPresets == null) return null;
+            List<string> names = new List<string>(regPresets.presets.Keys);
+            names.Sort(StringComparer.OrdinalIgnoreCase);
+            int v = regPresetDropdown.value;
+            return (v >= 0 && v < names.Count) ? names[v] : null;
+        }
+
+        void RefreshCopyRegionList()
+        {
+            if (copyRegionDropdown == null) return;
+            copyRegionList.Clear();
+            List<string> opts = new List<string>();
+            opts.Add("(pick a region)");
+            if (config != null && config.meshes != null)
+                for (int m = 0; m < config.meshes.Count; m++)
+                {
+                    SquishMesh sm = config.meshes[m];
+                    if (sm == null || sm.regions == null) continue;
+                    for (int r = 0; r < sm.regions.Count; r++)
+                    {
+                        SuiteRegion reg = sm.regions[r];
+                        if (reg == null || reg == selRegion) continue;
+                        copyRegionList.Add(reg);
+                        opts.Add(sm.mesh + " / " + reg.name);
+                    }
+                }
+            suppress = true;
+            copyRegionDropdown.ClearOptions(); copyRegionDropdown.AddOptions(opts);
+            copyRegionDropdown.value = 0; ForceCaption(copyRegionDropdown);
+            suppress = false;
+        }
+
+        void OnRegPresetSave()
+        {
+            if (selRegion == null) { SetStatus("select a region first"); return; }
+            if (regPresets == null) LoadRegPresets();
+            string name = regPresetNameInput != null ? regPresetNameInput.text.Trim() : "";
+            if (name.Length == 0) name = SelectedRegPreset();
+            if (string.IsNullOrEmpty(name)) { SetStatus("type a name for the region preset first"); return; }
+            RegionPreset p = JsonConvert.DeserializeObject<RegionPreset>(BlocksJson(selRegion));   // a detached copy
+            if (p.field != null) p.field.ripplePoints = new List<int>();
+            p.savedFrom = (selMesh != null ? selMesh.mesh : "?") + " / " + selRegion.name;
+            p.savedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
+            regPresets.presets[name] = p;
+            if (!SaveRegPresets()) return;
+            if (regPresetNameInput != null) regPresetNameInput.text = "";
+            RefreshRegPresetList(name);
+            SetStatus("region preset '" + name + "' saved from '" + selRegion.name + "'");
+        }
+
+        void OnRegPresetApply()
+        {
+            if (selRegion == null) { SetStatus("select a region first"); return; }
+            string name = SelectedRegPreset();
+            RegionPreset p;
+            if (string.IsNullOrEmpty(name) || regPresets == null || !regPresets.presets.TryGetValue(name, out p))
+            { SetStatus("no region preset picked"); return; }
+            PushParamUndo("regionpreset");
+            ApplyBlocks(p, selRegion);
+            PushRegionToUI();
+            SaveConfig();
+            SetStatus("region preset '" + name + "' applied to '" + selRegion.name + "' (paint and colliders kept; Undo reverts)");
+        }
+
+        void OnRegPresetDelete()
+        {
+            string name = SelectedRegPreset();
+            if (string.IsNullOrEmpty(name) || regPresets == null || !regPresets.presets.Remove(name))
+            { SetStatus("no region preset picked"); return; }
+            SaveRegPresets();
+            RefreshRegPresetList(null);
+            SetStatus("region preset '" + name + "' deleted");
+        }
+
+        void OnCopyRegion()
+        {
+            if (selRegion == null) { SetStatus("select a region first"); return; }
+            int idx = copyRegionDropdown != null ? copyRegionDropdown.value - 1 : -1;
+            if (idx < 0 || idx >= copyRegionList.Count) { SetStatus("pick a region to copy from"); return; }
+            SuiteRegion src = copyRegionList[idx];
+            RegionPreset p = JsonConvert.DeserializeObject<RegionPreset>(BlocksJson(src));
+            PushParamUndo("copyregion");
+            ApplyBlocks(p, selRegion);
+            PushRegionToUI();
+            SaveConfig();
+            SetStatus("copied the settings of '" + src.name + "' into '" + selRegion.name + "' (paint and colliders kept; Undo reverts)");
         }
 
         void OnBlurWeights()
@@ -2581,7 +3631,10 @@ namespace SoftBodySuite
             for (int i = 0; i < fs.Length; i++)
             {
                 if (fs[i].IsDefined(typeof(Newtonsoft.Json.JsonIgnoreAttribute), true)) continue;
-                fs[i].SetValue(dst, fs[i].GetValue(src));
+                object val = fs[i].GetValue(src);
+                List<int> li = val as List<int>;
+                if (li != null) val = new List<int>(li);   // picked ripple points: a copy, never a shared list
+                fs[i].SetValue(dst, val);
             }
         }
 
@@ -2719,14 +3772,33 @@ namespace SoftBodySuite
                 bool migrated;
                 // First run reads the three old files and writes the merged one. They are
                 // left exactly as they are, so going back is always possible.
-                config = ConfigMigrate.RunIfNeeded(Application.persistentDataPath, out migrated);
+                config = ConfigMigrate.RunIfNeeded(Application.persistentDataPath,
+                                                   CONFIG_FILE, UPSTREAM_CONFIG, MIGRATE_LOG,
+                                                   out migrated);
                 if (config == null) config = new SquishConfig();
                 if (config.settings == null) config.settings = new SquishSettings();
                 if (config.meshes == null) config.meshes = new List<SquishMesh>();
                 config.Sync();
                 if (migrated)
-                    Debug.Log("[SoftBody] imported settings from the three old studios — see "
-                              + "softbodysuite.migration.log");
+                    Debug.Log("[SoftBody] imported settings from an older config — see "
+                              + MIGRATE_LOG);
+
+                // settings.version has been written since v2 and read by nobody. Two log
+                // lines cost nothing and they are the only early warning anyone gets.
+                int ver = config.settings.version;
+                if (ver < 3)
+                {
+                    Debug.Log("[SfxField] loaded a pre-Field config (version " + ver + "). Every "
+                              + "region's field stage is at factory defaults and Field Mix is 0, "
+                              + "so this renders exactly as it did before.");
+                    config.settings.version = 3;
+                }
+                else if (ver > 3)
+                {
+                    Debug.LogWarning("[SfxField] this config was written by a NEWER build (version "
+                                     + ver + " > 3). Values this build does not know about will "
+                                     + "be ignored and dropped on the next save.");
+                }
             }
             catch (Exception e)
             {

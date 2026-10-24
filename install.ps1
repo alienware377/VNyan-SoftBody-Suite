@@ -1,8 +1,8 @@
-# Soft Body Suite installer for VNyan
+# Soft Body Suite 3 installer for VNyan
 # - Looks for your VNyan folder (a running VNyan, VNyan's own log, Steam, itch), then lets you
 #   confirm it or open your VNyan folder yourself
-# - Moves the old separate Squish / Wobble / Jello Studio plugins out of the way (the suite
-#   replaces them) - moved, never deleted
+# - Moves the classic Soft Body Suite (v2) and the old separate Squish / Wobble / Jello Studio
+#   plugins out of the way (Soft Body Suite 3 replaces them) - moved, never deleted
 # - Only asks for admin rights if your VNyan folder is actually write-protected
 # Usage: double-click install.bat (or: powershell -File install.ps1)
 
@@ -14,8 +14,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$plugin = "SoftBodySuite"
-$replaced = @("SquishStudio", "WobbleStudio", "JelloStudio")   # these three are merged into the suite
+$plugin = "SoftFleshField"   # Soft Body Suite 3 (the folder and DLL keep this name)
+# the classic suite and the v1 studios: Soft Body Suite 3 replaces all of them
+$replaced = @("SoftBodySuite", "SquishStudio", "WobbleStudio", "JelloStudio")
 
 function Ask([string]$question, [bool]$defaultYes) {
     if ($Yes) { return $true }
@@ -132,8 +133,8 @@ if (-not $payload) {
 # ---- pick the VNyan folder ----
 if (-not $Target) {
     Write-Host ""
-    Write-Host "Soft Body Suite installer" -ForegroundColor Cyan
-    Write-Host "-------------------------"
+    Write-Host "Soft Body Suite 3 installer" -ForegroundColor Cyan
+    Write-Host "---------------------------"
     Write-Host "Looking for VNyan..."
     $found = @(Find-VNyan)
     if ($found.Count -eq 1) {
@@ -227,8 +228,8 @@ if (-not $writable) {
 # ---- move the old separate studios out of the way ----
 if ($old.Count -gt 0) {
     Write-Host ""
-    Write-Host ("Found the old separate studios: " + ($old -join ", ")) -ForegroundColor Yellow
-    Write-Host "Soft Body Suite replaces them. VNyan loads every folder inside Items\Assemblies,"
+    Write-Host ("Found older soft-body plugins: " + ($old -join ", ")) -ForegroundColor Yellow
+    Write-Host "Soft Body Suite 3 replaces them. VNyan loads every folder inside Items\Assemblies,"
     Write-Host "so if they stay the body gets moved twice. They'll be moved (not deleted) to:"
     Write-Host "  $retired"
     if (Ask "Move them there? [Y] yes / [n] leave them" $true) {
@@ -262,7 +263,7 @@ Write-Host ("  installed " + $plugin + " to " + $dstDir) -ForegroundColor Green
 
 if (Test-Path -LiteralPath (Join-Path $assemblies "SoftBodyStudio")) {
     Write-Host ""
-    Write-Host "Note: SoftBody Studio is still installed. It isn't part of the suite, so keep it" -ForegroundColor Yellow
+    Write-Host "Note: SoftBody Studio (v1) is still installed. It isn't part of the suite, so keep it" -ForegroundColor Yellow
     Write-Host "turned off while the suite's Jell-o section is on - they both move the same body." -ForegroundColor Yellow
 }
 
@@ -274,6 +275,7 @@ if ($Elevated -and $here -like (Join-Path $env:ProgramData "SoftBodySuiteInstall
 Write-Host ""
 Write-Host "Done!" -ForegroundColor Cyan
 Write-Host "Start VNyan, open Soft Body Suite from the plugins menu and tick On at the top."
-Write-Host "Settings from the old studios are brought over automatically the first time."
+Write-Host "Your classic Soft Body Suite settings are brought over automatically the first time"
+Write-Host "(they are only read, never changed, so the classic suite still works if you go back)."
 Write-Host "Docs: https://github.com/alienware377/VNyan-SoftBody-Suite"
 Stop-Here 0
