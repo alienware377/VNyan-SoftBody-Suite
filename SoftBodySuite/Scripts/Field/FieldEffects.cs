@@ -3,12 +3,12 @@ namespace SoftBodySuite.Field
     // WHICH SOURCES AN EFFECT FAMILY CONTAINS.
     //
     // FieldRegion.effect was written by every preset and by both factory-default
-    // helpers and read by NOBODY, so the selector selected nothing: all twelve
+    // helpers and read by nobody, so the selector selected nothing: all twelve
     // presets ran the same source set (ContactSource's full two-pass core, plus
     // whatever per-channel enable flags the preset happened to set). A preset
     // called "Glute Jiggle" therefore shipped a full Soft-Flesh squish on top of
-    // its wobble, at whatever Intensity the previous preset had left behind -
-    // that preset does not set Intensity at all.
+    // its wobble, at whatever Intensity the previous preset had left behind,
+    // since that preset does not set Intensity at all.
     //
     // Each effect family is its own separate effect, and they are not supersets
     // of one another:
@@ -21,9 +21,9 @@ namespace SoftBodySuite.Field
     //   Squish Organic    natural squish core + squash    + impulse
     //
     // Two things follow, and both are implemented here:
-    //   (1) a family only runs the sources it owns - Ripple has no pressure tail,
+    //   (1) a family only runs the sources it owns: Ripple has no pressure tail,
     //       Squish has no impulse envelope;
-    //   (2) Ripple / Fat Jiggle / Penetration use the RAW flesh conform, not the
+    //   (2) Ripple / Fat Jiggle / Penetration use the raw flesh conform, not the
     //       core. Their footprint is conform * clamp01(Mask * Dent Depth) and
     //       nothing else: no Shape Smoothing diffusion, no volume pile, no
     //       Contact Hardness cleanup. ContactSource honours that through
@@ -69,7 +69,7 @@ namespace SoftBodySuite.Field
 
         // Ripple and Fat Jiggle get the bare conform footprint from ContactSource
         // (RippleSource and NoiseJiggleSource write waves only and say so).
-        // Penetration is NOT in this list because it is not in Allows either: it runs
+        // Penetration is not in this list because it is not in Allows either: it runs
         // its own flesh conform in PenetrationSource.Prepare and applies it as
         // `dent` in its own Write, so letting ContactSource run as well would stamp
         // the opening twice.
@@ -90,14 +90,14 @@ namespace SoftBodySuite.Field
         // called, so it cannot publish anything either (OrganicSource publishes
         // ctx.coreOverride from IsActive, and outside its own family it must not).
         //
-        // ContactSource is in five of the six families - see the case below.
-        // THE ENABLE TOGGLES ARE A SECOND WAY IN. The family gate below treats
-        // each effect family as a separate effect - but in this panel the
+        // ContactSource is in five of the six families; see the case below.
+        // The enable toggles are a second way in. The family gate below treats
+        // each effect family as a separate effect, but in this panel the
         // Ripple / Fat Jiggle / Inflate / Organic / Penetration sections each carry an
         // "on" toggle, and with the family left at Squish (the default, and what every
         // squish preset sets) those toggles, every slider under them and the motion
-        // trigger were all gated off before they could run. Measured on a dancing
-        // avatar: Field Mix 1, Ripple and Fat on, 0.0 mm every frame. A source whose own
+        // trigger were all gated off before they could run, so the field moved nothing
+        // even with Field Mix at 1. A source whose own
         // toggle is on now runs whatever the family says; with every toggle off this is
         // exactly the old gate.
         public static bool Allows(int family, string sourceId, SoftBodySuite.FieldRegion p)
@@ -125,7 +125,7 @@ namespace SoftBodySuite.Field
             switch (sourceId)
             {
                 case "contact":
-                    // Every family applies a conform - but Penetration applies its OWN
+                    // Every family applies a conform, but Penetration applies its own
                     // (PenetrationSource.cs:115 and :155), so ContactSource must stay out
                     // of that one or the channel opening is stamped twice.
                     return family != Penetration;
@@ -141,12 +141,12 @@ namespace SoftBodySuite.Field
                     return family == Jiggle;
                 case "motion":
                     // the impulse envelope exists on ripple/jiggle/penetration/organic
-                    // and on NEITHER squish family.
+                    // and on neither squish family.
                     return family != Squish && family != SquishInflate;
             }
             // An effect family that has never heard of a source lets it through:
             // adding the eighth source must not need this file edited.
-            // Add a case here only to RESTRICT one.
+            // Add a case here only to restrict one.
             return true;
         }
     }

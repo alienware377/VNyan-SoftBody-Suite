@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace SoftBodySuite.Field
 {
-    // 4D value noise, evaluated LIVE: there is deliberately no precomputed
+    // 4D value noise, evaluated live: there is deliberately no precomputed
     // slice table. At the default Wobble Speed of 2.0-2.5 the field decorrelates
     // in roughly 0.2 s, so eight slices spread over 4 s would crossfade between
     // completely unrelated fields and read as a slow morph instead of a jiggle.
@@ -11,10 +11,10 @@ namespace SoftBodySuite.Field
     // Stands in for Blender's ShaderNodeTexNoise (4D, Detail 2.0, Roughness 0.55).
     // That node is Perlin, not value noise, and
     // its hash, gradient set, per-channel offsets and fBm normalisation are all
-    // unrecorded, so an exact port is not possible. What IS reproducible is the
-    // STATISTIC, and that is what the amplitude sliders were tuned against.
+    // unrecorded, so an exact port is not possible. What is reproducible is the
+    // statistic, and that is what the amplitude sliders were tuned against.
     //
-    // CALIBRATION PROCEDURE (re-run this against a Blender bake if the numbers
+    // Calibration procedure (re-run this against a Blender bake if the numbers
     // are ever questioned):
     //   1. In Blender, wire a 4D Noise Texture (Scale 2.2, Detail 2, Roughness
     //      0.55) into a Store Named Attribute, subtract 0.5, bake one frame.
@@ -34,8 +34,8 @@ namespace SoftBodySuite.Field
         public static float RmsScale = 1.5014f;
 
         // Blender reads the noise node's Color output, which is three channels of
-        // the same field sampled at different offsets. The exact offsets are NOT
-        // RECORDED anywhere, so these are chosen: three
+        // the same field sampled at different offsets. The exact offsets are not
+        // recorded anywhere, so these are chosen: three
         // large, mutually irrational-ish lattice shifts that decorrelate the
         // channels without repeating for any plausible input range.
         const float ChanOffX = 0f;

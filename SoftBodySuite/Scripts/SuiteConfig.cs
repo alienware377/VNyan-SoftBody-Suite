@@ -7,7 +7,7 @@ namespace SoftBodySuite
     // Soft Body Suite: the three studios (Wobble, Jell-o, Squish) in one plugin,
     // with clothes handled once at the very end instead of twice in the middle.
     //
-    // A region is painted ONCE and carries three parameter blocks, one per stage.
+    // A region is painted once and carries three parameter blocks, one per stage.
     // That split is deliberate: the old plugins each kept their own copy of the
     // same field names with different tuned values (wobble jiggle 2.0 vs jello 1.0
     // vs squish 0.0 on the very same verts), and flattening them would quietly
@@ -20,7 +20,7 @@ namespace SoftBodySuite
     // stage's own block starts from them and is then overwritten from that stage's
     // old config file on first run.
     //
-    // The four [JsonIgnore] fields at the top are POINTERS to the one painted region
+    // The four [JsonIgnore] fields at the top are pointers to the one painted region
     // this block belongs to, wired up by SuiteRegion.Sync(). They exist so each sim
     // can keep taking a single object that has both the paint and its own numbers
     // (exactly the shape the three sims were written against) without the paint data
@@ -43,7 +43,7 @@ namespace SoftBodySuite
 
         // ----- gravity -----
         public float gravity = 0.35f;     // pull toward world-down
-        // These two describe the REGION, not a stage's feel, so they live on SuiteRegion
+        // These two describe the region, not a stage's feel, so they live on SuiteRegion
         // and are mirrored down here by Sync() for the sims to read.
         [JsonIgnore] public bool gravityPoseOnly = true;
         [JsonIgnore] public string refBone = "";
@@ -106,15 +106,15 @@ namespace SoftBodySuite
         public float xMaxStretch = 0.1f;  // hard leash from the skinned position (m at weight 1)
         public float xPressure = 1.2f;    // displaced volume re-inflates the rest of the region
         public float xGrid = 0.006f;      // solver grid size (m): node coarsening cell
-        public float xGridMin = 0.002f;   // adaptive grid: cell size where edges are SMALLEST
-        public float xGridMax = 0.02f;    // adaptive grid: cell size where edges are LARGEST
+        public float xGridMin = 0.002f;   // adaptive grid: cell size where edges are smallest
+        public float xGridMax = 0.02f;    // adaptive grid: cell size where edges are largest
         public float xGridAuto = 1f;      // 1 = sync min/max to the region's measured edge range on rebuild
         public float xSigma = 0.008f;     // write-back blend width (m)
         public float xCorr = 0.004f;      // per-iteration correction clamp (m)
         public float xColRelax = 0.6f;    // collision projection strength per iteration
         public float xCompress = 0.12f;   // compression softness (0 = free squash, 1 = cloth)
         public float xBend = 0.5f;        // bending stiffness multiplier
-        public float xTension = 0.3f;     // skin tension: smooths the DEFORMATION field (anti-crinkle)
+        public float xTension = 0.3f;     // skin tension: smooths the deformation field (anti-crinkle)
         public float xSmoothPasses = 8f;  // Taubin (shrink-free) smoothing passes on the output
     }
 
@@ -123,12 +123,12 @@ namespace SoftBodySuite
     {
         public float maxDent = 0.05f;     // penetration limiter: dent depth where the flesh "gives way"
         public float evacBone = 0.5f;     // beyond maxDent: translate the region's driver bones away
-        public float evacAllBones = 0f;   // ALSO translate nested/child driver bones individually
+        public float evacAllBones = 0f;   // Also translate nested/child driver bones individually
                                           // (multiplier on evacBone; 0 = topmost-only, the safe default)
         public float evacBlob = 0.5f;     // beyond maxDent: shift + squash the whole painted blob
     }
 
-    // Stage 4 - Field: the soft-flesh field effect family on its own cage.
+    // Stage 4, Field: the soft-flesh field effect family on its own cage.
     // Inherits StageRegion for the [JsonIgnore] paint/collider pointers that
     // SuiteRegion.Sync() wires; the inherited motion numbers are unused here.
     // Names that would collide with StageRegion (stiffness, waveSpeed, jiggle,
@@ -171,30 +171,27 @@ namespace SoftBodySuite
         public float jerkFilter = 0.15f;          // EMA time constant on the jerk gate, seconds
         public float accRef = 20f;                // m/s^2 that maps to gate 1
 
-        // Wave heights are a FRACTION OF THE REGION'S OWN SIZE, not metres.
+        // Wave heights are a fraction of the region'S own size, not metres.
         //
         // rippleAmplitude and wobbleAmplitude used to be absolute metres, sized for
         // test objects far larger than any feature on a
-        // VTuber. The built-in Ripple presets are 0.25 and 0.35 METRES (FieldPresets
-        // .cs), and the old default was 0.23. Measured on a real avatar at 0.15,
-        // the same family of effect produced 7.45 cm of displacement on a chest region,
-        // raised the 99th-percentile angle between adjacent face normals from 62.6 to
-        // 73.7 deg, and took the count of edges over 90 deg from 449 to 664 - visible
-        // polygon shards. At 0.05 and below the deformed mesh is indistinguishable from
-        // the rest mesh. A magnitude-vs-gradient split showed the displacement field is
-        // SMOOTH (2.6 mm mean change across a sharpened edge; only 2.6% of them sit on a
-        // mask boundary), so it is NOT a discontinuity - the surface is simply pushed far
-        // enough to fold through itself.
+        // VTuber. The built-in Ripple presets are 0.25 and 0.35 metres (FieldPresets
+        // .cs), and the old default was 0.23. In metres, a value like 0.15 moves a chest
+        // region by several centimetres and folds the surface through itself, which shows
+        // as polygon shards; at 0.05 and below the deformed mesh is indistinguishable from
+        // the rest mesh. The displacement field itself stays smooth, so this is not a
+        // discontinuity at the mask boundary: the surface is simply pushed far enough to
+        // fold through itself.
         //
-        // The 8 mm cage argument makes the BLUR / SMOOTHING counts transfer unscaled,
+        // The 8 mm cage size makes the blur / smoothing counts transfer unscaled,
         // because their radius is usedEdge*sqrt(iters) and the edge term cancels at
-        // 0.008. It says nothing about amplitude, which scales with the FEATURE, not with
+        // 0.008. It says nothing about amplitude, which scales with the feature, not with
         // the cage density. So both amplitudes are read as a fraction of the region's own
         // radius (FieldContext.regionRadius) and turned into metres at solve time.
         //
-        // waveWidth and waveRange are left ABSOLUTE on purpose: they are distances the
+        // waveWidth and waveRange are left absolute on purpose: they are distances the
         // wave travels, already bounded by the geodesic field, and the Ricker reconstruction
-        // was documented in metres. Only the HEIGHTS fold the surface through itself.
+        // was documented in metres. Only the heights fold the surface through itself.
         //
         // Set false in the config file to go back to typing metres.
         public bool amplitudeRelative = true;
@@ -210,12 +207,11 @@ namespace SoftBodySuite
         public float waveRange = 0.5f;            // furthest the wave is evaluated (m)
         public float dentDepth = 1f;              // multiplier on the contact dent itself
 
-        // PENETRATION LIMITER. The Wobble and Squish stages have had one of these
+        // Penetration limiter. The Wobble and Squish stages have had one of these
         // since v1 (SuiteConfig.maxDent, 50 mm, with the excess handed to the evacuation
-        // layers); the field stage shipped with NONE, and it shows. Measured on a test avatar:
-        // the contact bucket alone reached 139 mm on a region 193 mm across, driving flesh
-        // deep inside the avatar's own arm, whereupon the anti-clip guard shoved it 74 mm
-        // back out in a single UNSMOOTHED step - which is what a shard actually is.
+        // layers); the field stage had none. Without it a deep contact can drive flesh far
+        // inside the avatar's own arm, and the anti-clip guard then pushes it back out in a
+        // single unsmoothed step, which is what renders as a shard.
         //
         // 0 disables the limiter and restores the old behaviour for an A/B.
         public float maxDent = 0.05f;
@@ -231,7 +227,7 @@ namespace SoftBodySuite
         // how much of the push Lift follows along each body axis (up = world up)
         public float liftUp = 1f, liftForward = 0.2f, liftSide = 0.5f;
         public float rippleSmoothing = 10f;       // blur passes on the ripple crests
-        // WHERE a ripple starts. Any mix may be on; each one that applies sends its own wave.
+        // Where a ripple starts. Any mix may be on; each one that applies sends its own wave.
         public float rippleFromOuter = 1f;        // the outermost point, opposite a jolt (motion)
         public float rippleFromTouch = 1f;        // where a collider first touches
         public float rippleFromNipples = 0f;      // auto-found nipples (breast bones, else shape)
@@ -269,7 +265,7 @@ namespace SoftBodySuite
     public class SquishCollider
     {
         public string bone = "";          // transform name (humanoid enum or raw name)
-        public string mesh = "";          // if set: use this WHOLE skinned mesh as the collider
+        public string mesh = "";          // if set: use this whole skinned mesh as the collider
                                           // (baked every frame into a point cloud of `radius`
                                           // spheres, so it follows the animation; `bone` ignored)
         public float radius = 0.05f;      // metres (sphere radius / mesh-cloud sample radius)
@@ -302,7 +298,7 @@ namespace SoftBodySuite
         public SquishRegion squish = new SquishRegion();
         public FieldRegion field = new FieldRegion();   // stage 4: the field effect family
 
-        // Point every stage block at THIS region's paint. Call after loading, after
+        // Point every stage block at this region's paint. Call after loading, after
         // painting, and after adding or removing a collider: the blocks hold
         // references, not copies, so a later edit to the lists is seen by all three.
         public void Sync()
@@ -342,7 +338,7 @@ namespace SoftBodySuite
                                           // because it changes the answer, not just the cost
         public float maxDeltaTime = 0.033f;
         public bool halfRate = false;     // compute physics every 2nd frame (held between)
-        public bool halfRateLerp = false; // half-rate, but held frames BLEND between ticks
+        public bool halfRateLerp = false; // half-rate, but held frames blend between ticks
         public bool asyncSim = false;     // run the physics on a worker thread (1 frame latency)
     }
 
@@ -373,17 +369,17 @@ namespace SoftBodySuite
     // Stage 4 owns its own cage, at its own density, with its own diagnostics.
     public class FieldStageSettings : StageSettings
     {
-        // OFF by default, and Field Mix starts at 0 on every region. A config that has
+        // Off by default, and Field Mix starts at 0 on every region. A config that has
         // never seen this build therefore renders exactly as v2.0.0 did and costs
-        // exactly what v2.0.0 cost - no cage is built until the user asks for one.
+        // exactly what v2.0.0 cost; no cage is built until the field stage is turned on.
         public FieldStageSettings() { enabled = false; }
 
-        // NOTE: StageSettings.substeps is inherited here and this stage does not read it.
-        // The field is not an integrator - see the note above FieldProxy.RunField - so the
-        // Substeps row was removed from the Field - Cage section rather than left wired to
-        // nothing. The FIELD is kept so an existing config still round-trips unchanged.
+        // Note: StageSettings.substeps is inherited here and this stage does not read it.
+        // The field is not an integrator (see the note above FieldProxy.RunField), so the
+        // Substeps row was removed from the field's Cage section rather than left wired to
+        // nothing. The field is kept so an existing config still round-trips unchanged.
 
-        public float remeshSize = 0.008f;      // cage target edge (m) - the 8 mm reference edge
+        public float remeshSize = 0.008f;      // cage target edge (m), the 8 mm reference edge
         public float remeshPasses = 8f;        // isotropic remesh iterations
         public float projAvg = 0f;             // Laplacian passes on the cage displacement
         public float proxySmooth = 0f;         // peak/sharp-edge smoothing before projecting
@@ -394,34 +390,34 @@ namespace SoftBodySuite
     // ----- clothes -----
     // Two different fixes for the same problem, which used to live in two different
     // plugins and fight each other one frame apart:
-    //   FOLLOW moves the CLOTHES onto the finished body (was Jell-o Studio's cage drive).
-    //   GUARD  moves the BODY back inside the clothes (was Squish Studio's clip guard).
+    //   Follow moves the clothes onto the finished body (was Jell-o Studio's cage drive).
+    //   Guard  moves the body back inside the clothes (was Squish Studio's clip guard).
     // Both now run at the very end, in that order, on the true final body.
     public enum ClothMode { Off = 0, Follow = 1, Guard = 2, Both = 3 }
 
     public class ClothFollow
     {
         public bool enabled = false;       // was Jell-o Studio's "cage drive"
-        // Offset (m) of the capture zone, in the AVATAR's own axes: x = to her right,
+        // Offset (m) of the capture zone, in the avatar's own axes: x = to her right,
         // y = up, z = forward. Each garment vert looks for body to follow at
-        // (its position minus this offset), so +z lets cloth hanging in FRONT of the
+        // (its position minus this offset), so +z lets cloth hanging in front of the
         // body bind to the surface behind it. 0,0,0 is the old behaviour.
         public float offsetX = 0f, offsetY = 0f, offsetZ = 0f;
-        // FLOATING ACCESSORIES. A connected piece of a garment whose cloth mostly sits
+        // Floating accessories. A connected piece of a garment whose cloth mostly sits
         // further than floatDist off the body (a bow, a ribbon, a dangling charm) is
-        // moved as ONE rigid piece - a best-fit rotation + shift of its whole patch -
+        // moved as one rigid piece (a best-fit rotation + shift of its whole patch)
         // instead of point by point. Point by point, each bit latches onto a different
-        // patch of skin and neighbours tear apart (measured: edges stretched 68x on a
-        // breast bow). rigidFloat blends 0 = old per-point, 1 = fully rigid.
+        // patch of skin and neighbours tear apart (edges can stretch
+        // many times over). rigidFloat blends 0 = old per-point, 1 = fully rigid.
         public float rigidFloat = 1f;
         public float floatDist = 0.02f;
         public float range = 0.04f;        // max distance (m) from the body for a garment vert to
                                            // be driven; influence tapers to 0 at this range
         public float fitStrength = 1f;     // multiplier on the displacement the clothes replay
         public float inflate = 0f;         // static outward clearance (m) added to the driven area
-        public float inflateDyn = 0f;      // extra outward push proportional to the OUTWARD part of
+        public float inflateDyn = 0f;      // extra outward push proportional to the outward part of
                                            // the motion: cloth leads the body out, never digs in
-        public bool bindWhole = false;     // bind to the WHOLE body surface, not just painted regions
+        public bool bindWhole = false;     // bind to the whole body surface, not just painted regions
         public bool boneFilter = true;     // garments only bind on verts weighted to the region's
                                            // picked bones (srcBones)
         public float fillMax = 600f;       // gap infill: largest unbound island (in weld groups)
@@ -432,11 +428,11 @@ namespace SoftBodySuite
         public float minClear = 0.002f;    // minimum garment-to-skin gap (m)
         public float folSharp = 0f;        // 0 = clothes ride the body's smoothed field (safe);
                                            // 1 = the raw, full-amplitude field
-        public float folSmooth = 4f;       // smoothing passes on the CLOTH's copy of the field
+        public float folSmooth = 4f;       // smoothing passes on the cloth's copy of the field
         public float seamLevel = 0f;       // the follower's own copy of the seam smoother
         public float seamRange = 0f;
         public float seamMaxStretch = 0f;
-        // SKIN GUARD: the very last cloth pass. Every garment vert near the skin, bound or
+        // Skin guard: the very last cloth pass. Every garment vert near the skin, bound or
         // not, is pushed out of the body that is actually on screen, with a soft falloff
         // round each push. Only where a later stage moved the body; elsewhere untouched.
         public bool skinGuard = true;
@@ -444,14 +440,14 @@ namespace SoftBodySuite
         public float guardReach = 0.06f;     // cloth further than this from the skin at bind is ignored (m)
         public float guardSoft = 1f;         // falloff: a push of X lifts the cloth up to X * this around it
         public float guardStrength = 1f;     // 0..1 blend of the push
-        public float guardSunk = 0f;         // cloth the MODEL itself has sunk into the skin, up to this deep (m),
+        public float guardSunk = 0f;         // cloth the model itself has sunk into the skin, up to this deep (m),
                                              // is watched too and lifted just above the skin, moving or not
     }
 
     public class ClothGuard
     {
         public bool enabled = false;       // was Squish Studio's "clip guard"
-        public float clearance = 0.001f;   // EXTRA metres beyond the rest fit (0 = preserve the
+        public float clearance = 0.001f;   // Extra metres beyond the rest fit (0 = preserve the
                                            // exact rest relationship, never squash at rest)
         public float range = 0.05f;        // bind range: body verts within this of a garment
         public float strength = 1f;        // 0..1 blend of the correction
@@ -489,7 +485,7 @@ namespace SoftBodySuite
         public bool enabled = true;
 
         // ----- overall jiggle, every stage at once (1 = exactly the tuned look) -----
-        // Strength scales what each stage ADDS to the body: the same motion, smaller.
+        // Strength scales what each stage adds to the body: the same motion, smaller.
         // Settle scales how long every oscillator keeps ringing (its decay rate / settle).
         public float jiggleStrength = 1f;
         public float jiggleSettle = 1f;

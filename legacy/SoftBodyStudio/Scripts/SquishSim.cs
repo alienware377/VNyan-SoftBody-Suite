@@ -5,7 +5,7 @@ namespace SoftBodyStudio
 {
     // A whole skinned mesh used as a collider, auto-reduced ONCE to a small set of BONE
     // CAPSULES: verts are grouped by dominant skin bone, each group fitted with a capsule in
-    // that bone's local space â€” so the capsules follow animation for free (no per-frame
+    // that bone's local space, so the capsules follow animation for free (no per-frame
     // baking or clustering at all). Capsules that already intersect the painted region at
     // generation time (the chest wall under the breasts etc.) are skipped. Smooth solid
     // primitives give a natural squish direction at any penetration depth.
@@ -79,7 +79,7 @@ namespace SoftBodyStudio
             int nv = Mathf.Min(mv.Length, bw.Length);
 
             // the whole hand (wrist + palm + fingers + thumb + wrist-twist) merges into ONE
-            // fat capsule per side, anchored on the wrist â€” dozens of thin finger capsules
+            // fat capsule per side, anchored on the wrist. Dozens of thin finger capsules
             // left slip gaps and their conflicting pushes sharded the skin
             int hwL = -1, hwR = -1;
             for (int b2 = 0; b2 < bones.Length; b2++)
@@ -132,7 +132,7 @@ namespace SoftBodyStudio
                 if (usedBones.Contains(bones[b])) continue;   // covered by an earlier mesh
                 // endpoints: OWN joint pivot -> CHILD joint pivot whenever a child bone has
                 // geometry. Chained capsules then SHARE the joint point and stay overlapped
-                // however the joint bends â€” bbox fits left a wedge gap at bent elbows that
+                // however the joint bends; bbox fits left a wedge gap at bent elbows that
                 // skin slipped into (ring artifact).
                 bool isHand = (b == hwL || b == hwR);
                 Vector3 pa = Vector3.zero, pb;
@@ -237,7 +237,7 @@ namespace SoftBodyStudio
         }
 
         // capsule barrier: radial push out of the engaged capsules, penetration-weighted.
-        // Radial directions are stable at any depth â€” nothing to slide over or get behind.
+        // Radial directions are stable at any depth, with nothing to slide over or get behind.
         public bool TryPushPlanar(Vector3 p, float gap, out Vector3 push)
         {
             push = Vector3.zero;
@@ -248,7 +248,7 @@ namespace SoftBodyStudio
             for (int k = 0; k < nc; k++)
             {
                 // broadphase: cheap squared-distance reject (this loop runs ~a million
-                // times a frame across all nodes â€” the sqrt-heavy math below must be rare)
+                // times a frame across all nodes, so the sqrt-heavy math below must be rare)
                 float bx = p.x - cm[k].x, by = p.y - cm[k].y, bz = p.z - cm[k].z;
                 if (bx * bx + by * by + bz * bz > re2[k]) continue;
                 Vector3 cp = Closest(p, ca[k], cb[k]);
@@ -306,7 +306,7 @@ namespace SoftBodyStudio
     // Per substep: verlet integrate, then N iterations of
     //   1. attach (soft spring + hard leash to the CURRENT skinned position),
     //   2. edge distance constraints (rest length = the current skinned bake, so any pose
-    //      on any rig - however messy - is the natural rest state),
+    //      on any rig, however messy, is the natural rest state),
     //   3. capsule collision projection (hard, LAST, every iteration).
     // Non-penetration is structural: neighbours are dragged coherently by the distance
     // constraints instead of tearing, and a pressure term re-inflates displaced volume.
@@ -455,7 +455,7 @@ namespace SoftBodyStudio
             n = reps.Count;
             // each node's representative = the member closest to the CELL CENTROID
             // (medoid). The first member can sit at the cell border, which gives
-            // adjacent coarse nodes sub-millimeter rest separations - the same sub-mm
+            // adjacent coarse nodes sub-millimeter rest separations: the same sub-mm
             // instability the coarsening was supposed to remove, reborn at node level.
             for (int i = 0; i < n; i++)
             {
@@ -717,7 +717,7 @@ namespace SoftBodyStudio
                     if (L < 1e-7f) continue;
                     float diff = L - restE[e];
                     // FLESH, not cloth: resist stretch hard, allow compression almost
-                    // freely - symmetric constraints force the surface to BUCKLE (fold)
+                    // freely; symmetric constraints force the surface to BUCKLE (fold)
                     // under a press, which is exactly the rainbow crinkle in the overlay
                     float k1 = diff > 0f ? kStretch : kStretch * compressK;
                     Vector3 c = d * (diff / L * 0.5f * k1);
@@ -759,7 +759,7 @@ namespace SoftBodyStudio
                         float tAdapt = Mathf.Min(0.95f, tension * Mathf.Clamp(medianScale / Mathf.Max(localScale[i], 1e-5f), 1f, 3f));
                         pos[i] = Vector3.Lerp(pos[i], baked[idx[i]] + avgOff, tAdapt);
                     }
-                // 3. collision - hard, last. Iteration 0 scans ALL nodes and records the
+                // 3. collision (hard, last). Iteration 0 scans ALL nodes and records the
                 // contact set (+ neighbours); later iterations only re-test that set.
                 if (skipCollision) continue;
                 if (it == 0) nContact = 0;
@@ -887,7 +887,7 @@ namespace SoftBodyStudio
             }
             if (blewUp)
             {
-                Debug.LogWarning("[SoftBody] region '" + cfg.name + "' destabilised (NaN/huge offset) - state reset");
+                Debug.LogWarning("[SoftBody] region '" + cfg.name + "' destabilised (NaN/huge offset), state reset");
                 ResetState();
             }
         }

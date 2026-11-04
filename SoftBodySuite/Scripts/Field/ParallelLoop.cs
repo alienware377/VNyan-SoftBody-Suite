@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 namespace SoftBodySuite.Field
 {
     // Splits a per-node loop across CPU cores. Only for loops where every node writes its
-    // OWN output slot and reads nothing another node writes in the same loop - then the
+    // own output slot and reads nothing another node writes in the same loop; then the
     // result is bit-identical to the plain loop, just faster. Small loops stay on one
     // thread: below a few thousand nodes the hand-off costs more than it saves.
     public static class ParallelLoop

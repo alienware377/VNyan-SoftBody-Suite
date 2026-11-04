@@ -30,9 +30,9 @@ after the skinning bake.
   another region, copy settings straight from another region, and fix regions that barely
   move. Paint edits now rebuild every stage.
 - **Much faster:** most heavy loops now use all your CPU cores, a lot of wasted work is gone,
-  and Jell-o's cage solve overlaps with the clothes' mesh bake. On the test avatar with
-  Wobble + Jell-o + clothes it went from about 45 fps to a steady 60 (VNyan's cap), with the
-  same look.
+  and Jell-o's cage solve overlaps with the clothes' mesh bake. With Wobble + Jell-o +
+  clothes on, one avatar went from about 45 fps to a steady 60 (VNyan's cap), with the same
+  look.
 
 ## One plugin, one window, five stages
 
@@ -55,24 +55,22 @@ simulation off it simply passes the body through), because the clothes are fitte
 
 ## Highlights
 
-- 🫠 **Marshmallow collision**: soft, smooth, shard-free dents from hand/arm capsule
-  colliders auto-fitted from any skinned mesh
-- 🍮 **Remeshed sim cages**: physics runs on uniform, auto-remeshed copies of your painted
-  regions, then projects back onto the real mesh: mixed 0.4 mm to 8 mm topology stops mattering
-- 🌊 **Flesh that ripples**: waves that travel across the surface from a slap, a jolt or a
-  point you picked, plus a fat jiggle effect
-- 👕 **Clothes that stay on**: garments ride the exact same movement as the body, fitted
-  once after every stage, then the skin guard lifts out anything that sank in
-- 🖌️ **Paint your regions once** in-app (brush, bone-select, blur, normalize): each stage
-  keeps its own tuned values for the same region
-- 💾 **Presets that follow your model**: one preset holds every stage; auto-load it by the
-  model's file name, or by any text the model name includes. Region presets move one
-  region's tuning to another
-- 🦴 **Messy-rig safe**: evacuation translates only whole bone chains, never scales, never
-  fights animation or tracking
-- ⚡ **Fast**: multi-core helpers, plus per-stage half-rate and background-thread options
-  for slower PCs
-- 🎛️ **Everything is a slider**: with `?` tooltips explaining what each control does
+- Soft, smooth, shard-free dents from hand and arm capsule colliders, auto-fitted from any
+  skinned mesh.
+- Physics runs on uniform, auto-remeshed copies of your painted regions and is projected
+  back onto the real mesh, so mixed 0.4 mm to 8 mm topology stops mattering.
+- Waves travel across the surface from a slap, a jolt or a point you picked, plus a fat
+  jiggle effect.
+- Garments ride the same movement as the body, fitted once after every stage, and the skin
+  guard lifts out anything that sank in.
+- Paint your regions once in-app (brush, bone-select, blur, normalize). Each stage keeps its
+  own tuned values for the same region.
+- One preset holds every stage. Auto-load it by the model's file name, or by any text the
+  model name includes. Region presets move one region's tuning to another.
+- Safe on messy rigs: evacuation translates only whole bone chains, never scales, and never
+  fights animation or tracking.
+- Multi-core helpers, plus per-stage half-rate and background-thread options for slower PCs.
+- Every control is a slider with a `?` tooltip explaining what it does.
 
 ## Quick Start
 

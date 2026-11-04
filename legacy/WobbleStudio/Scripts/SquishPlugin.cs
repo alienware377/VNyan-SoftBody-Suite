@@ -413,10 +413,10 @@ namespace WobbleStudio
                 { "Button_DisableMesh", "Stop simulating this mesh and restore the original." },
                 { "Dropdown_Region", "Pick which mirrored region's wobble settings to edit. Create/paint regions in Squish Studio." },
                 { "Toggle_RegionEnabled", "Turn this region's wobble on/off (mirrors Squish Studio's enabled state on sync)." },
-                { "Slider_jiggle", "Overall wobble strength - how much the flesh lags behind bone movement." },
+                { "Slider_jiggle", "Overall wobble strength: how much the flesh lags behind bone movement." },
                 { "Slider_stiffness", "Spring pull back to the rest shape. Higher = tighter, faster return." },
                 { "Slider_damping", "How quickly oscillation dies out. Low = bouncy, high = heavy." },
-                { "Slider_bounce", "Inertia drag - flesh resists sudden motion changes." },
+                { "Slider_bounce", "Inertia drag: flesh resists sudden motion changes." },
                 { "Slider_maxoff", "Hard cap on deformation distance in meters." },
                 { "Slider_gravity", "Constant downward sag." },
                 { "Toggle_GravityPose", "Apply gravity only when the reference bone leaves its rest pose (e.g. leaning forward)." },
@@ -424,7 +424,7 @@ namespace WobbleStudio
                 { "Slider_cloth", "Traveling surface ripples excited by movement, like fabric." },
                 { "Slider_clothsize", "Wavelength of the cloth ripples." },
                 { "Slider_jello", "Standing-wave wobble of the whole region, like jello." },
-                { "Slider_jellosize", "Jello wave scale - bigger = slower, broader wobble." },
+                { "Slider_jellosize", "Jello wave scale: bigger = slower, broader wobble." },
                 { "Slider_liquid", "Fluid-like ripples that radiate from motion impacts." },
                 { "Slider_liquidsize", "Wavelength of the liquid ripples." },
                 { "Slider_wavespeed", "Propagation speed multiplier for all wave modes." },
@@ -437,7 +437,7 @@ namespace WobbleStudio
                 { "Slider_turbsize", "Scale of the turbulence noise." },
                 { "Slider_cellulite", "Static dimpled surface relief." },
                 { "Slider_cellsize", "Dimple size." },
-                { "Toggle_NativeOff", "Disable VNyan/native spring & dynamic bones while wobbling - they fight the mesh simulation." },
+                { "Toggle_NativeOff", "Disable VNyan/native spring & dynamic bones while wobbling, since they fight the mesh simulation." },
                 { "Toggle_HalfRate", "HALF-RATE physics: compute the simulation every 2nd frame (with doubled timestep) and hold the result in between, which nearly halves the physics cost on slower PCs. Skinning/animation still updates every frame, so it is barely visible." },
                 { "Toggle_HalfRateLerp", "HALF-RATE + SMOOTH: like half-rate physics, but held frames show a blend between the last two physics ticks instead of a repeat, for smoother motion at the same cost, with half a tick of extra latency. Mutually exclusive with the other rate options." },
                 { "Slider_jellorand", "Jell-o RANDOMIZER: slowly wanders the wobble's centre around the region (smooth noise, mostly horizontal) so the jell-o motion looks organic instead of a fixed standing wave. Higher = wider, faster wandering." },
@@ -1559,7 +1559,7 @@ namespace WobbleStudio
                         if (src == null) continue;
                         SquishRegion r = mine.regions.Find(x => x != null && x.name == src.name);
                         if (r == null) { r = new SquishRegion { name = src.name }; mine.regions.Add(r); changed = true; }
-                        // mirror ONLY the region definition (verts/weights/enabled) - the
+                        // mirror ONLY the region definition (verts/weights/enabled); the
                         // wobble parameters stay whatever the user set HERE
                         if (r.enabled != src.enabled) { r.enabled = src.enabled; changed = true; }
                         if (!SameSelection(r, src))
@@ -1568,7 +1568,7 @@ namespace WobbleStudio
                             r.weight = new List<float>(src.weight);
                             changed = true;
                         }
-                        // colliders are OWNED by Squish Studio too - mirror the set
+                        // colliders are owned by Squish Studio too, so mirror the set
                         string sig = JsonConvert.SerializeObject(src.colliders);
                         if (JsonConvert.SerializeObject(r.colliders) != sig)
                         {

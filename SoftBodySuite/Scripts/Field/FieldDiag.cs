@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace SoftBodySuite.Field
 {
-    // INSTRUMENTATION FIRST: this file exists before any source does, on purpose.
+    // Instrumentation first: this file exists before any source does, on purpose.
     // There is no play-mode preview here: a round trip is 4-8 minutes (build, copy the
     // DLL, restart VNyan, re-pose the avatar) and a worker thread swallows exceptions,
     // so a bug arrives as a frozen dent with no log line at all. The only way anyone
@@ -10,19 +10,19 @@ namespace SoftBodySuite.Field
     //
     // Nothing here allocates per frame: Mark() walks a fixed table of interned pass
     // names, VerifyIdentity reinterprets floats through a preallocated scratch pair,
-    // and strings are built ONLY inside Report() and DumpCsv().
+    // and strings are built only inside Report() and DumpCsv().
     public static class FieldDiag
     {
-        // When on, FieldProxy runs VerifyIdentity every frame and logs the FIRST
+        // When on, FieldProxy runs VerifyIdentity every frame and logs the first
         // frame the published buffer stops being bit-identical to the input.
         public static bool identityWatch;
         static bool identityBroken;
 
         // ---------------- identity ----------------
 
-        // The pass-through check passes only on maxDelta == 0.0f EXACTLY, not "< 1e-6",
-        // EXACTLY: for 600 consecutive frames with the registry empty, at sfxMix 0
-        // AND at sfxMix 1. That is only reachable if the publish path is a memcpy:
+        // The pass-through check passes only on maxDelta == 0.0f exactly, not "< 1e-6",
+        // exactly: for 600 consecutive frames with the registry empty, at sfxMix 0
+        // and at sfxMix 1. That is only reachable if the publish path is a memcpy:
         // adding 0.0f to -0.0f is not the identity (it yields +0.0f, a different bit
         // pattern) and Vector3.Lerp(v, w, 0f) is not either (it is v + (w-v)*0, which
         // rounds). Anything clever in the publish path shows up here.
@@ -47,7 +47,7 @@ namespace SoftBodySuite.Field
             checksum = Checksum(published);
         }
 
-        // Fletcher-32 over the RAW FLOAT BITS, so +0.0f and -0.0f give different
+        // Fletcher-32 over the raw float bits, so +0.0f and -0.0f give different
         // checksums: a value-space hash would hide exactly the drift being hunted.
         static readonly float[] fScratch = new float[3];
         static readonly uint[] uScratch = new uint[3];
@@ -146,7 +146,7 @@ namespace SoftBodySuite.Field
             tCount = 0;
         }
 
-        // The honest cost, on screen. Built here and nowhere else.
+        // Per-pass cost report for the on-screen readout. Built here and nowhere else.
         public static string Report()
         {
             if (tCount == 0) return "[SfxField] no timings recorded";

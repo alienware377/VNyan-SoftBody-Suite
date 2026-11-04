@@ -7,17 +7,17 @@ namespace SoftBodySuite.Field
     // first and every later source can read the contact reductions it publishes.
     //
     // Two passes:
-    //   PASS 1  SOFT FOOTPRINT - the conform VECTOR is diffused (Shape Smoothing) BEFORE it is
+    //   Pass 1, soft footprint: the conform vector is diffused (Shape Smoothing) before it is
     //           applied, so the footprint becomes the local average of the contact. Hard
     //           collider edges round off and the outer rim anticipates the dent instead of
-    //           cutting dead. Volume PILES on top of it: displaced material heaps up along the
+    //           cutting dead. Volume piles on top of it: displaced material heaps up along the
     //           smoothed escape direction, scaled by the halo. Without the pile the radial
     //           escape stamps a flat shelf on the collider's face (measured).
-    //   PASS 2  HARD CLEANUP - a classic proximity conform at the ALREADY DISPLACED position,
+    //   Pass 2, hard cleanup: a classic proximity conform at the already displaced position,
     //           scaled by Contact Hardness. Below 1 it leaves a slight overlap, which is what
     //           flesh does.
     //
-    // The outer ring bulge and the lateral flow are NOT here: they are FieldPost's
+    // The outer ring bulge and the lateral flow are not here: they are FieldPost's
     // pass (a), reading f.halo and f.seed, because they must run once for all sources.
     public class ContactSource : FieldSource
     {
@@ -45,12 +45,12 @@ namespace SoftBodySuite.Field
             insideF = new float[n]; penF = new float[n]; yieldF = new float[n];
         }
 
-        // The knob that switches the conform on is NOT the same one in every family, and
+        // The knob that switches the conform on is not the same one in every family, and
         // testing p.intensity everywhere made two of them unswitchable:
-        //   footprint families (Ripple, Fat Jiggle) have no Intensity control at all - their
+        //   footprint families (Ripple, Fat Jiggle) have no Intensity control at all; their
         //     footprint is clamp01(Mask * Dent Depth), so Dent Depth is the gate;
         //   Organic drives the core from Collision Strength through ctx.ovIntensity, and
-        //     OrganicSource publishes that in its own IsActive, which runs AFTER this one -
+        //     OrganicSource publishes that in its own IsActive, which runs after this one,
         //     so this has to read the region field directly rather than the override.
         public override bool IsActive(FieldContext ctx)
         {
@@ -64,8 +64,8 @@ namespace SoftBodySuite.Field
 
         // ---------------------------------------------------------------- reductions
         // One sweep over the whole cage producing the three global contact statistics the
-        // later passes read. LIMITATION, known and accepted:
-        // these are GLOBAL reductions. Two colliders pressing different parts of the SAME
+        // later passes read. Limitation, known and accepted:
+        // these are global reductions. Two colliders pressing different parts of the same
         // paint mask blend their axes; axisQuality degrades that case toward the radial escape
         // rather than flattening along an invented direction. One contact per region is the
         // first-class supported case.
@@ -109,7 +109,7 @@ namespace SoftBodySuite.Field
             Vector3 nMean = accN * invW;
             Vector3 push = -nMean.normalized;
             // Axis quality: |mean(n*w)| * (1/mean_w) * 2, clamped to 1. The means
-            // share the same divisor n, so the ratio is |SUM(n*w)| / SUM(w) * 2 exactly - which
+            // share the same divisor n, so the ratio is |SUM(n*w)| / SUM(w) * 2 exactly, which
             // is nMean.magnitude * 2, not nMean.magnitude/sumW*2. Coherent contact -> 1; an
             // enveloping grip or a pinch, where the normals cancel, -> 0 and the flattening
             // loses its vote to the radial spill.
@@ -142,7 +142,7 @@ namespace SoftBodySuite.Field
             float intensity = ctx.coreOverride ? ctx.ovIntensity : p.intensity;
             // Ripple declares fx_dentdepth but must not re-implement the conform, and by
             // Order 600 dispContact also holds Inflate/Organic/Penetration. So the dent
-            // multiplier is applied HERE, on the conform contribution it actually means.
+            // multiplier is applied here, on the conform contribution it actually means.
             float dent = p.dentDepth;
             float maxDent = p.maxDent;
             float volPres = p.volumePreservation;
@@ -154,14 +154,14 @@ namespace SoftBodySuite.Field
             Vector3 cContact = ctx.contactCentroid;
             float axisQ = ctx.axisQuality;
 
-            // Ripple / Fat Jiggle / Penetration are NOT built on the core. Their contact is
-            // the bare flesh conform scaled by clamp01(Mask * Dent Depth) and nothing else
-            // - no Shape Smoothing
+            // Ripple / Fat Jiggle / Penetration are not built on the core. Their contact is
+            // the bare flesh conform scaled by clamp01(Mask * Dent Depth) and nothing else:
+            // no Shape Smoothing
             // diffusion, no volume pile, no Contact Hardness cleanup. coreOverride is the
-            // Organic family, which DOES use the core, so it can never be footprint mode.
+            // Organic family, which does use the core, so it can never be footprint mode.
             bool footprint = ctx.contactFootprint && !ctx.coreOverride;
-            // Strictly, all three footprint families would use a LITERAL 0.0 for splay
-            // - they have no Splay control of their own.
+            // Strictly, all three footprint families would use a literal 0.0 for splay,
+            // as they have no Splay control of their own.
             // Here it is kept, because the
             // panel shows a Splay slider whatever the effect, and a slider that silently
             // does nothing under Ripple / Fat Jiggle reads as broken. Default is 0, so the
@@ -173,11 +173,11 @@ namespace SoftBodySuite.Field
             for (int i = 0; i < n; i++)
             {
                 float mi = mask != null ? mask[i] : 1f;
-                // yield is clamp01(Mask * Strength) and exists for EVERY painted
-                // node, inside or not - pass 2 below needs it on nodes the footprint has since
+                // yield is clamp01(Mask * Strength) and exists for every painted
+                // node, inside or not, because pass 2 below needs it on nodes the footprint has since
                 // pushed into the collider. In footprint mode the scale is
-                // clamp01(Mask * Dent Depth) instead - clamp01(Mask) for Penetration, which
-                // has no Dent Depth - and Intensity is not one of those families' controls at all.
+                // clamp01(Mask * Dent Depth) instead (clamp01(Mask) for Penetration, which
+                // has no Dent Depth), and Intensity is not one of those families' controls at all.
                 yieldF[i] = footprint ? Mathf.Clamp01(mi * fpScale) : Mathf.Clamp01(mi * intensity);
                 if (insideF[i] <= 0f)
                 {
@@ -193,7 +193,7 @@ namespace SoftBodySuite.Field
                 if (f.limbDepth != null) f.limbDepth[i] = col.lastLimb ? (pen > 0f ? pen : col.lastDeepPen) : 0f;
                 seedVec[i] = footprint ? conform * yieldF[i] : conform * (yieldF[i] * dent);
                 // ---- penetration limiter ----
-                // Clamp the DENT, not the whole pipeline: past maxDent the flesh "gives
+                // Clamp the dent, not the whole pipeline: past maxDent the flesh "gives
                 // way" rather than following the collider in arbitrarily deep. The older
                 // stages spend the excess on evacuation; the field stage has no evacuation
                 // layer, so here it is simply dropped, which is still strictly better than
@@ -223,8 +223,8 @@ namespace SoftBodySuite.Field
                     f.AddDisp(i, sv, FieldAcc.Contact);
                     f.dir[i] = sv.normalized;
                 }
-                // NOT VolumePreserve: pass (a) is the core's ring bulge and lateral flow, and
-                // none of these three families has it. AntiClip stays - it is the hard no-clipping
+                // Not VolumePreserve: pass (a) is the core's ring bulge and lateral flow, and
+                // none of these three families has it. AntiClip stays: it is the hard no-clipping
                 // guarantee, not a look.
                 f.Require(FieldPostFlags.CorrectiveSmooth | FieldPostFlags.SkinRamp
                           | FieldPostFlags.AntiClip);
@@ -244,7 +244,7 @@ namespace SoftBodySuite.Field
                 if (s.sqrMagnitude <= 1e-18f && f.halo[i] <= 0f) continue;
                 float mi = mask != null ? mask[i] : 1f;
                 Vector3 dir = s.normalized;
-                // 0.35 is a fixed constant. The pile rides the SMOOTHED escape direction, which
+                // 0.35 is a fixed constant. The pile rides the smoothed escape direction, which
                 // points away from the collider face the vertex landed on, so it can never
                 // reintroduce penetration.
                 Vector3 pile = dir * (f.halo[i] * 0.35f * volPres * mi);
@@ -252,11 +252,11 @@ namespace SoftBodySuite.Field
                 f.dir[i] = dir;
             }
 
-            // ---- pass 2: hard cleanup at the DEFORMED position
+            // ---- pass 2: hard cleanup at the deformed position
             // FieldPost.RecomputeNormals has not run yet, so the deformed position is derived
             // here from the contact accumulator. ContactSource is Order 100 and the first
             // writer, so dispContact holds exactly pass 1 at this point.
-            // It runs over every PAINTED node, not only the ones that started inside: the soft
+            // It runs over every painted node, not only the ones that started inside: the soft
             // footprint drags neighbours in, and those are exactly the ones that would be left
             // clipped if the cleanup only revisited the original contact set.
             if (hardness > 0.0001f)
@@ -297,7 +297,7 @@ namespace SoftBodySuite.Field
                 + "that separate Soft Flesh (8) from Memory Foam (10) and Elastic Rubber (4).");
 
             schema.AddSlider(S, "fx_spread", "Spread", 0f, 25f, 1f, GetSpread, SetSpread);
-            schema.Tooltip("fx_spread", "Width of the halo around the contact - how far the "
+            schema.Tooltip("fx_spread", "Width of the halo around the contact: how far the "
                 + "displaced material is felt. Foam 12, Soft Flesh 10, Rubber 6.");
 
             schema.AddSlider(S, "fx_volpres", "Volume Preservation", 0f, 2f, 0.21f, GetVolPres, SetVolPres);

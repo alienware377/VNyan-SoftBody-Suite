@@ -8,7 +8,7 @@ namespace SoftBodySuite.Jello
 
     // A whole skinned mesh used as a collider, auto-reduced ONCE to a small set of BONE
     // CAPSULES: verts are grouped by dominant skin bone, each group fitted with a capsule in
-    // that bone's local space â€” so the capsules follow animation for free (no per-frame
+    // that bone's local space, so the capsules follow animation for free (no per-frame
     // baking or clustering at all). Capsules that already intersect the painted region at
     // generation time (the chest wall under the breasts etc.) are skipped. Smooth solid
     // primitives give a natural squish direction at any penetration depth.
@@ -82,7 +82,7 @@ namespace SoftBodySuite.Jello
             int nv = Mathf.Min(mv.Length, bw.Length);
 
             // the whole hand (wrist + palm + fingers + thumb + wrist-twist) merges into ONE
-            // fat capsule per side, anchored on the wrist â€” dozens of thin finger capsules
+            // fat capsule per side, anchored on the wrist. Dozens of thin finger capsules
             // left slip gaps and their conflicting pushes sharded the skin
             int hwL = -1, hwR = -1;
             for (int b2 = 0; b2 < bones.Length; b2++)
@@ -135,7 +135,7 @@ namespace SoftBodySuite.Jello
                 if (usedBones.Contains(bones[b])) continue;   // covered by an earlier mesh
                 // endpoints: OWN joint pivot -> CHILD joint pivot whenever a child bone has
                 // geometry. Chained capsules then SHARE the joint point and stay overlapped
-                // however the joint bends â€” bbox fits left a wedge gap at bent elbows that
+                // however the joint bends; bbox fits left a wedge gap at bent elbows that
                 // skin slipped into (ring artifact).
                 bool isHand = (b == hwL || b == hwR);
                 Vector3 pa = Vector3.zero, pb;
@@ -240,7 +240,7 @@ namespace SoftBodySuite.Jello
         }
 
         // capsule barrier: radial push out of the engaged capsules, penetration-weighted.
-        // Radial directions are stable at any depth â€” nothing to slide over or get behind.
+        // Radial directions are stable at any depth, with nothing to slide over or get behind.
         public bool TryPushPlanar(Vector3 p, float gap, out Vector3 push)
         {
             push = Vector3.zero;
@@ -251,7 +251,7 @@ namespace SoftBodySuite.Jello
             for (int k = 0; k < nc; k++)
             {
                 // broadphase: cheap squared-distance reject (this loop runs ~a million
-                // times a frame across all nodes â€” the sqrt-heavy math below must be rare)
+                // times a frame across all nodes, so the sqrt-heavy math below must be rare)
                 float bx = p.x - cm[k].x, by = p.y - cm[k].y, bz = p.z - cm[k].z;
                 if (bx * bx + by * by + bz * bz > re2[k]) continue;
                 Vector3 cp = Closest(p, ca[k], cb[k]);
@@ -309,7 +309,7 @@ namespace SoftBodySuite.Jello
     // Per substep: verlet integrate, then N iterations of
     //   1. attach (soft spring + hard leash to the CURRENT skinned position),
     //   2. edge distance constraints (rest length = the current skinned bake, so any pose
-    //      on any rig - however messy - is the natural rest state),
+    //      on any rig, however messy, is the natural rest state),
     //   3. capsule collision projection (hard, LAST, every iteration).
     // Non-penetration is structural: neighbours are dragged coherently by the distance
     // constraints instead of tearing, and a pressure term re-inflates displaced volume.
@@ -460,7 +460,7 @@ namespace SoftBodySuite.Jello
             n = reps.Count;
             // each node's representative = the member closest to the CELL CENTROID
             // (medoid). The first member can sit at the cell border, which gives
-            // adjacent coarse nodes sub-millimeter rest separations - the same sub-mm
+            // adjacent coarse nodes sub-millimeter rest separations: the same sub-mm
             // instability the coarsening was supposed to remove, reborn at node level.
             for (int i = 0; i < n; i++)
             {
@@ -765,7 +765,7 @@ namespace SoftBodySuite.Jello
                         if (L < 1e-7f) continue;
                         float diff = L - RE[e];
                         // FLESH, not cloth: resist stretch hard, allow compression almost
-                        // freely - symmetric constraints force the surface to BUCKLE (fold)
+                        // freely; symmetric constraints force the surface to BUCKLE (fold)
                         // under a press, which is exactly the rainbow crinkle in the overlay
                         float k1 = diff > 0f ? kStretch : kComp;
                         float sc = diff / L * 0.5f * k1;
@@ -844,7 +844,7 @@ namespace SoftBodySuite.Jello
                 }
                 if (ck && tension > 0.001f) CkEnd("tension");
                 tTens += DynLap();
-                // 3. collision - hard, last. Iteration 0 scans ALL nodes and records the
+                // 3. collision (hard, last). Iteration 0 scans ALL nodes and records the
                 // contact set (+ neighbours); later iterations only re-test that set.
                 if (skipCollision) continue;
                 if (it == 0) nContact = 0;
@@ -1107,7 +1107,7 @@ namespace SoftBodySuite.Jello
             }
             // cosmetic vertex-scale polish (shard law: the written field must be smooth)
             // (written out per component, same operations and roundings as the Vector3
-            // version - see StepDynamics)
+            // version; see StepDynamics)
             Vector3[] O = outOffs;
             int tpCk = Mathf.Clamp(Mathf.RoundToInt(cfg.xSmoothPasses), 0, 100);
             bool ckf = (System.Threading.Interlocked.Increment(ref ckFwCounter) % 600) == 43 && ckRuns < 24;
@@ -1161,7 +1161,7 @@ namespace SoftBodySuite.Jello
             if (blewUp)
             {
                 // may run on the solve worker: the main thread logs it (TakeLog)
-                CkPost("[Jello] region '" + cfg.name + "' destabilised (NaN/huge offset) - state reset");
+                CkPost("[Jello] region '" + cfg.name + "' destabilised (NaN/huge offset), state reset");
                 ResetState();
             }
         }

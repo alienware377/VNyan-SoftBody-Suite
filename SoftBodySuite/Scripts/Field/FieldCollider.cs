@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace SoftBodySuite.Field
 {
-    // Narrowphase for the whole Field stage. Everything in here is PROXY-LOCAL and pure
+    // Narrowphase for the whole Field stage. Everything in here is proxy-local and pure
     // maths: no Transform, no Mesh, no UnityEngine object of any kind is touched, so the
     // whole class can move to a worker thread unchanged. The main thread captures the
     // collider primitives once per frame (mirroring SquishSim.CaptureFrameInputs:409-431)
@@ -11,32 +11,32 @@ namespace SoftBodySuite.Field
     //
     // WHY THERE IS NO FOUR-PROBE INSIDE TEST HERE
     // ------------------------------------------
-    // A triangle-soup collider decides "this vertex is inside the collider" with FOUR
+    // A triangle-soup collider decides "this vertex is inside the collider" with four
     // raycast probes multiplied together:
-    //   (a) a +Normal ray that must hit a BACK face,
+    //   (a) a +Normal ray that must hit a back face,
     //   (b) an axis probe, a dual fixed-direction probe at +-(0.5774,0.5774,0.5774)
     //                 that must hit a back face on either leg,
-    //   (c) a surrounded veto, the -Normal ray must ALSO hit (a point truly inside
+    //   (c) a surrounded veto, the -Normal ray must also hit (a point truly inside
     //                 a volume is surrounded, a back-face false positive is not),
-    //   (d) a self-range check, which throws away hits on the SELF mesh further than
-    //                 SELF_RANGE (0.10 m) - a ray that escaped through the mask hole and
+    //   (d) a self-range check, which throws away hits on the self mesh further than
+    //                 SELF_RANGE (0.10 m), the sign of a ray that escaped through the mask hole and
     //                 crossed the body cavity.
     // Every one of those exists because the collider is an arbitrary triangle soup whose
     // normals may be mirrored, whose faces may be open, and which may be the deforming mesh
-    // itself. Our colliders are bone CAPSULES (and the mesh-cloud's auto-fitted capsules):
+    // itself. Our colliders are bone capsules (and the mesh-cloud's auto-fitted capsules):
     // closed, convex, analytic. Against a closed convex primitive (a), (b) and (c) are all
-    // exactly the predicate distToSegment(p) < radius - a ray from a point inside a convex
-    // body exits through a back face in EVERY direction, and a point outside it satisfies
+    // exactly the predicate distToSegment(p) < radius. A ray from a point inside a convex
+    // body exits through a back face in every direction, and a point outside it satisfies
     // none of them. (d) has no meaning at all, because an analytic primitive is never self
     // geometry. So the analytic test is not a shortcut or an approximation: it is the same
     // predicate for roughly one twentieth of the cost (20 flops against four grid-accelerated
-    // raycasts). The ray-based form survives only for the SELF hull - RayCage below - where
+    // raycasts). The ray-based form survives only for the self hull (RayCage below), where
     // the collider really is an arbitrary deformed triangle soup and the four probes are
-    // genuinely earning their keep.
+    // earning their keep.
     public class FieldCollider
     {
-        // The ray length is 1000.0 - effectively "infinite"
-        // against a character-sized scene. The shared contract sketched 10 m; 1000 m is
+        // The ray length is 1000.0, effectively "infinite"
+        // against a character-sized scene. 10 m would be enough; 1000 m is
         // kept because the escape rays must never run out of length inside a large
         // collider. Behaviour is identical for any hit inside 10 m.
         public const float RayLength = 1000f;
@@ -52,14 +52,14 @@ namespace SoftBodySuite.Field
         // to know it is there and how deep.
         public float lastDeepPen;
         // mesh-cloud primitives: MeshColliderCloud has already reduced the skinned mesh to
-        // bone capsules, so each entry is a capsule too - a sphere is just a==b.
+        // bone capsules, so each entry is a capsule too; a sphere is just a==b.
         Vector3[] sa, sb; float[] sr; int ns;
 
         public int CapsuleCount { get { return nc + ns; } }
         public bool Any { get { return nc + ns > 0; } }
 
         // ---------------------------------------------------------------- setters
-        // Both setters COPY. The caller's capture arrays are reused every frame and, once the
+        // Both setters copy. The caller's capture arrays are reused every frame and, once the
         // field runs off the main thread, would be rewritten underneath us mid-sweep.
         public void SetCapsules(Vector3[] a, Vector3[] b, float[] r, bool[] valid, int count)
         { SetCapsules(a, b, r, valid, null, count); }
@@ -67,7 +67,7 @@ namespace SoftBodySuite.Field
         public void SetCapsules(Vector3[] a, Vector3[] b, float[] r, bool[] valid, bool[] limb, int count)
         {
             if (count < 0) count = 0;
-            // GROW-ONLY. `nc` is the live count, so a shorter frame just uses less of the
+            // Grow-only. `nc` is the live count, so a shorter frame just uses less of the
             // buffer: reallocating on every count change put four arrays a frame on the heap
             // the moment a collider was toggled or a mesh cloud resized.
             if (ca == null || ca.Length < count)
@@ -100,7 +100,7 @@ namespace SoftBodySuite.Field
             }
         }
 
-        // Cloud capsules straight from MeshColliderCloud (a,b,r) - same store as the spheres,
+        // Cloud capsules straight from MeshColliderCloud (a,b,r), same store as the spheres,
         // used when the caller has the real segments rather than centres only.
         public void SetCloudCapsules(Vector3[] a, Vector3[] b, float[] r, int count)
         {
@@ -126,8 +126,8 @@ namespace SoftBodySuite.Field
         // ---------------------------------------------------------------- analytic tests
         // Deepest penetration wins: with two capsules overlapping the same flesh the shallow
         // one would otherwise decide the escape direction and leave the vertex inside the
-        // other. cn is the OUTWARD surface normal, cp the surface point under p.
-        // NO SIDE EFFECTS: this runs from several threads at once (contact prepare,
+        // other. cn is the outward surface normal, cp the surface point under p.
+        // No side effects: this runs from several threads at once (contact prepare,
         // cleanup and anti-clip). Which kind of capsule was hit comes back through `limb`;
         // only FleshConform, which is single-threaded, stores it in lastLimb.
         public bool InsideAnalytic(Vector3 p, out float depth, out Vector3 cp, out Vector3 cn)
@@ -165,7 +165,7 @@ namespace SoftBodySuite.Field
             return hit;
         }
 
-        // Nearest point on the union's SURFACE - the analytic stand-in for Blender's
+        // Nearest point on the union's surface: the analytic stand-in for Blender's
         // Geometry Proximity. Ties are broken on |dist - radius| so a point inside one
         // capsule and outside another still escapes through the capsule it is inside.
         public bool ClosestAnalytic(Vector3 p, out Vector3 cp, out Vector3 cn, out float dist)
@@ -198,8 +198,8 @@ namespace SoftBodySuite.Field
         }
 
         // Classic contact conform (the pass-2 "hard cleanup" form).
-        // The SKIN RAMP is the load-bearing part: eff = offset * min(pen / (2*offset + 1e-5), 1).
-        // A grazing contact (pen near zero) gets no skin at all and therefore does not ADHERE
+        // The skin ramp is the load-bearing part: eff = offset * min(pen / (2*offset + 1e-5), 1).
+        // A grazing contact (pen near zero) gets no skin at all and therefore does not adhere
         // to the collider; firm pressure gets the full anti-clip thickness. Dropping the ramp
         // and using a flat offset makes flesh stick to anything it brushes past. The 1e-5 is
         // the guard for offset == 0 and must stay.
@@ -222,13 +222,13 @@ namespace SoftBodySuite.Field
             return true;
         }
 
-        // FLESH conform. Lives here rather than in
+        // Flesh conform. Lives here rather than in
         // ContactSource because PenetrationSource needs the identical maths against the same
         // primitives and duplicating sixty lines of escape blending is how the two drift apart.
-        //   escape 1 (FLATTEN) - ray along the contact push axis, the face that is pressing;
-        //   escape 2 (SPILL)   - radial ray perpendicular to that axis, away from the contact
-        //                        centroid, the overflow around the object's flank.
-        // NOTE, and it is not a bug: against a CAPSULE the spill half is largely inert. A
+        //   escape 1 (flatten): ray along the contact push axis, the face that is pressing;
+        //   escape 2 (spill):   radial ray perpendicular to that axis, away from the contact
+        //                       centroid, the overflow around the object's flank.
+        // Note, and it is not a bug: against a capsule the spill half is largely inert. A
         // capsule has no edge and no flat face, so every radial ray exits through the same
         // smoothly curved surface and the axial escape almost always wins the blend. Splay is
         // implemented faithfully because it is nearly free, not because it is a live slider.
@@ -266,11 +266,11 @@ namespace SoftBodySuite.Field
 
             // ---- ROUND-COLLIDER SPILL ------------------------------------------------
             // The standard sideways escape is a ray fired perpendicular to the push axis, and
-            // it was tuned for colliders with FLAT faces and EDGES: flesh near an edge has a
+            // it was tuned for colliders with flat faces and edges: flesh near an edge has a
             // short way out sideways. A capsule has neither. Fired from inside an arm, that
             // ray runs along the arm's length and exits far away, the 5 cm spill cap then
             // kills it, and Splay did nothing at any setting.
-            // A round collider's real sideways way out is AROUND its curve: the nearest point
+            // A round collider's real sideways way out is around its curve: the nearest point
             // on its surface (icp). Under the middle of the arm that is straight back out,
             // the same as flattening; near its sides it is sideways round the cylinder,
             // which is exactly "spilling past the edge" for a round thing. So when Splay is
@@ -285,10 +285,10 @@ namespace SoftBodySuite.Field
                 }
             }
 
-            // splay-biased smooth-min: the SHORT escape wins, continuously.
+            // splay-biased smooth-min: the short escape wins, continuously.
             float dA2 = tA * tA;
             float dR2 = tR * tR;
-            // Spill cap. Flesh is cohesive: only flesh already NEAR an edge spills
+            // Spill cap. Flesh is cohesive: only flesh already near an edge spills
             // over it. fall = 1/(1+(dR/5cm)^2) = 1/(1+400*dR^2). Without it a large collider
             // let mid-breast flesh "melt" 10-15 cm sideways to the far face.
             float fall = 1f / (1f + dR2 * 400f);
@@ -307,18 +307,14 @@ namespace SoftBodySuite.Field
             Vector3 esc = target - p;
             pen = esc.magnitude;
             // ---- SELF_RANGE ---------------------------------------------------------
-            // A REAL penetration leaves through the near wall. An escape that has to travel
+            // A real penetration leaves through the near wall. An escape that has to travel
             // further than 10 cm is the inside test having gone wrong: the node was never
-            // really in contact, it is sitting inside a LARGE capsule (a torso, an upper
+            // really in contact, it is sitting inside a large capsule (a torso, an upper
             // arm) and the exit ray is crossing the whole body cavity to the far side.
             //
-            // 68.7 mm of phantom deformation was measured in the decolletage from
-            // exactly this, hence the guard. Here it maps one-for-one, because `pen` IS
-            // the ray's hit distance - the quantity compared against SELF_RANGE.
-            //
-            // Measured before this guard: cage max 139 mm on a region 193 mm across, mean
-            // 2.2 mm. A handful of nodes flying a distance comparable to the whole breast,
-            // while their neighbours barely moved - which renders as shards.
+            // Without this guard a handful of nodes jump a distance comparable to the whole
+            // region while their neighbours barely move, which renders as shards. `pen` is
+            // the ray's hit distance, the quantity compared against SELF_RANGE.
             //
             // Rejecting is the right answer, not clamping: a clamp would still displace the
             // node by 100 mm in a direction chosen by a bogus hit. Not-inside is what the
@@ -340,8 +336,8 @@ namespace SoftBodySuite.Field
         }
 
         // ---------------------------------------------------------------- rays
-        // Nearest hit across every primitive. The escape rays START INSIDE the collider, so
-        // the near root is BEHIND the origin and must be rejected - taking the first root
+        // Nearest hit across every primitive. The escape rays start inside the collider, so
+        // the near root is behind the origin and must be rejected; taking the first root
         // unconditionally teleports the vertex to the entry face.
         public bool Ray(Vector3 o, Vector3 d, float maxLen,
                         out float t, out Vector3 hitPos, out Vector3 hitNrm)
@@ -367,7 +363,7 @@ namespace SoftBodySuite.Field
         }
 
         // Analytic ray vs capsule: infinite-cylinder body plus the two sphere caps. Returns
-        // the nearest hit strictly in FRONT of the origin and closer than maxT.
+        // the nearest hit strictly in front of the origin and closer than maxT.
         static bool RayCapsule(Vector3 o, Vector3 dir, Vector3 A, Vector3 B, float r, float maxT,
                                out float t, out Vector3 hitPos, out Vector3 hitNrm)
         {
@@ -423,7 +419,7 @@ namespace SoftBodySuite.Field
                     Vector3 hp = o + dir * tt;
                     if (baba > 1e-12f)
                     {
-                        // only the hemisphere BEYOND the segment end is real surface; the rest
+                        // only the hemisphere beyond the segment end is real surface; the rest
                         // of the sphere is buried in the cylinder
                         float y = Vector3.Dot(ba, hp - A);
                         if (e == 0 ? y > 0f : y < baba) continue;
@@ -438,18 +434,18 @@ namespace SoftBodySuite.Field
         }
 
         // ---------------------------------------------------------------- self hull
-        // Ray against the DEFORMED cage triangles, for self-contact. This is the one place the
+        // Ray against the deformed cage triangles, for self-contact. This is the one place the
         // arbitrary-triangle-soup case survives, and it needs an accelerator: brute force over
         // ~9000 cage triangles per ray is not a budget, it is a slideshow.
         //
-        // RemeshCage.TriGrid is public but exposes only Nearest/NearestGated - its cell
+        // RemeshCage.TriGrid is public but exposes only Nearest/NearestGated. Its cell
         // dictionary, P and T are private, so it cannot serve a ray query from outside the
         // class and there is no way to add one without editing RemeshCage.cs, which is not
         // ours. So this is our own grid with the same cell hashing and a 3D-DDA walk.
-        // STALENESS, and why the throttle is not enough on its own: the arrays are ALIASED,
-        // so RayTri always reads the caller's CURRENT vertex positions while the cell buckets
+        // Staleness, and why the throttle is not enough on its own: the arrays are aliased,
+        // so RayTri always reads the caller's current vertex positions while the cell buckets
         // date from whenever the grid was last built. Those two disagreeing is not "one or two
-        // frames stale", it is a grid that lists a triangle in a cell the triangle has left -
+        // frames stale", it is a grid that lists a triangle in a cell the triangle has left:
         // the DDA then walks past it and the ray misses. So the caller that is about to shoot
         // rays forces a rebuild (SetCageForSelf's `force`), and SelfRebuild only throttles
         // repeat calls inside the same solve.
@@ -465,9 +461,9 @@ namespace SoftBodySuite.Field
         public bool HasSelfHull { get { return selfT != null && selfCells.Count > 0; } }
 
         // Pass the deformed cage positions, its triangle list, and the frame's clock. The
-        // arrays are aliased, not copied - the grid indexes into whatever the caller keeps
+        // arrays are aliased, not copied: the grid indexes into whatever the caller keeps
         // writing, which is exactly what makes the staleness cheap.
-        // `now` is a PARAMETER and not Time.realtimeSinceStartup precisely because FieldPost
+        // `now` is a parameter and not Time.realtimeSinceStartup precisely because FieldPost
         // calls this from the solve half, and the solve half is the half that is meant to move
         // to a worker thread one day. Reading a UnityEngine static in here would have made this
         // the one line that blocked it, and it would have thrown rather than degraded.
@@ -476,7 +472,7 @@ namespace SoftBodySuite.Field
             SetCageForSelf(deformedPos, tris, now, false);
         }
 
-        // force: rebuild the buckets from THESE positions now, whatever the throttle says.
+        // force: rebuild the buckets from these positions now, whatever the throttle says.
         // FieldPost passes true on the first iteration of its self-contact pass, because that
         // is the moment the positions it is about to raycast against become final.
         public void SetCageForSelf(Vector3[] deformedPos, int[] tris, float now, bool force)
@@ -595,7 +591,7 @@ namespace SoftBodySuite.Field
             return a < 1e-9f ? float.MaxValue : selfCell / a;
         }
 
-        // Moeller-Trumbore, double sided. hitNrm is the raw geometric normal (NOT flipped to
+        // Moeller-Trumbore, double sided. hitNrm is the raw geometric normal (not flipped to
         // face the ray) so a caller can still read back-face-ness from dot(dir, hitNrm) > 0,
         // which is how ray-based inside probes decide.
         static bool RayTri(Vector3 o, Vector3 dir, Vector3 v0, Vector3 v1, Vector3 v2,

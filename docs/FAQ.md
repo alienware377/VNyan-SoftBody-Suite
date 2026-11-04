@@ -130,7 +130,7 @@ softer weight falloff also helps.
 
 **Q: It's slow on my PC.**
 Soft Body Suite 3 is a lot faster than the classic suite: most heavy work now runs on all
-your CPU cores (on the test avatar, Wobble + Jell-o + clothes went from about 45 fps to a
+your CPU cores (with Wobble + Jell-o + clothes on, one avatar went from about 45 fps to a
 steady 60). If you still need more, see the performance section in [USAGE](USAGE.md):
 **async physics** for Squish, **half-rate + smooth blend** for Wobble and Jell-o,
 **Async Sim** for the Field stage, and fewer substeps. A lighter cage helps too: fewer

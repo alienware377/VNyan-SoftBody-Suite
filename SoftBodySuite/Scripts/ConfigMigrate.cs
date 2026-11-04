@@ -17,7 +17,7 @@ namespace SoftBodySuite
     // Region SHAPE (which verts, which bones, which colliders) is taken from
     // squishstudio.json, because Squish Studio owned the paint tools and the other
     // two mirrored it. Region MOTION values are taken from each plugin's own file,
-    // because those genuinely differ and are what the user spent the time tuning.
+    // because those really differ and are where the tuning time went.
     // ---------------------------------------------------------------------------
     public static class ConfigMigrate
     {
@@ -365,7 +365,7 @@ namespace SoftBodySuite
                 {
                     // An unreadable config used to be replaced by defaults with no backup
                     // and no log line: every painted region silently gone. Keep it.
-                    // Copy, not Move - a Move that then fails to write leaves the user
+                    // Copy, not Move, because a Move that then fails to write leaves the user
                     // with nothing at the path they expect.
                     string bak = target + ".corrupt-" + System.DateTime.Now.ToString("yyyyMMdd-HHmmss");
                     try { File.Copy(target, bak, true); } catch { }

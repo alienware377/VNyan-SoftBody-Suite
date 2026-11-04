@@ -2,33 +2,33 @@ using UnityEngine;
 
 namespace SoftBodySuite.Field
 {
-    // ONE shared excitation envelope for the whole field family. Ripple (600)
+    // One shared excitation envelope for the whole field family. Ripple (600)
     // and Fat Jiggle (700) both read f.excite, so the impulse is tuned once and
     // every wave effect inherits it.
     //
-    // Order 500 is deliberately AFTER every contact-writing source: CONTACT OWNS
-    // THE ORIGIN. By the time this runs, ContactSource has already filled
+    // Order 500 is deliberately after every contact-writing source: contact owns
+    // the origin. By the time this runs, ContactSource has already filled
     // ctx.contactActive / ctx.contactCentroid, and a hand resting on the chest
     // during a jump keeps its dent's ripple where the hand is instead of having
     // it yanked to a motion seed.
     //
-    // Two paths feed one envelope, and they are NOT the same shape:
+    // Two paths feed one envelope, and they are not the same shape:
     //
-    //   (a) CONTACT - rate-based.
+    //   (a) Contact: rate-based.
     //       hit = overlap * min(relSpeed*0.6, 1) * dt * 6; E = min(E + hit*sens, 1.5).
     //       Correct because contact persists for tens of frames and the
-    //       increments accumulate. relSpeed is RELATIVE (collider vs flesh, both
+    //       increments accumulate. relSpeed is relative (collider vs flesh, both
     //       captured on the main thread), so animating the body into a static
     //       collider fires identically to swinging a collider at a static body.
     //
-    //   (b) MOTION - IMPULSIVE LATCH: E = max(E, gate * motionSensitivity).
+    //   (b) Motion: impulsive latch, E = max(E, gate * motionSensitivity).
     //       A jerk spike lasts 2-3 frames. Run through hit*dt*6 that deposits
     //       about 3*0.016*6 = 0.29 of the energy an equivalent contact deposits
     //       over tens of frames, i.e. roughly 20x too weak. Latch instead.
     //
-    // The motion gate reads FILTERED jerk. An unfiltered jerk is a third
+    // The motion gate reads filtered jerk. An unfiltered jerk is a third
     // difference of a quantised rig signal and fires constantly on VMC or webcam
-    // input - that is why jerkFilter is a parameter and not a constant.
+    // input, which is why jerkFilter is a parameter and not a constant.
     public class MotionExciter : FieldSource
     {
         public override string Id { get { return "motion"; } }
@@ -57,9 +57,9 @@ namespace SoftBodySuite.Field
         float maskWeight;
         float cageSpan;
 
-        // DERIVED, not measured: contact is the only defined trigger, so the jerk
-        // threshold had to be picked. It is expressed against the two numbers the
-        // user can already see - a jerk large enough to build accRef of
+        // Derived, not measured: contact is the only defined trigger, so the jerk
+        // threshold had to be picked. It is expressed against the two numbers already
+        // on the panel: a jerk large enough to build accRef of
         // acceleration inside one filter time constant is a real event.
         //   jerkOn  = accRef / jerkFilter      (m/s^3)
         //   jerkOff = 0.45 * jerkOn            (hysteresis, stops chatter)
@@ -136,11 +136,11 @@ namespace SoftBodySuite.Field
 
             // ---- motion gate --------------------------------------------------
             float accRef = Mathf.Max(p.accRef, 0.5f);
-            // The onset threshold used to be accRef / tau, so turning Jerk Filter DOWN (to
-            // react faster) and Motion Reference UP (for stronger hits) multiplied into
-            // 60 / 0.02 = 3000 m/s3 - above anything a dancing avatar produced, and the
-            // trigger went dead with no sign why (measured: peaks 2909, latched 0/122).
-            // Below the default 0.15 s the threshold now stays put; the GATE still scales
+            // The onset threshold used to be accRef / tau, so turning Jerk Filter down (to
+            // react faster) and Motion Reference up (for stronger hits) multiplied into
+            // 60 / 0.02 = 3000 m/s3, above anything ordinary dance motion produces, and the
+            // trigger went dead with no sign why.
+            // Below the default 0.15 s the threshold now stays put; the gate still scales
             // with acc / accRef, so a small move still only gives a small kick.
             float jerkOn = accRef / Mathf.Max(tau, 0.15f);
             float jerkMag = filtJerk.magnitude;
@@ -152,7 +152,7 @@ namespace SoftBodySuite.Field
             lastGate = gate;
 
             // diagnostics: the largest values seen since the last telemetry line. The
-            // question these answer is "why does a dancing avatar never charge it" -
+            // question these answer is "why does a dancing avatar never charge it":
             // is the jerk short of the threshold, or is the sensitivity zero?
             if (jerkMag > DiagJerkMax) DiagJerkMax = jerkMag;
             float am = filtAcc.magnitude;
@@ -218,13 +218,13 @@ namespace SoftBodySuite.Field
             }
 
             // ---- event origin -------------------------------------------------
-            // ONE branch, and it matters: contact owns the origin whenever there
+            // One branch, and it matters: contact owns the origin whenever there
             // is contact. Only a body moving with nothing touching it seeds from
             // its own motion.
-            // ---- WHEN a wave starts --------------------------------------------
-            // Only on an EDGE: the motion gate switching on (a jump-start, a fling, a sudden
-            // stop) or a collider FIRST touching. Every energy rise used to start one, and
-            // with arms rubbing the flesh all the time that was a wave every 80 ms - the
+            // ---- when a wave starts --------------------------------------------
+            // Only on an edge: the motion gate switching on (a jump-start, a fling, a sudden
+            // stop) or a collider first touching. Every energy rise used to start one, and
+            // with arms rubbing the flesh all the time that was a wave every 80 ms, the
             // "random" triggering.
             bool motionEdge = latchRose; latchRose = false;
             bool contactEdge = ctx.contactActive && !prevContactActive;
@@ -232,9 +232,9 @@ namespace SoftBodySuite.Field
             if (!(motionEdge || contactEdge) || sinceEvent < EventGap) return;
             if (ctx.geo == null || ctx.pos == null) return;
 
-            // ---- WHERE it starts -----------------------------------------------
+            // ---- where it starts -----------------------------------------------
             // Four starts, each its own toggle, and every one that applies sends its own
-            // wave: the outermost point (jolts only - it needs a direction), the touch point
+            // wave: the outermost point (jolts only, since it needs a direction), the touch point
             // (first contact only), the nipples and the picked points (either trigger).
             SoftBodySuite.FieldRegion p = ctx.p;
             float eMotion = Mathf.Clamp(Mathf.Max(lastGate * p.motionSensitivity, energy), 0f, 1.5f);
@@ -244,7 +244,7 @@ namespace SoftBodySuite.Field
             if (motionEdge && p.rippleFromOuter > 0.5f && maskWeight > 0f)
             {
                 // The flesh keeps going when the body changes speed, so it slaps out at its
-                // OUTERMOST point on the side OPPOSITE the acceleration (stop moving forward
+                // outermost point on the side opposite the acceleration (stop moving forward
                 // and the front of the breast claps forward). That extreme painted node is
                 // where the wave starts, and it runs across to the far side from there.
                 Vector3 axis = filtAcc;
@@ -280,7 +280,7 @@ namespace SoftBodySuite.Field
 
         // ---- NIPPLE FINDER ------------------------------------------------------
         // 1) Breast bones (FieldProxy hands over a ray per breast chain: from its last
-        //    bone, along the chain): the painted node where that ray LEAVES the flesh.
+        //    bone, along the chain): the painted node where that ray leaves the flesh.
         // 2) No such bones near the paint: shape. The most forward-and-slightly-down
         //    painted node, then the best one on the other side of the middle (a second
         //    breast), each re-aimed along its own lobe's average normal, because a
@@ -456,7 +456,7 @@ namespace SoftBodySuite.Field
             schema.Tooltip("fx_relax",
                 "Seconds for the excitation to fade. The whole field returns exactly to rest.");
 
-            // DEFAULT 0 on purpose: a config that has never seen this slider
+            // Default 0 on purpose: a config that has never seen this slider
             // behaves exactly as before, contact only, with no motion path at all.
             schema.AddSlider(sec, "fx_motionsens", "Motion Sensitivity", 0f, 5f, 0f,
                 GetMotionSens, SetMotionSens);

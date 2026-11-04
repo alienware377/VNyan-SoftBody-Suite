@@ -17,7 +17,7 @@ namespace SoftBodySuite
     // Region SHAPE (which verts, which bones, which colliders) is taken from
     // squishstudio.json, because Squish Studio owned the paint tools and the other
     // two mirrored it. Region MOTION values are taken from each plugin's own file,
-    // because those genuinely differ and are what the user spent the time tuning.
+    // because those really differ and are where the tuning time went.
     // ---------------------------------------------------------------------------
     public static class ConfigMigrate
     {

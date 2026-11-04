@@ -5,20 +5,20 @@ namespace SoftBodySuite.Field
     // Penetration channel. Order 400. Entirely stateless, by
     // design: axis inside -> walls out, axis gone -> rest, with no integrator to blow up.
     //
-    //   OPENING   the flesh conform against the axis (walls ride ON the surface, never
+    //   Opening   the flesh conform against the axis (walls ride on the surface, never
     //             through it), scaled by the channel paint.
-    //   GRIP      the flesh FOLLOWS the axis's per-frame displacement (ctx.dragVec) - friction,
-    //             not attraction. Pulling flesh TOWARD the axis shrank the channel; following
+    //   Grip      the flesh follows the axis's per-frame displacement (ctx.dragVec): friction,
+    //             not attraction. Pulling flesh toward the axis shrank the channel; following
     //             the direction of the push is what reads as tension.
-    //   CLENCH    a sine pulse modulating the grip.
-    //   JIGGLE    4D value noise on the nearby flesh, scaled by the shared excitation envelope.
-    //   WETNESS   computed and published, NOT applied - see below.
+    //   Clench    a sine pulse modulating the grip.
+    //   Jiggle    4D value noise on the nearby flesh, scaled by the shared excitation envelope.
+    //   Wetness   computed and published, not applied (see below).
     //
-    // WETNESS IS COMPUTED AND DELIBERATELY NOT WRITTEN ANYWHERE
+    // Why wetness is computed but not written anywhere
     // --------------------------------------------------------
     // The wetness is meant as a named attribute for a shader to read as sheen. In
-    // this runtime the only channel we could push it down is VERTEX COLOUR, and vertex colour
-    // is load-bearing for Poiyomi and MToon setups on real avatars - writing it would silently
+    // this runtime the only channel we could push it down is vertex colour, and vertex colour
+    // is load-bearing for Poiyomi and MToon setups on real avatars, and writing it would silently
     // change how somebody's model looks the first time they touch this slider. So the value is
     // computed faithfully and parked in the public Wet array for a future consumer (a material
     // property block, a float texture, an explicit opt-in), and nothing is written. This is in
@@ -121,8 +121,8 @@ namespace SoftBodySuite.Field
                 if (sw > maxStretch) maxStretch = sw;
             }
 
-            // ENGAGEMENT is the MAX of stretch*mask over the cage, not the mean.
-            // The peak stretch anywhere in the channel scales the drag of ALL the masked flesh,
+            // Engagement is the max of stretch*mask over the cage, not the mean.
+            // The peak stretch anywhere in the channel scales the drag of all the masked flesh,
             // so the whole region moves with the push instead of only the ring that is touched.
             engagement = Mathf.Min(maxStretch / 0.005f, 1.2f);
 
@@ -143,7 +143,7 @@ namespace SoftBodySuite.Field
 
             float pulse = 1f + Mathf.Sin(ctx.time * p.clenchSpeed * TAU) * p.clenchAmount;
             float tight = 0.3f + p.tightness * 0.7f;
-            float cap = Mathf.Max(p.reach * 2f, 0.006f);          // skin stretches, then SLIPS
+            float cap = Mathf.Max(p.reach * 2f, 0.006f);          // skin stretches, then slips
             Vector3 drag = ctx.dragVec;
             float jigBase = p.penJiggle * 0.02f;                  // noise is +-0.5, scale to mm
 
@@ -177,7 +177,7 @@ namespace SoftBodySuite.Field
             }
 
             // The penetration effect has no corrective smooth and no volume-preserve
-            // stage - it does its own blur and ends. Only the hard anti-clip guarantee is
+            // stage; it does its own blur and ends. Only the hard anti-clip guarantee is
             // asked for, because that is the promise the channel is making.
             f.Require(FieldPostFlags.AntiClip);
         }
@@ -198,7 +198,7 @@ namespace SoftBodySuite.Field
             schema.Tooltip("fx_tight", "How closely the flesh sticks to the axis's motion.");
 
             schema.AddSlider(S, "fx_reach", "Reach", 0.002f, 0.3f, 0.025f, GetReach, SetReach);
-            schema.Tooltip("fx_reach", "Distance the grip extends - and, doubled, the cap on how "
+            schema.Tooltip("fx_reach", "Distance the grip extends and, doubled, the cap on how "
                 + "far skin is dragged before it slips.");
 
             schema.AddSlider(S, "fx_clench", "Clench Amount", 0f, 1f, 0.5f, GetClench, SetClench);
@@ -217,7 +217,7 @@ namespace SoftBodySuite.Field
                 + "colour in their shaders look. Nothing reads it yet.");
 
             schema.AddSlider(S, "fx_penoffset", "Collision Offset", 0f, 0.2f, 0.004f, GetOffset, SetOffset);
-            schema.Tooltip("fx_penoffset", "Minimum clearance kept above the axis - the anti-clip cap.");
+            schema.Tooltip("fx_penoffset", "Minimum clearance kept above the axis (the anti-clip cap).");
 
             schema.AddSlider(S, "fx_pensm", "Smoothing", 0f, 10f, 3f, GetSmoothing, SetSmoothing);
             schema.Tooltip("fx_pensm", "Final smoothing of the whole channel deformation.");

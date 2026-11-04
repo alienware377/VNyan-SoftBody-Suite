@@ -5,36 +5,35 @@ namespace SoftBodySuite.Field
     // Diffusion over the cage graph, reproducing Blender's GeometryNodeBlurAttribute.
     // Each iteration mixes a node's value toward the mean of its topological neighbours by
     // `weight`; the vector footprint uses 0.85 and
-    // the halo 0.9. Radius grows with the SQUARE ROOT of the iteration count,
+    // the halo 0.9. Radius grows with the square root of the iteration count,
     // which is why FieldPost.ScaledIters multiplies by dens^2 and not dens.
     //
-    // THE BOUNDARY ARGUMENT - READ THIS BEFORE TRUSTING THE NUMBERS
-    // ------------------------------------------------------------
-    // In Blender the blur runs over the WHOLE mesh's edge graph. The attribute is zero
+    // Boundary handling
+    // -----------------
+    // In Blender the blur runs over the whole mesh's edge graph. The attribute is zero
     // outside the painted mask, but those exterior vertices still take part, so a node at the
-    // mask rim is pulled toward zero by its zero-valued neighbours: an ABSORBING boundary.
-    // Our cage physically ENDS at the paint rim - it has no exterior neighbours at all - so a
-    // plain graph blur on it REFLECTS instead, which is the opposite error and leaves the rim
+    // mask rim is pulled toward zero by its zero-valued neighbours: an absorbing boundary.
+    // Our cage physically ends at the paint rim and has no exterior neighbours at all, so a
+    // plain graph blur on it reflects instead, which is the opposite error and leaves the rim
     // hotter than a whole-mesh blur would.
     //
     // The reconstruction is a normalised convolution: diffuse x*w and w separately and divide
-    // at the end, with w = the cage node's PAINT WEIGHT (cage.simWeight). That weight tapers
+    // at the end, with w = the cage node's paint weight (cage.simWeight). That weight tapers
     // to zero at the rim by construction, because UnionWeights built the cage from it, so rim
     // nodes are down-weighted in the same proportion Blender's zero-valued exterior
     // down-weights them.
     //
-    // BE CLEAR ABOUT THE STATUS OF THAT: it is ARGUED, NOT MEASURED. Nobody has yet baked the
-    // same contact in Blender and compared rim profiles. Note also that Blender's own Weight
-    // socket is a per-ELEMENT field used both as the neighbour weighting AND the self-mix
-    // factor, and the effect feeds it a constant - so our split (constant mix factor, mask
-    // carried through the num/den channels) is a re-derivation, not a transcription.
-    // BlurUnnormalised() is the A/B: same call, no weighting, one flag away from a bake
-    // comparison. If the bake says the plain blur is closer, switch and delete this paragraph.
+    // This equivalence is derived, not yet compared against a Blender bake of the same
+    // contact. Blender's own Weight socket is a per-element field used both as the neighbour
+    // weighting and the self-mix factor, and the effect feeds it a constant, so our split
+    // (constant mix factor, mask carried through the num/den channels) is a re-derivation,
+    // not a transcription. BlurUnnormalised() is the unweighted variant of the same call,
+    // kept for comparison.
     public class FieldBlur
     {
         CageGraph g;
 
-        // scratch, sized on first use and reused forever - zero allocation per frame
+        // scratch, sized on first use and reused forever, so no allocation per frame
         float[] num, num2, den, den2;
         Vector3[] vnum, vnum2;
 

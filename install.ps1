@@ -2,7 +2,7 @@
 # - Looks for your VNyan folder (a running VNyan, VNyan's own log, Steam, itch), then lets you
 #   confirm it or open your VNyan folder yourself
 # - Moves the classic Soft Body Suite (v2) and the old separate Squish / Wobble / Jello Studio
-#   plugins out of the way (Soft Body Suite 3 replaces them) - moved, never deleted
+#   plugins out of the way (Soft Body Suite 3 replaces them). They are moved, never deleted
 # - Only asks for admin rights if your VNyan folder is actually write-protected
 # Usage: double-click install.bat (or: powershell -File install.ps1)
 
@@ -150,13 +150,13 @@ if (-not $Target) {
             if ([int]::TryParse($a, [ref]$n) -and $n -ge 1 -and $n -le $found.Count) { $Target = $found[$n - 1] }
         }
     } else {
-        Write-Host "Couldn't find VNyan by myself - that's okay."
+        Write-Host "Couldn't find VNyan by myself. That's okay."
     }
 
     if (-not $Target) {
         if ($Yes) { Write-Host "ERROR: no VNyan folder found. Run again with -Target <your VNyan folder>." -ForegroundColor Red; exit 1 }
         Write-Host ""
-        Write-Host "Please open your VNyan folder - the one with VNyan.exe inside it."
+        Write-Host "Please open your VNyan folder (the one with VNyan.exe inside it)."
         Add-Type -AssemblyName System.Windows.Forms | Out-Null
         $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
         $dlg.Description = "Open your VNyan folder (the one with VNyan.exe inside it)"
@@ -186,7 +186,7 @@ $old = @($replaced | Where-Object { Test-Path -LiteralPath (Join-Path $assemblie
 # ---- VNyan locks plugin files while it's open ----
 while (Get-Process -Name "VNyan" -ErrorAction SilentlyContinue) {
     Write-Host ""
-    Write-Host "VNyan is open - it locks its plugin files. Please close it first." -ForegroundColor Yellow
+    Write-Host "VNyan is open, and it locks its plugin files. Please close it first." -ForegroundColor Yellow
     if ($Yes) { exit 1 }
     Read-Host "Press Enter once VNyan is closed" | Out-Null
 }
@@ -210,7 +210,7 @@ if (-not $writable) {
         Stop-Here 1
     }
     Write-Host ""
-    Write-Host "Your VNyan folder is write-protected - asking Windows for admin rights..." -ForegroundColor Yellow
+    Write-Host "Your VNyan folder is write-protected, so asking Windows for admin rights..." -ForegroundColor Yellow
     # Admin windows can't always see the drive this was unzipped on (mapped, network or cloud
     # drives), so hand them a copy in a folder every account can read.
     $stage = Join-Path $env:ProgramData ("SoftBodySuiteInstall_" + [Guid]::NewGuid().ToString("N").Substring(0, 8))
@@ -241,7 +241,7 @@ if ($old.Count -gt 0) {
             Write-Host ("  moved " + $o) -ForegroundColor Green
         }
     } else {
-        Write-Host "  Left them in place - please keep them turned off, or the effects double up." -ForegroundColor Yellow
+        Write-Host "  Left them in place. Please keep them turned off, or the effects double up." -ForegroundColor Yellow
     }
 }
 
@@ -264,7 +264,7 @@ Write-Host ("  installed " + $plugin + " to " + $dstDir) -ForegroundColor Green
 if (Test-Path -LiteralPath (Join-Path $assemblies "SoftBodyStudio")) {
     Write-Host ""
     Write-Host "Note: SoftBody Studio (v1) is still installed. It isn't part of the suite, so keep it" -ForegroundColor Yellow
-    Write-Host "turned off while the suite's Jell-o section is on - they both move the same body." -ForegroundColor Yellow
+    Write-Host "turned off while the suite's Jell-o section is on, because they both move the same body." -ForegroundColor Yellow
 }
 
 # the admin copy made above is no longer needed

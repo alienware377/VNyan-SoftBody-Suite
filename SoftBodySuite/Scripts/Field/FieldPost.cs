@@ -2,11 +2,11 @@ using UnityEngine;
 
 namespace SoftBodySuite.Field
 {
-    // ONE finisher, run once for all sources, each pass gated on postFlags.
+    // One finisher, run once for all sources, each pass gated on postFlags.
     //
     // The order is a fixed chain:
     //     sources -> self-contact -> corrective smooth -> anti-clip
-    // and it is not negotiable. The corrective smooth re-sinks vertices INTO the
+    // and it is not negotiable. The corrective smooth re-sinks vertices into the
     // collider, so the hard guarantee has to be computed after it, from the position
     // the smooth actually produced, and written somewhere the smooth can never reach.
     //
@@ -18,7 +18,7 @@ namespace SoftBodySuite.Field
         // SELF_RANGE = 0.10 m, the self-hit cutoff
         public const float SelfRange = 0.10f;
 
-        // Scratch. GROW-ONLY and shared across meshes on purpose: two proxies with
+        // Scratch. Grow-only and shared across meshes on purpose: two proxies with
         // different node counts would otherwise re-allocate against each other every
         // frame. Nothing here is allocated once the largest cage has been seen.
         static Vector3[] defPos, corr, corrOut, smPos, smOut;
@@ -35,8 +35,8 @@ namespace SoftBodySuite.Field
             scratchLen = n;
         }
 
-        // radius ~= edge * sqrt(iters * dens^2): the Blur Attribute is DIFFUSION, so a
-        // pass's world-space radius grows with the SQUARE ROOT of the iteration count.
+        // radius ~= edge * sqrt(iters * dens^2): the Blur Attribute is diffusion, so a
+        // pass's world-space radius grows with the square root of the iteration count.
         // Holding the radius constant on a mesh k times finer therefore costs k^2
         // iterations, not k: scaling linearly measured 28.3 mm -> 13.7 mm at Subsurf 2
         // and that under-smoothing is what sharpened the contact seam and doubled the
@@ -58,7 +58,7 @@ namespace SoftBodySuite.Field
             int flags = f.postFlags;
 
             // ---- a) volume preservation: ring bulge + lateral flow ----
-            // basin is the OUTER ring: the halo
+            // basin is the outer ring: the halo
             // (blurred contact magnitude) minus the seed (the contact itself), so the
             // bulge lands around the dent and not in it.
             if ((flags & FieldPostFlags.VolumePreserve) != 0)
@@ -66,7 +66,7 @@ namespace SoftBodySuite.Field
                 sw.Reset(); sw.Start();
                 Vector3 centroid = f.contactCentroid;
                 float volP = p.volumePreservation;
-                // The ring bulge and the lateral flow ARE part of the contact core: the only
+                // The ring bulge and the lateral flow are part of the contact core: the only
                 // reason they live here and not in ContactSource is that they have to run once
                 // for every source. So the core override has to reach them too: OrganicSource
                 // publishes a calibrated Lateral Flow of 0.5
@@ -95,10 +95,10 @@ namespace SoftBodySuite.Field
             }
 
             // ---- b) self-contact: deformable-vs-deformable mutual separation ----
-            // The main conform runs against the INPUT
+            // The main conform runs against the input
             // geometry, so it cannot see overlaps the deformation itself created:
             // two masses pushed together interpenetrate and the intersection seam
-            // shows. This pass runs on the CAGE, after the sources, and resolves it.
+            // shows. This pass runs on the cage, after the sources, and resolves it.
             if ((flags & FieldPostFlags.SelfContact) != 0 && ctx.col != null && ctx.blur != null)
             {
                 sw.Reset(); sw.Start();
@@ -110,7 +110,7 @@ namespace SoftBodySuite.Field
                     RecomputeDeformedNormals(ctx, f, n);
                     // force on iteration 0: defPos has just been rewritten from every source's
                     // output, and that is the surface the rays below are shot against. Iteration
-                    // 1 reuses those buckets deliberately - it only has to resolve the residual
+                    // 1 reuses those buckets deliberately: it only has to resolve the residual
                     // half of an overlap iteration 0 already moved.
                     ctx.col.SetCageForSelf(defPos, ctx.cageTris, ctx.time, iter == 0);
                     System.Array.Clear(corr, 0, n);
@@ -119,8 +119,8 @@ namespace SoftBodySuite.Field
                         if (f.mask[i] <= 0f) continue;
                         Vector3 nn = f.nrm[i];
                         Vector3 pI = defPos[i];
-                        // DETECTOR: +N ray from 2 mm above the surface. Leaving through a
-                        // near BACK face means this node sits inside other flesh; a fold
+                        // Detector: +N ray from 2 mm above the surface. Leaving through a
+                        // near back face means this node sits inside other flesh; a fold
                         // of its own does not trigger (its opposite face is seen from the
                         // front, dot < 0). The 2*SELF_RANGE bound throws away far exits,
                         // without it a node under the chin "exited" through the crown.
@@ -128,9 +128,9 @@ namespace SoftBodySuite.Field
                         if (!ctx.col.RayCage(pI + nn * 0.002f, nn, SelfRange * 2f, out tA, out hpA, out hnA)) continue;
                         if (Vector3.Dot(hnA, nn) <= 0f) continue;
                         if (tA >= SelfRange * 2f) continue;
-                        // RESOLUTION: -N ray back to the surface it entered through. The
+                        // Resolution: -N ray back to the surface it entered through. The
                         // 0.5*SELF_RANGE bound keeps this to real contact penetrations:
-                        // the exit through the far side of the SAME mass is further away
+                        // the exit through the far side of the same mass is further away
                         // and must not count, or the thin periphery self-attracts.
                         Vector3 dB = -nn;
                         float tB; Vector3 hpB, hnB;
@@ -148,7 +148,7 @@ namespace SoftBodySuite.Field
             }
 
             // ---- c) deformed normals, before the cleanup passes ----
-            // The normal is re-evaluated after EVERY position change. The
+            // The normal is re-evaluated after every position change. The
             // corrective smooth and the anti-clip both read a normal that already
             // includes the dent; feeding them the rest normal moves flesh the wrong way
             // on any contact steep enough to matter.
@@ -156,9 +156,9 @@ namespace SoftBodySuite.Field
             RecomputeDeformedNormals(ctx, f, n);
 
             // ---- d) corrective smooth ----
-            // Blurs the POSITIONS, not the displacement, then mixes back only inside the
-            // halo. THE HALO GATE APPLIES TO dispContact
-            // ONLY. dispWave is not touched by this pass at all: that is the entire
+            // Blurs the positions, not the displacement, then mixes back only inside the
+            // halo. The halo gate applies to dispContact
+            // only. dispWave is not touched by this pass at all: that is the entire
             // reason the third accumulator exists. Gating dispWave by min(halo*12,1)
             // would eat the ripple crests exactly where a hand is touching, which is
             // the flagship Squish+Ripple case.
@@ -182,15 +182,15 @@ namespace SoftBodySuite.Field
                 }
             }
 
-            // ---- e) anti-clip: the hard guarantee, LAST ----
+            // ---- e) anti-clip: the hard guarantee, last ----
             // Everything above is soft flesh: the conform
             // is blurred, the cleanup is scaled by Contact Hardness (<1 permits overlap)
-            // and the corrective smooth re-blurs positions back INSIDE the collider.
+            // and the corrective smooth re-blurs positions back inside the collider.
             // Here, as the last operation on the already-deformed mesh, the conform is
-            // recomputed at FULL strength and anything still inside is expelled to the
-            // surface plus skin. The 1.5 mm skin FLOOR is not negotiable: at Offset 0 a
+            // recomputed at full strength and anything still inside is expelled to the
+            // surface plus skin. The 1.5 mm skin floor is not negotiable: at Offset 0 a
             // thin collider's tip otherwise z-fights through and pokes out.
-            // The result goes to dispGuard, NOT dispContact, so nothing downstream can
+            // The result goes to dispGuard, not dispContact, so nothing downstream can
             // smooth the guarantee away.
             if ((flags & FieldPostFlags.AntiClip) != 0 && ctx.col != null)
             {
@@ -216,17 +216,17 @@ namespace SoftBodySuite.Field
             }
 
             // ---- f) wave smoothing, on dispWave alone ----
-            // Ideally footprint and wave would be smoothed TOGETHER
+            // Ideally footprint and wave would be smoothed together
             // and we cannot: the footprint has already been smoothed through a halo gate
             // the waves must never see. So the waves get their own pass here.
             //
-            // TENSION, stated rather than hidden: Ripple, Fat Jiggle and Penetration all
-            // land in dispWave and each was tuned with a SEPARATE Smoothing slider.
+            // Tension, stated rather than hidden: Ripple, Fat Jiggle and Penetration all
+            // land in dispWave and each was tuned with a separate Smoothing slider.
             // One shared pass can only have one iteration count, so the largest enabled
             // one wins: under-smoothing spikes, over-smoothing only softens.
             if ((flags & FieldPostFlags.WaveSmooth) != 0 && ctx.blur != null)
             {
-                // Only channels that actually WRITE dispWave get a vote. Penetration used to be
+                // Only channels that actually write dispWave get a vote. Penetration used to be
                 // polled here and must not be: it blurs itself at penSmoothing and lands in
                 // dispContact, so its slider was silently re-smoothing other channels' crests
                 // while owning nothing in this accumulator.
@@ -251,7 +251,7 @@ namespace SoftBodySuite.Field
                 }
             }
 
-            // SkinRamp is NOT a pass. It lives inside every conform
+            // SkinRamp is not a pass. It lives inside every conform
             // and FieldCollider.Conform owns it.
             // The flag exists only so a source can record that it used one, and this is
             // the only place that reads it.
@@ -269,7 +269,7 @@ namespace SoftBodySuite.Field
                 defPos[i] = f.pos[i] + f.dispContact[i] + f.dispWave[i] + f.dispGuard[i];
         }
 
-        // f.RecomputeNormals reads f.pos by contract, and f.pos is the UNDEFORMED cage.
+        // f.RecomputeNormals reads f.pos by contract, and f.pos is the undeformed cage.
         // Rather than duplicate the normal maths, swap the deformed buffer in for the
         // length of the call and put the original array reference straight back: every
         // alias (ctx.pos) is the same object again before anything else can look. No

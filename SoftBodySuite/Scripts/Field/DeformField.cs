@@ -2,14 +2,14 @@ using UnityEngine;
 
 namespace SoftBodySuite.Field
 {
-    // Which accumulator a source's displacement lands in. The split is by DESTINY,
-    // not by source: FieldPost runs ONCE for everybody and has no way to ask "who
-    // wrote this node" (postFlags is an OR across sources), so each source has to
+    // Which accumulator a source's displacement lands in. The split is by destiny,
+    // not by source: FieldPost runs once for everybody and has no way to ask "who
+    // wrote this node" (postFlags is an or across sources), so each source has to
     // declare up front how its contribution is allowed to be finished.
     public enum FieldAcc { Contact = 0, Wave = 1, Guard = 2 }
 
     // A source ORs these into field.postFlags in Write(); FieldPost reads them to
-    // decide which passes run AT ALL. This is the short-circuit: a frame where only
+    // decide which passes run at all. This is the short-circuit: a frame where only
     // RippleSource wrote leaves VolumePreserve/Barrier/AntiClip clear, and those
     // passes are then skipped entirely instead of sweeping a zero field.
     public static class FieldPostFlags
@@ -37,7 +37,7 @@ namespace SoftBodySuite.Field
     }
 
     // The shared per-cage-node state every FieldSource reads and writes. A plain data
-    // holder plus three cheap helpers: it allocates in Ensure() and NOWHERE else, so
+    // holder plus three cheap helpers: it allocates in Ensure() and nowhere else, so
     // a frame costs no GC no matter how many sources are live.
     public class DeformField
     {
@@ -45,15 +45,15 @@ namespace SoftBodySuite.Field
 
         public int n;
 
-        // THREE accumulators, not two:
+        // Three accumulators, not two:
         //   dispContact: smoothed by the halo gate, volume-preserved, barriered
         //   dispWave: never touched by the halo gate (ripple/jiggle crests); the
         //                 min(halo*12,1) gate would eat exactly the crests under a
         //                 hand, which is the one case Squish+Ripple has to survive
-        //   dispGuard: written by FieldPost's anti-clip ONLY, applied last, never
+        //   dispGuard: written by FieldPost's anti-clip only, applied last, never
         //                 smoothed: a smoothed guarantee is not a guarantee. It has to
         //                 be its own bucket because the corrective smooth re-sinks
-        //                 vertices INTO the collider, which is why the hard anti-clip
+        //                 vertices into the collider, which is why the hard anti-clip
         //                 runs dead last.
         public Vector3[] dispContact;
         public Vector3[] dispWave;
@@ -65,9 +65,9 @@ namespace SoftBodySuite.Field
         public float[] halo;       // blur(|seed|, Spread)
         public float[] seed;       // |contact seed| pre-blur (basin = halo - seed)
         public bool[] seedLimb;    // that seed came from a hand / finger / arm capsule
-        public float[] limbDepth;  // RAW depth of a limb in this node: not capped at Max Dent,
+        public float[] limbDepth;  // Raw depth of a limb in this node: not capped at Max Dent,
                                    // and kept even when SELF_RANGE rejected the conform
-        public float[] excite;     // ONE shared excitation envelope, per node
+        public float[] excite;     // One shared excitation envelope, per node
         public float[] mask;       // cage paint weight (copy of cage.simWeight)
 
         // cage state this frame (proxy-local)
@@ -92,7 +92,7 @@ namespace SoftBodySuite.Field
         public float axisQuality;
         public float contactWeightSum;
 
-        // THE ONLY ALLOCATION SITE IN THIS FILE. Called once per cage build.
+        // The only allocation site in this file. Called once per cage build.
         public void Ensure(int nodes)
         {
             if (n == nodes && dispContact != null) return;
@@ -113,12 +113,12 @@ namespace SoftBodySuite.Field
             n = nodes;
         }
 
-        // Start of a frame. Clears what is re-derived from scratch and DELIBERATELY
+        // Start of a frame. Clears what is re-derived from scratch and deliberately
         // leaves alone what is not:
         //   excite: an integrator with memory; MotionExciter and ContactSource decay
         //            it themselves, and zeroing it here would kill every envelope
         //   mask/pos/nrm: refilled wholesale by FieldProxy from the cage
-        //   events: aged out separately by AgeEvents, which runs BEFORE the sources
+        //   events: aged out separately by AgeEvents, which runs before the sources
         public void BeginFrame(float deltaTime, float now)
         {
             if (dispContact == null) return;
@@ -157,7 +157,7 @@ namespace SoftBodySuite.Field
             postFlags |= flags;
         }
 
-        // Free slot first; when the ring is full the WEAKEST event is the one that
+        // Free slot first; when the ring is full the weakest event is the one that
         // loses its slot, not the oldest: a big new impact must never be dropped
         // because eight taps are still ringing.
         public int PushEvent(int originNode, Vector3 originPos, float energy, float width)
@@ -184,7 +184,7 @@ namespace SoftBodySuite.Field
             return slot;
         }
 
-        // FieldProxy calls this ONCE per frame, BEFORE the sources run, so every
+        // FieldProxy calls this once per frame, before the sources run, so every
         // source sees the same event ages for the whole frame.
         public void AgeEvents(float deltaTime, float maxAge)
         {
@@ -200,11 +200,11 @@ namespace SoftBodySuite.Field
             eventCount = live;
         }
 
-        // Area-weighted vertex normals of the DEFORMED cage. Not decoration: the normal
+        // Area-weighted vertex normals of the deformed cage. Not decoration: the normal
         // must be re-evaluated after every position change, so the pass-2
         // hard cleanup and the anti-clip both read a normal that already includes the
         // dent. FieldPost calls this between passes. Accumulates straight into nrm
-        // (the un-normalised cross product is 2*area*n, which IS the area weighting)
+        // (the un-normalised cross product is 2*area*n, which is the area weighting)
         // so there is no scratch buffer and no allocation.
         public void RecomputeNormals(int[] tris)
         {
@@ -243,7 +243,7 @@ namespace SoftBodySuite.Field
             }
         }
 
-        // Reset / rebind: zero EVERYTHING, excite and the event ring included.
+        // Reset / rebind: zero everything, excite and the event ring included.
         public void ClearAll()
         {
             if (dispContact == null) return;

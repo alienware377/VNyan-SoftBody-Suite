@@ -5,7 +5,7 @@ namespace SoftBodySuite.Squish
 {
     // A whole skinned mesh used as a collider, auto-reduced ONCE to a small set of BONE
     // CAPSULES: verts are grouped by dominant skin bone, each group fitted with a capsule in
-    // that bone's local space â€” so the capsules follow animation for free (no per-frame
+    // that bone's local space, so the capsules follow animation for free (no per-frame
     // baking or clustering at all). Capsules that already intersect the painted region at
     // generation time (the chest wall under the breasts etc.) are skipped. Smooth solid
     // primitives give a natural squish direction at any penetration depth.
@@ -79,7 +79,7 @@ namespace SoftBodySuite.Squish
             int nv = Mathf.Min(mv.Length, bw.Length);
 
             // the whole hand (wrist + palm + fingers + thumb + wrist-twist) merges into ONE
-            // fat capsule per side, anchored on the wrist â€” dozens of thin finger capsules
+            // fat capsule per side, anchored on the wrist. Dozens of thin finger capsules
             // left slip gaps and their conflicting pushes sharded the skin
             int hwL = -1, hwR = -1;
             for (int b2 = 0; b2 < bones.Length; b2++)
@@ -132,7 +132,7 @@ namespace SoftBodySuite.Squish
                 if (usedBones.Contains(bones[b])) continue;   // covered by an earlier mesh
                 // endpoints: OWN joint pivot -> CHILD joint pivot whenever a child bone has
                 // geometry. Chained capsules then SHARE the joint point and stay overlapped
-                // however the joint bends â€” bbox fits left a wedge gap at bent elbows that
+                // however the joint bends; bbox fits left a wedge gap at bent elbows that
                 // skin slipped into (ring artifact).
                 bool isHand = (b == hwL || b == hwR);
                 Vector3 pa = Vector3.zero, pb;
@@ -237,7 +237,7 @@ namespace SoftBodySuite.Squish
         }
 
         // capsule barrier: radial push out of the engaged capsules, penetration-weighted.
-        // Radial directions are stable at any depth â€” nothing to slide over or get behind.
+        // Radial directions are stable at any depth, with nothing to slide over or get behind.
         // broadphase accessor for the region sleep gate: is a sphere anywhere near
         // this cloud's bounding sphere?
         public bool SphereNear(Vector3 c, float extra)
@@ -257,7 +257,7 @@ namespace SoftBodySuite.Squish
             for (int k = 0; k < nc; k++)
             {
                 // broadphase: cheap squared-distance reject (this loop runs ~a million
-                // times a frame across all nodes â€” the sqrt-heavy math below must be rare)
+                // times a frame across all nodes, so the sqrt-heavy math below must be rare)
                 float bx = p.x - cm[k].x, by = p.y - cm[k].y, bz = p.z - cm[k].z;
                 if (bx * bx + by * by + bz * bz > re2[k]) continue;
                 Vector3 cp = Closest(p, ca[k], cb[k]);
@@ -312,7 +312,7 @@ namespace SoftBodySuite.Squish
     }
 
     // Per-region soft-body solver on WELDED position nodes (duplicate vertices along UV
-    // seams move as one â€” simulating them independently tears the surface).
+    // seams move as one; simulating them independently tears the surface).
     //
     // Two-part update each frame:
     //   StepDynamics (substepped): springs, inertia, gravity, waves, oscillators.
@@ -333,7 +333,7 @@ namespace SoftBodySuite.Squish
         float simT;
 
         // collision: separate smooth non-accumulating layer (UNITLESS field 0..~1,
-        // scaled to metres only at output â€” so dent depth is independent of collider
+        // scaled to metres only at output, so dent depth is independent of collider
         // radius AND of the jiggle maxOffset clamp)
         Vector3[] colCur, colTarget;
         Vector3[] colBase;           // per-node adaptive baseline (pose/breathing absorbed)
@@ -380,7 +380,7 @@ namespace SoftBodySuite.Squish
         Vector3 lastLocalDown, lastCentroid, lastCentroidVel;
 
         // coarse RBF clusters for collision smoothing: the contact field is projected onto
-        // ~dozens of control points spread over the region and interpolated back â€” giving
+        // ~dozens of control points spread over the region and interpolated back, giving
         // big smooth blobby dents REGARDLESS of mesh density (graph diffusion smoothed only
         // a few millimetres on dense meshes, which read as facet-level "jello destruction").
         int K;
@@ -919,7 +919,7 @@ namespace SoftBodySuite.Squish
                 for (int i = 0; i < n; i++) { float m2 = colTarget[i].sqrMagnitude; if (m2 > dbgEff) dbgEff = m2; }
 
             // ---- cluster RBF smoothing: project the contact field onto coarse control
-            // points and interpolate back â€” a big soft blobby dent at ANY mesh density,
+            // points and interpolate back for a big soft blobby dent at ANY mesh density,
             // peak-preserved so smoothing widens the dent without flattening it.
             if (K > 0 && ncIdx != null)
             {
@@ -927,7 +927,7 @@ namespace SoftBodySuite.Squish
                 for (int i = 0; i < n; i++) { float m2 = colTarget[i].sqrMagnitude; if (m2 > peakBefore) peakBefore = m2; }
 
                 // MAX-projection: each cluster takes its strongest contact (an averaging
-                // projection diluted sparse contact ~15x â€” measured raw 0.96 -> rbf 0.05)
+                // projection diluted sparse contact ~15x: raw 0.96 came out as rbf 0.05)
                 System.Array.Clear(cVec, 0, K);
                 for (int i = 0; i < n; i++)
                 {

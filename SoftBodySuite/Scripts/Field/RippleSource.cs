@@ -4,18 +4,18 @@ namespace SoftBodySuite.Field
 {
     // Waves travelling out from an impact, along the normal.
     //
-    // DELIBERATE CHOICE: distance is GEODESIC, not Euclidean.
+    // Deliberate choice: distance is geodesic, not Euclidean.
     // A proximity query against the collider
     // gives a straight-line distance, which is
-    // simply wrong around a curved body - a wave from a slap on the front of a
+    // simply wrong around a curved body: a wave from a slap on the front of a
     // thigh reappears on the back at the same phase because the two are close
     // through the air. We have CageGeodesic, so the distance runs over the
     // surface.
     //
-    // Mode 0 - CONTINUOUS SINE TRAIN. The original, simpler mode.
+    // Mode 0: continuous sine train. The original, simpler mode.
     //
-    // Mode 1 - SINGLE-WAVE INVERTED RICKER, and the DEFAULT.
-    //          RECONSTRUCTED from a one-line description, with no existing wavelet,
+    // Mode 1: single-wave inverted Ricker, and the default.
+    //          Reconstructed from a one-line description, with no existing wavelet,
     //          no Wave Width or Wave Range control,
     //          and no rising-edge latch to start from. What is
     //          implemented here is the documented retarded-time form, with the
@@ -23,7 +23,7 @@ namespace SoftBodySuite.Field
     //          Speed 4.0, Decay 1.5, Smoothing 10, Wave Width 0.10, Range 0.5).
     //
     // In the documented form the static footprint is not playback-gated, only the wave
-    // was - and we have no playback concept at all, so there is no gate here.
+    // was, and we have no playback concept at all, so there is no gate here.
     public class RippleSource : FieldSource
     {
         public override string Id { get { return "ripple"; } }
@@ -78,7 +78,7 @@ namespace SoftBodySuite.Field
         {
             SoftBodySuite.FieldRegion p = ctx.p;
             f.Require(FieldPostFlags.WaveSmooth);
-            // NOT CorrectiveSmooth: that is exactly the gate that would eat the
+            // Not CorrectiveSmooth: that is exactly the gate that would eat the
             // crests wherever a hand is touching.
 
             if (p.rippleMode < 0.5f) WriteTrain(ctx, f);
@@ -89,7 +89,7 @@ namespace SoftBodySuite.Field
         void WriteTrain(FieldContext ctx, DeformField f)
         {
             SoftBodySuite.FieldRegion p = ctx.p;
-            // SOLVE it, do not just read it. ContactField is allocated by SetGraph and is
+            // Solve it, do not just read it. ContactField is allocated by SetGraph and is
             // non-null and all-zero until somebody calls SolveMulti, and an all-zero distance
             // field puts every node at phase -t*spd: the whole cage pulsing in lockstep with no
             // travelling wave at all, and no warning, because the array was never null.
@@ -139,7 +139,7 @@ namespace SoftBodySuite.Field
         // ---- mode 1: single-wave inverted Ricker, in retarded time -----------
         // u = (waveSpeed*age - geoDist) / waveWidth
         // ricker = -(1 - 2u^2) * exp(-u^2)
-        // Inverted because the leading edge of a real impact is a TROUGH, not a
+        // Inverted because the leading edge of a real impact is a trough, not a
         // crest. The wavelet peaks at exactly 1 at u = 0, so Amplitude is metres.
         void WriteSingle(FieldContext ctx, DeformField f)
         {
@@ -282,7 +282,7 @@ namespace SoftBodySuite.Field
         static void SetWidth(SoftBodySuite.FieldRegion r, float v) { r.waveWidth = v; }
         static float GetRange(SoftBodySuite.FieldRegion r) { return r.waveRange; }
         static void SetRange(SoftBodySuite.FieldRegion r, float v) { r.waveRange = v; }
-        // NOTE FOR THE INTEGRATOR: dentDepth must scale ContactSource's conform
+        // Note for the integrator: dentDepth must scale ContactSource's conform
         // contribution. Ripple owns the slider (it is a ripple-family control)
         // but must not re-implement the conform, and it cannot scale
         // f.dispContact here because by Order 600 that accumulator also holds

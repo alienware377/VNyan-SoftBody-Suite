@@ -8,14 +8,14 @@ namespace SoftBodySuite.Field
     // built-in presets.
     //
     // Registration lives here rather than in the core on purpose: DeformField,
-    // FieldSource, FieldPost and FieldProxy have NO compile dependency on which
+    // FieldSource, FieldPost and FieldProxy have no compile dependency on which
     // effects exist. Adding a seventh effect is one new file and one new line in
     // RegisterAll.
     //
     // The preset values are exact. Nothing is
     // rounded: 0.291667 and 0.518519 are deliberately
     // dialled-in numbers and they stay as they are. There is no JSON and no disk
-    // access here - these are compiled-in built-ins. User presets go through the
+    // access here; these are compiled-in built-ins. User presets go through the
     // existing PresetStore.
     public static class FieldPresets
     {
@@ -42,7 +42,7 @@ namespace SoftBodySuite.Field
             // fx_mix belongs to no source: it is the crossfade between the classic look
             // and the whole field, and it defaults to 0 so a config that has never seen
             // this build renders exactly as v2.0.0 did.
-            // Its OWN header. Without one, Field Mix was built straight after the classic
+            // Its own header. Without one, Field Mix was built straight after the classic
             // suite's last section and got filed under "Presets": collapsed, at the bottom,
             // where nobody could find the one control that switches the whole field on.
             s.AddSection("Field \u00b7 Master");
@@ -63,7 +63,7 @@ namespace SoftBodySuite.Field
         }
 
         // ---------- factory defaults ----------
-        // NOT the same numbers as the Soft Flesh
+        // Not the same numbers as the Soft Flesh
         // preset: these were tuned separately (dialled in on a test scene
         // and fixed as the
         // default). A new region is born with these; a preset button overwrites
@@ -83,7 +83,7 @@ namespace SoftBodySuite.Field
             d.splay = 0.0f;                 // SQUISH_SPLAY_DEFAULT
         }
 
-        // SQUISH_INFLATE_DEFAULTS - a separate set; Squish and Inflate diverge.
+        // SQUISH_INFLATE_DEFAULTS: a separate set; Squish and Inflate diverge.
         public static void ApplyInflateFactoryDefaults(SoftBodySuite.FieldRegion d)
         {
             if (d == null) return;
@@ -182,7 +182,7 @@ namespace SoftBodySuite.Field
         }
 
         // A preset button overwrites the region's tuning and picks its own effect
-        // family. sfxMix is deliberately NOT touched: that is the user's
+        // family. sfxMix is deliberately not touched: that is the user's
         // crossfade against the classic look, not part of the tuning.
         public static bool Apply(string name, SoftBodySuite.FieldRegion dst)
         {
@@ -277,7 +277,7 @@ namespace SoftBodySuite.Field
 
         // ----- RIPPLE -----
         // Both ripple presets were tuned for the continuous
-        // sine train - their descriptions ("dense fast waves while contact
+        // sine train: their descriptions ("dense fast waves while contact
         // lasts", "waves that travel far") are train behaviour and their
         // Frequency values only mean anything in train mode. So they select mode
         // 0 explicitly, even though the region default is the single-wave Ricker.

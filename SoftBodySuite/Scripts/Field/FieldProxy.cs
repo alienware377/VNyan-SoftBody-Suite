@@ -13,14 +13,14 @@ namespace SoftBodySuite.Field
     //
     // Same shape as SoftBodySuite.Squish.MeshProxy: bake the skinned mesh (or take the
     // previous stage's arrays directly), add a displacement field, push the result into
-    // a plain MeshRenderer copy that keeps the ORIGINAL materials. What is different is
-    // that the field is not one solver but a REGISTRY of sources writing typed channels
+    // a plain MeshRenderer copy that keeps the original materials. What is different is
+    // that the field is not one solver but a registry of sources writing typed channels
     // into one DeformField, finished once by FieldPost.
     //
-    // It is a FOURTH stage, not a replacement for the other three. WobbleSim, JelloSim
+    // It is a fourth stage, not a replacement for the other three. WobbleSim, JelloSim
     // and SquishSim are ~8,600 lines of tuned behaviour with no field counterpart;
-    // replacing them would mean frame 1 is identical to nothing. So this runs AFTER
-    // Squish and BEFORE the cloth passes, takes upVerts/upNormals, and crossfades its
+    // replacing them would mean frame 1 is identical to nothing. So this runs after
+    // Squish and before the cloth passes, takes upVerts/upNormals, and crossfades its
     // own field in with sfxMix, which is 0 by default, and at 0 this file must publish
     // the bytes it was handed, unchanged. That pass-through is checkable:
     // FieldDiag.VerifyIdentity, maxDelta == 0.0f exactly.
@@ -32,9 +32,9 @@ namespace SoftBodySuite.Field
         public static SoftBodySuite.SuiteConfig configRef;
         public static bool halfRate;
         public static bool halfRateLerp;
-        // WIRED, FORCED FALSE. The capture/solve split is designed for it (FieldContext
+        // Wired, forced false. The capture/solve split is designed for it (FieldContext
         // may not hold a UnityEngine.Object precisely so the solve can move), but async
-        // is not enabled until the capture half has been MEASURED: if capture is 60% of
+        // is not enabled until the capture half has been measured: if capture is 60% of
         // the frame, moving the other 40% off-thread buys a frame of latency for
         // nothing. Do not flip this without the numbers from FieldDiag.Report().
         public static bool asyncSim;
@@ -59,17 +59,17 @@ namespace SoftBodySuite.Field
         int[] weldOf;               // mesh vertex -> weld group id
         List<int>[] weldMembers;    // weld group id -> all duplicate vertex indices
 
-        // ---- the field: ONE SOLVER PER PAINTED REGION ----
+        // ---- the field: one solver per painted region ----
         // Each enabled, painted region gets its own cage, field, sources, settings, motion
-        // and ripple state, and their displacements ADD onto the one rendered body
+        // and ripple state, and their displacements add onto the one rendered body
         // (RemeshCage.Project adds into its target). Earlier builds had one cage for
-        // the UNION of all regions, driven by the FIRST region's sliders: adding a thighs
+        // the union of all regions, driven by the first region's sliders: adding a thighs
         // region doubled the "region size" every ripple / jiggle value is scaled by (0.23 m ->
         // 0.48 m), overran the cage build's time budget, and the thighs' own sliders did nothing.
         class RegionSolver
         {
             public SoftBodySuite.SuiteRegion reg;
-            public SoftBodySuite.FieldRegion tuned;     // THIS region's sliders
+            public SoftBodySuite.FieldRegion tuned;     // This region's sliders
             public string name;
             public int[] sampleIdx;                     // this region's painted render verts
             public SoftBodySuite.Jello.RemeshCage cage, cageBuilding;
@@ -106,7 +106,7 @@ namespace SoftBodySuite.Field
         bool[] capValid;
         bool[] capLimb;
 
-        // Hands, fingers and arms: the things that press INTO the flesh and move it. The
+        // Hands, fingers and arms: the things that press into the flesh and move it. The
         // torso and spine capsules the breast is attached to press all the time and from
         // every side, and averaging them in is what made Lift flip between up and down.
         static bool IsLimbBone(string name)
@@ -126,7 +126,7 @@ namespace SoftBodySuite.Field
         readonly Dictionary<string, MeshColliderCloud> colMeshCloud = new Dictionary<string, MeshColliderCloud>();
         List<SkinnedMeshRenderer> allColSmrs;
         readonly List<Vector4> regBounds = new List<Vector4>();
-        // painted verts this mesh must not collide with when it is its OWN collider.
+        // painted verts this mesh must not collide with when it is its own collider.
         // Rebuilt in ResolveRegions (attach / rebind / repaint), never in the frame path.
         readonly HashSet<int> selfExcludeSet = new HashSet<int>();
 
@@ -154,7 +154,7 @@ namespace SoftBodySuite.Field
         public Vector3[] BaseVerts { get { return bakedVerts; } }
         public Vector3[] Disp { get { return disp; } }
         public Transform Root { get { return go != null ? go.transform : null; } }
-        // the FIRST region's, for the callers that predate one-solver-per-region
+        // the first region's, for the callers that predate one-solver-per-region
         public SoftBodySuite.Jello.RemeshCage Cage { get { return S0 != null ? S0.cage : null; } }
         public float UsedEdge { get { return S0 != null ? S0.usedEdge : 0f; } }
         public DeformField Field { get { return S0 != null ? S0.field : null; } }
@@ -221,7 +221,7 @@ namespace SoftBodySuite.Field
         {
             JoinWorker();
             if (smr != null) smr.forceRenderingOff = false;
-            if (go != null) { go.SetActive(false); Object.Destroy(go); }   // hide NOW (Destroy is end-of-frame)
+            if (go != null) { go.SetActive(false); Object.Destroy(go); }   // hide now (Destroy is end-of-frame)
             if (baked != null) Object.Destroy(baked);
             if (display != null) Object.Destroy(display);
             go = null; mf = null; mr = null; baked = null; display = null; smr = null;
@@ -257,7 +257,7 @@ namespace SoftBodySuite.Field
             StartCageBuilds();
         }
 
-        // ONE SOLVER PER PAINTED REGION (see RegionSolver). Colliders are still merged across
+        // One solver per painted region (see RegionSolver). Colliders are still merged across
         // every enabled region, so a hand added on the breasts also dents the thighs.
         void ResolveRegions()
         {
@@ -310,7 +310,7 @@ namespace SoftBodySuite.Field
             sampleIdx = samples.ToArray();
 
             // self-collider exclusions, built here so the frame path never allocates. Note it
-            // spans DISABLED regions too: a region that is switched off is still flesh, and
+            // spans disabled regions too: a region that is switched off is still flesh, and
             // letting the cloud fit a capsule through it is what makes the mesh collide with
             // itself the moment somebody toggles a region back on.
             selfExcludeSet.Clear();
@@ -323,7 +323,7 @@ namespace SoftBodySuite.Field
                         if (reg.weight[v] > 0.15f) selfExcludeSet.Add(reg.vertIndex[v]);
                 }
 
-            // The sleep bound GROWS and never shrinks, on purpose. Across a repaint that is
+            // The sleep bound grows and never shrinks, on purpose. Across a repaint that is
             // wrong: a region shrunk to a quarter of its old size keeps the old radius, which
             // both wakes the proxy early and makes CaptureFrameInputs call the flesh
             // "overlapping", which charges the impulse envelope off nothing.
@@ -370,8 +370,8 @@ namespace SoftBodySuite.Field
             r.col = new FieldCollider();
             r.blur = new FieldBlur();
             r.ctx = new FieldContext();
-            // THE SINGLE WIRING POINT. FieldRegistry never constructs a concrete source, and
-            // every region gets its OWN instances, so one region's impulse envelope, events
+            // The single wiring point. FieldRegistry never constructs a concrete source, and
+            // every region gets its own instances, so one region's impulse envelope, events
             // and nipple finder never leak into another's.
             FieldPresets.RegisterAll(r.registry);
             r.registry.SortByOrder();
@@ -434,7 +434,7 @@ namespace SoftBodySuite.Field
         bool StartCageBuild(RegionSolver s)
         {
             if (display == null || s == null || s.reg == null) return false;
-            // THIS region's paint only
+            // This region's paint only
             List<SoftBodySuite.SuiteRegion> one = new List<SoftBodySuite.SuiteRegion>(1);
             one.Add(s.reg);
             float[] wRep = SoftBodySuite.Jello.RemeshCage.UnionWeights(display.vertexCount, one, weldOf);
@@ -456,7 +456,7 @@ namespace SoftBodySuite.Field
                 + " passes): running in background");
             System.Threading.Thread th = new System.Threading.Thread(() =>
             {
-                // NO Debug.Log in here: logging from a worker thread can deadlock
+                // No Debug.Log in here: logging from a worker thread can deadlock
                 // against the host's log handler: progress goes via c.stage instead
                 try { c.buildOk = c.Build(mvp, tris, wo, wm, wRep, mnrm, L, passes); }
                 catch (System.Exception e) { c.note = "exception: " + e.Message; }
@@ -512,7 +512,7 @@ namespace SoftBodySuite.Field
 
             int nn = c.SimVertCount;
             s.field.Ensure(nn);
-            // Ensure REUSES the arrays when the node count happens to land the same, and a new
+            // Ensure reuses the arrays when the node count happens to land the same, and a new
             // cage means new topology under the same indices: excite, the event ring and the
             // accumulators would carry the old cage's values onto different flesh. Clear here
             // rather than rely on every caller having cleared first.
@@ -534,10 +534,10 @@ namespace SoftBodySuite.Field
             s.ctx.cageTris = c.simTris; s.ctx.usedEdge = s.usedEdge; s.ctx.dens = s.dens;
             s.ctx.regionRadius = PaintRadius(c.simRest, c.simWeight, nn);
             Debug.Log("[SfxField] '" + s.name + "' painted region radius " + s.ctx.regionRadius.ToString("0.0000")
-                + " m (rest pose) - Ripple and Fat Jiggle amplitudes are a fraction of this"
+                + " m (rest pose). Ripple and Fat Jiggle amplitudes are a fraction of this"
                 + " unless amplitudeRelative is turned off");
 
-            // A DRIFTED usedEdge SILENTLY WIDENS EVERY TUNED FOOTPRINT. The remesher
+            // A drifted usedEdge silently widens every tuned footprint. The remesher
             // caps the edge against the source mesh, so asking for 8 mm does not always
             // get 8 mm, and every Spread / Shape Smoothing / Corrective Smooth number in
             // the presets assumes it did. Say so out loud rather than letting the whole
@@ -572,7 +572,7 @@ namespace SoftBodySuite.Field
         // the furthest painted node from it. Rest pose and once per cage build, because a
         // wave height that breathed with the animation would beat against the wave itself.
         //
-        // WEIGHTED centroid, unweighted max: a feathered edge should pull the centre
+        // Weighted centroid, unweighted max: a feathered edge should pull the centre
         // towards the solid middle of the paint but must not shrink the radius, or the
         // amplitude would depend on how softly the user feathered rather than on how big
         // the region is. The 1 cm floor is there so a single-vertex dab cannot make every
@@ -605,9 +605,9 @@ namespace SoftBodySuite.Field
             return Mathf.Max(Mathf.Sqrt(r2), 0.01f);
         }
 
-        // The WHOLE renderer's rest area, not just the painted part: InflateSource needs
+        // The whole renderer's rest area, not just the painted part: InflateSource needs
         // cageArea/renderArea because the pressure statistic is defined as a
-        // mean over the ENTIRE input geometry
+        // mean over the entire input geometry
         // while our cage only covers the paint.
         float MeasureRenderArea()
         {
@@ -639,7 +639,7 @@ namespace SoftBodySuite.Field
         // frame
         // ==================================================================
 
-        // NO substeps PARAMETER, deliberately - see the note on RunField below.
+        // No substeps parameter, deliberately; see the note on RunField below.
         public void Frame(float dt, Vector3 worldDown, bool simEnabled)
         {
             if (!Alive) return;
@@ -650,7 +650,7 @@ namespace SoftBodySuite.Field
             swDbg.Reset(); swDbg.Start();
             PollCageBuilds();
 
-            // FINAL stage while it is on screen: assert it EVERY frame. An upstream
+            // Final stage while it is on screen: assert it every frame. An upstream
             // detach re-shows the original for its own fallback and that must never win.
             smr.forceRenderingOff = true;
 
@@ -684,11 +684,11 @@ namespace SoftBodySuite.Field
         // WHY THERE IS NO SUBSTEP LOOP HERE.
         // The other three stages are Verlet integrators: halving their step changes the
         // answer, so Substeps is a real knob for them. The field is not an integrator. Every
-        // source is a pure function of THIS frame's pose (conform, blur, geodesic falloff,
+        // source is a pure function of this frame's pose (conform, blur, geodesic falloff,
         // noise), so running the pipeline N times per frame would produce the identical
-        // displacement N times over - DeformField.BeginFrame clears the accumulators at the
+        // displacement N times over: DeformField.BeginFrame clears the accumulators at the
         // top of each pass, so the last one would simply win. The only state the field carries
-        // between frames is temporal, and all of it advances in CLOSED FORM:
+        // between frames is temporal, and all of it advances in closed form:
         //   MotionExciter.cs:142  energy *= Exp(-dt / relaxTime)
         //   MotionExciter.cs:110  a = 1 - Exp(-dt / tau)   (the EMA chain)
         //   DeformField.AgeEvents age += dt
@@ -740,7 +740,7 @@ namespace SoftBodySuite.Field
             bool awake = debugDraw || CheckAwake(dt);
             if (!awake)
             {
-                // ASLEEP: no capture, no InterpBaked, no source, no FieldPost. After the
+                // Asleep: no capture, no InterpBaked, no source, no FieldPost. After the
                 // 0.35 s grace this costs one bound refresh and nothing else: "a
                 // sleeping avatar must cost zero" is a hard requirement, and a sleeping
                 // proxy that still ran cage.InterpBaked would not meet it.
@@ -770,7 +770,7 @@ namespace SoftBodySuite.Field
 
             if (!computeFrame && heldValid && heldDisp != null && heldDisp.Length == disp.Length)
             {
-                // HELD frame: reuse the last computed field (fresh skinning still flows
+                // Held frame: reuse the last computed field (fresh skinning still flows
                 // through: only the offset field is one frame old)
                 System.Array.Copy(heldDisp, disp, disp.Length);
                 PublishWithDisp();
@@ -779,7 +779,7 @@ namespace SoftBodySuite.Field
 
             float pdt = hrAny ? Mathf.Min(dt * 2f, 0.05f) : dt;
 
-            // (1) MAIN-THREAD CAPTURE: the only place a Transform is read.
+            // (1) main-thread capture: the only place a Transform is read.
             swPass.Reset(); swPass.Start();
             UpdateColliderClouds(tr);
             CaptureFrameInputs(tr, pdt);
@@ -791,7 +791,7 @@ namespace SoftBodySuite.Field
             { heldDisp = new Vector3[disp.Length]; heldPrev = new Vector3[disp.Length]; }
             if (halfRateLerp && heldValid)
             {
-                // LERP mode: show the midpoint between the previous and the new tick:
+                // Lerp mode: show the midpoint between the previous and the new tick:
                 // smoother than holding, at half a physics tick of extra latency
                 System.Array.Copy(heldDisp, heldPrev, disp.Length);
                 System.Array.Copy(disp, heldDisp, disp.Length);
@@ -806,13 +806,11 @@ namespace SoftBodySuite.Field
             PublishWithDisp();
         }
 
-        // ---- DISPLACEMENT TELEMETRY, ALWAYS ON -------------------------------------
-        // Every 2 s, say how far the field ACTUALLY moved the mesh, and say it even when
-        // the answer is "not at all". Without this the only evidence available is a
-        // screenshot, and a screenshot of a stage doing nothing looks exactly like a stage
-        // doing something gently - smooth, clean, no artefacts. That reading cost a whole
-        // round of "it looks great" about a field that was publishing the body untouched
-        // because every region's mix was 0. Clean is not a result; a number is.
+        // ---- displacement telemetry, always on -------------------------------------
+        // Every 2 s, say how far the field actually moved the mesh, and say it even when
+        // the answer is "not at all". On screen, a stage doing nothing looks exactly like
+        // a stage doing something gently (smooth, clean, no artefacts), for example when
+        // every region's mix is 0, so the number is the check to trust.
         float telT; int telFrames, telSkipped; float telMax, telMeanAcc; int telMovers; int telTick, telSampled;
         float telCageMax, telCageMeanAcc; int telCageN;
         float telC, telW, telG; int telClamped, telCapped;
@@ -866,22 +864,21 @@ namespace SoftBodySuite.Field
                 telMovers += mov;
                 telSampled++;
 
-                // CAGE-LEVEL vs RENDER-LEVEL, measured separately and on purpose.
+                // Cage-level vs render-level, measured separately and on purpose.
                 // The solver runs on the ~3.9k uniform cage and the result is projected
                 // onto the 38.5k render mesh. A shard mess is one of exactly two faults and
                 // these two numbers tell them apart without argument:
-                //   cage max ~= render max  -> the SOLVER is producing the spike, and the
+                //   cage max ~= render max  -> the solver is producing the spike, and the
                 //                              projection is faithfully carrying it over.
-                //   cage max << render max  -> the solver is smooth and the PROJECTION is
+                //   cage max << render max  -> the solver is smooth and the projection is
                 //                              amplifying, i.e. a binding/interpolation bug.
-                // PER-BUCKET ATTRIBUTION. The field keeps three accumulators and they are
+                // Per-bucket attribution. The field keeps three accumulators and they are
                 // combined before anything downstream can see them, so a 130 mm spike in the
-                // total says nothing about WHICH produced it - and four config bisects in a
-                // row failed to move it, because none of the knobs I could reach touch the
-                // bucket it is actually in. dispGuard in particular is the anti-clip, which
-                // is applied last and DELIBERATELY never smoothed ("a smoothed guarantee is
-                // not a guarantee"), so a large value there is unsmoothed by construction -
-                // i.e. shards. Name the bucket, then argue about the fix.
+                // total says nothing about which produced it, and a setting that does not
+                // touch that bucket will not move it. dispGuard in particular is the anti-clip,
+                // which is applied last and deliberately never smoothed (a smoothed guarantee
+                // is not a guarantee), so a large value there is unsmoothed by construction,
+                // i.e. shards. Find the bucket before changing settings.
                 telClamped += ContactSource.clampedThisFrame;
                 ContactSource.clampedThisFrame = 0;
                 float cmx = 0f, csum = 0f; int cn = 0;
@@ -916,7 +913,7 @@ namespace SoftBodySuite.Field
             int smp = Mathf.Max(1, telSampled);
             if (ran <= 0)
             {
-                Debug.LogWarning("[SfxField] MOVED NOTHING for " + telFrames + " frames - "
+                Debug.LogWarning("[SfxField] MOVED NOTHING for " + telFrames + " frames: "
                     + (telWhy.Length > 0 ? telWhy : "identity path")
                     + ". The field published the body untouched.");
             }
@@ -966,7 +963,7 @@ namespace SoftBodySuite.Field
             display.SetNormals(bakedNormals);
             if (contributed) display.RecalculateBounds();
             msField = Mathf.Lerp(msField, (float)swDbg.Elapsed.TotalMilliseconds, 0.08f);
-            // only meaningful on a pass-through frame: on a contributing frame the delta IS the
+            // only meaningful on a pass-through frame: on a contributing frame the delta is the
             // field, and watching it would cry wolf on every dent
             if (!contributed && FieldDiag.identityWatch && idInput != null)
                 FieldDiag.WatchFrame(smr.name, idInput, bakedVerts);
@@ -981,10 +978,10 @@ namespace SoftBodySuite.Field
         }
 
         // ---- collider visualisation -----------------------------------------
-        // The Show/hide colliders button only ever drove the SQUISH stage's drawing, so with
+        // The Show/hide colliders button only ever drove the squish stage's drawing, so with
         // the field running alone nothing appeared and the colliders looked missing. These
-        // are the field's own capsules - mesh-collider clouds and bone capsules, skin gap
-        // included - exactly as the solver sees them on its last captured frame.
+        // are the field's own capsules (mesh-collider clouds and bone capsules, skin gap
+        // included), exactly as the solver sees them on its last captured frame.
         readonly List<Transform> dbgPool = new List<Transform>();
         static Material dbgMatF;
 
@@ -1042,7 +1039,7 @@ namespace SoftBodySuite.Field
             return false;
         }
 
-        // The END of each breast chain (Breast1 -> Breast2 -> ...), or bones named for the
+        // The end of each breast chain (Breast1 -> Breast2 -> ...), or bones named for the
         // nipple if the rig has them. Mesh objects ("Breast Ribbon") are not bones: skipped.
         void FindNippleBones()
         {
@@ -1050,12 +1047,12 @@ namespace SoftBodySuite.Field
             if (avatarRef == null) return;
             Transform[] all = avatarRef.GetComponentsInChildren<Transform>(true);
             List<Transform> tips = new List<Transform>(), bases = new List<Transform>();
-            // best chain per SIDE of the body (deepest, then longest): a rig with a separate
+            // best chain per side of the body (deepest, then longest): a rig with a separate
             // "BreastUpper" helper off the chest otherwise got a third and fourth "nipple"
             Transform av = avatarRef.transform;
-            // only bones that skin THIS body mesh: a bow's "Breast Ribbon L" chain is longer
+            // only bones that skin this body mesh: a bow's "Breast Ribbon L" chain is longer
             // than the real breast chain and won the left side
-            // Merged avatars list EVERY bone on every mesh, so membership proves nothing: the
+            // Merged avatars list every bone on every mesh, so membership proves nothing: the
             // bone has to carry real weight on this region's painted verts.
             HashSet<Transform> bodyBones = new HashSet<Transform>();
             if (smr != null && smr.bones != null && smr.sharedMesh != null && cfg != null && cfg.regions != null)
@@ -1090,7 +1087,7 @@ namespace SoftBodySuite.Field
                     if (all[i] != null && all[i].GetComponent<Renderer>() == null && IsBreastName(all[i].name, nippleOnly)
                         && (bodyBones.Count == 0 || bodyBones.Contains(all[i])))
                         named.Add(all[i]);
-                // ONE ray per chain: from each chain's top bone, its DEEPEST named descendant
+                // One ray per chain: from each chain's top bone, its deepest named descendant
                 // (ties: the one furthest from the top). A rig with side bones (BustRoot ->
                 // Bust1.1 -> Bust2, plus Bust1.2/1.3/1.4) otherwise gave four rays on one side.
                 foreach (Transform root in named)
@@ -1221,19 +1218,19 @@ namespace SoftBodySuite.Field
         }
 
         // ==================================================================
-        // THE SOLVE: steps (2)-(6), everything after the capture and before the publish.
-        // Pure array maths - no Transform, no Time, no Mesh - which is what lets it run on
+        // The solve: steps (2)-(6), everything after the capture and before the publish.
+        // Pure array maths (no Transform, no Time, no Mesh), which is what lets it run on
         // a worker thread when Async Sim is on. `bk`/`bn` are the skinned surface it reads
         // and `outDisp` the render-mesh displacement it writes; in async mode those are
         // private snapshots, so the main thread can move on to the next frame meanwhile.
         // ==================================================================
         readonly System.Diagnostics.Stopwatch swSolve = new System.Diagnostics.Stopwatch();
 
-        // Every live region solves on its own cage and ADDS its result into outDisp.
+        // Every live region solves on its own cage and adds its result into outDisp.
         void SolveAll(float pdt, float now, Vector3[] bk, Vector3[] bn, Vector3[] outDisp)
         {
-            // Project ADDS into its target. The async buffer was once never cleared and summed
-            // every frame since startup (measured: 44 m on the render mesh). Clear ONCE, here,
+            // Project adds into its target. The async buffer was once never cleared and summed
+            // every frame since startup (measured: 44 m on the render mesh). Clear once, here,
             // and let each region add its own share.
             System.Array.Clear(outDisp, 0, outDisp.Length);
             for (int i = 0; i < solvers.Count; i++)
@@ -1255,7 +1252,7 @@ namespace SoftBodySuite.Field
             for (int i = 0; i < s.field.n; i++) s.field.mask[i] = s.cage.simWeight[i];
             swSolve.Stop(); FieldDiag.Mark("interp", (float)swSolve.Elapsed.TotalMilliseconds);
 
-            // (3) frame reset; events age BEFORE the sources so every source in this
+            // (3) frame reset; events age before the sources so every source in this
             //     frame sees the same ages
             s.field.BeginFrame(pdt, now);
             s.field.AgeEvents(pdt, 2.5f);
@@ -1269,17 +1266,17 @@ namespace SoftBodySuite.Field
             s.ctx.coreOverride = false; s.ctx.ovMask = null; s.ctx.ovIntensity = 0f;
             s.ctx.contactActive = false; s.ctx.axisQuality = 0f;
 
-            // AMPLITUDES -> METRES, once a frame, never written back into `tuned`. The
+            // Amplitudes -> metres, once a frame, never written back into `tuned`. The
             // config keeps the fraction the user typed; the sources read only these.
             float ampScale = s.tuned.amplitudeRelative ? Mathf.Max(s.ctx.regionRadius, 1e-4f) : 1f;
             s.ctx.rippleAmpM = s.tuned.rippleAmplitude * ampScale;
-            // The wave's SPEED, WIDTH, RANGE and DECAY get the same treatment the amplitude
+            // The wave's speed, width, range and decay get the same treatment the amplitude
             // already had. In metres, Wave Speed 4 crossed a 46 cm breast in about 0.1 s,
-            // which reads as the whole ball pulsing at once - resizing, not rippling.
+            // which reads as the whole ball pulsing at once: resizing, not rippling.
             s.ctx.waveScale = ampScale;
             s.ctx.wobbleAmpM = s.tuned.wobbleAmplitude * ampScale;
 
-            // Effect family. Resolved only when the STRING changes: FieldEffects.Resolve
+            // Effect family. Resolved only when the string changes: FieldEffects.Resolve
             // lower-cases, which allocates, and this is the per-frame path.
             if (!s.effectResolved || !string.Equals(s.lastEffect, s.tuned.effect))
             {
@@ -1291,8 +1288,8 @@ namespace SoftBodySuite.Field
                           + " (from \"" + (s.lastEffect == null ? "" : s.lastEffect) + "\")");
                 WarnGatedChannels(s);
                 // Switching family is switching to a different effect. Every source that is about to be
-                // gated OUT stops being prepared, so anything it was integrating would freeze
-                // at its last value instead of decaying - MotionExciter's energy envelope in
+                // gated out stops being prepared, so anything it was integrating would freeze
+                // at its last value instead of decaying, MotionExciter's energy envelope in
                 // particular, which feeds f.excite, which DeformField.AnyActive treats as "not
                 // finished yet" and which would therefore have kept the proxy awake forever.
                 // Reset the whole registry and the shared field so the new family starts clean.
@@ -1303,18 +1300,18 @@ namespace SoftBodySuite.Field
             s.ctx.contactFootprint = SoftBodySuite.Field.FieldEffects.FootprintOnly(s.family);
             s.ctx.contactFootprintDent = SoftBodySuite.Field.FieldEffects.FootprintUsesDent(s.family);
 
-            // The self hull is built by FieldPost, from the DEFORMED cage, because that is the
+            // The self hull is built by FieldPost, from the deformed cage, because that is the
             // surface the rays are actually shot against (FieldPost.cs:109-111). This used to
-            // hand SetCageForSelf the UNDEFORMED field.pos here, every frame, before any source
-            // had run - and because SetCageForSelf only rebuilds its grid once per SelfRebuild
+            // hand SetCageForSelf the undeformed field.pos here, every frame, before any source
+            // had run, and because SetCageForSelf only rebuilds its grid once per SelfRebuild
             // (0.2 s) and this call always got there first, FieldPost's own rebuild request was
-            // ALWAYS refused by the timer. The triangles RayCage read were the deformed ones
+            // always refused by the timer. The triangles RayCage read were the deformed ones
             // (selfP is an alias) but the spatial buckets they were sorted into were the rest
             // pose's, so the DDA walked cells listing triangles that had moved out of them.
-            // Nothing is armed from here now; all this does is RELEASE the hull when the
+            // Nothing is armed from here now; all this does is release the hull when the
             // channel is off, so a stale alias cannot outlive the toggle.
             // (The old comment claiming SetCageForSelf reads Time.realtimeSinceStartup was
-            // wrong: it takes `now` as a parameter - FieldCollider.cs:374-378 says so itself.)
+            // wrong: it takes `now` as a parameter, as FieldCollider.cs:374-378 says.)
             if (s.tuned == null || s.tuned.selfCollision <= 0.5f) s.col.SetCageForSelf(null, null, now);
 
             // (4) Prepare pass, then Write pass: two passes over the whole registry,
@@ -1344,12 +1341,12 @@ namespace SoftBodySuite.Field
             swSolve.Reset(); swSolve.Start();
             Vector3[] sd = s.cage.simDisp;
             // ---- THE LIMITER, MADE AN ACTUAL GUARANTEE ----------------------------------
-            // Clamping the contact SEED to maxDent was not enough: the blur-and-pile pass
+            // Clamping the contact seed to maxDent was not enough: the blur-and-pile pass
             // that follows roughly doubles it, so a 50 mm cap still produced a 95 mm contact
             // bucket. Measured. The cap has to be applied where the number is final.
             //
-            // The CONTACT bucket is clamped and the other two are not, on purpose:
-            //   * dispWave is the ripple/fat crest - an effect, sized by its own amplitude
+            // The contact bucket is clamped and the other two are not, on purpose:
+            //   * dispWave is the ripple/fat crest: an effect, sized by its own amplitude
             //     slider, and already a fraction of the region radius.
             //   * dispGuard is the anti-clip. It is the guarantee that flesh does not end up
             //     inside the clothes, and clamping a guarantee turns it into a suggestion.
@@ -1377,7 +1374,7 @@ namespace SoftBodySuite.Field
 
         // ---- ASYNC SIM ---------------------------------------------------------
         // Frame N: join the solve kicked in frame N-1, publish its result, capture this
-        // frame's colliders and pose on the MAIN thread, snapshot the skinned surface,
+        // frame's colliders and pose on the main thread, snapshot the skinned surface,
         // and kick the next solve. It runs while Unity renders and the other plugins
         // update, and its result shows one frame later (Squish's async mode does the
         // same). Any exception turns async off for the session and says why.
@@ -1427,7 +1424,7 @@ namespace SoftBodySuite.Field
         }
 
         // ==================================================================
-        // capture (the ONLY code here that reads a Transform)
+        // capture (the only code here that reads a Transform)
         // ==================================================================
 
         void CaptureFrameInputs(Transform tr, float dt)
@@ -1481,7 +1478,7 @@ namespace SoftBodySuite.Field
                 solvers[si].col.SetCapsules(capA, capB, capR, capValid, capLimb, capCount);
 
             float idt = dt > 1e-6f ? 1f / dt : 0f;
-            // A CHANGED capsule count means slot c is not the same collider it was last frame
+            // A changed capsule count means slot c is not the same collider it was last frame
             // (a disabled collider shifts every later one down), so the difference is not a
             // velocity. Skip the derivative for that one frame rather than fire a fake impact.
             bool prevOk = capPrevCount == cnt;
@@ -1491,14 +1488,14 @@ namespace SoftBodySuite.Field
         }
 
         // Per region: its own flesh motion, its own picked ripple points, the nipple rays
-        // near it, and whether a collider is touching IT.
+        // near it, and whether a collider is touching it.
         void CaptureRegion(RegionSolver s, Transform tr, float dt, float idt, bool prevOk)
         {
             FieldContext ctx = s.ctx;
             int[] si = s.sampleIdx;
             // flesh motion, proxy-local. The proxy is parented to the renderer, so a
-            // proxy-local centroid does not move when the body does - the derivative has
-            // to be taken in WORLD space and brought back into local axes, or every
+            // proxy-local centroid does not move when the body does, so the derivative has
+            // to be taken in world space and brought back into local axes, or every
             // motion-driven effect goes dead the moment the avatar is standing still
             // relative to its own mesh.
             Vector3 lc = Vector3.zero;
@@ -1521,7 +1518,7 @@ namespace SoftBodySuite.Field
             s.prevCentroidW = wc; s.prevVel = velW; s.prevAcc = accW; s.motionPrimed = true;
             ctx.fleshCentroid = lc;
 
-            // ripple start points: THIS region's picks, and the breast-bone rays near it
+            // ripple start points: this region's picks, and the breast-bone rays near it
             int pc = 0;
             List<int> rpts = s.tuned != null ? s.tuned.ripplePoints : null;
             if (rpts != null)
@@ -1551,7 +1548,7 @@ namespace SoftBodySuite.Field
             // direction soft tissue drags toward, in metres, ready to scale by a slider
             ctx.dragVec = -ctx.fleshVel * dt;
 
-            // relative collider/flesh speed while overlapping THIS region - the "was that a
+            // relative collider/flesh speed while overlapping this region: the "was that a
             // slap or a rest" number. Capsule A-ends are enough: a capsule that rotates about
             // its own axis is not a hit.
             float rel = 0f;
@@ -1572,7 +1569,7 @@ namespace SoftBodySuite.Field
             ctx.overlapping = overlap;
         }
 
-        // Reduce every referenced collider mesh ONCE to auto-fitted bone capsules: no
+        // Reduce every referenced collider mesh once to auto-fitted bone capsules: no
         // per-frame baking. When the collider is this mesh itself, painted vertices are
         // excluded so the region does not collide with its own flesh; hands on the same
         // mesh still squash it.
@@ -1594,7 +1591,7 @@ namespace SoftBodySuite.Field
                 regBounds.Add(new Vector4(cen.x, cen.y, cen.z, Mathf.Sqrt(rr) + 0.14f));
             }
 
-            // Built ONCE per paint in ResolveRegions, not per frame. MeshProxy rebuilds this
+            // Built once per paint in ResolveRegions, not per frame. MeshProxy rebuilds this
             // set inside its own frame loop; here that is a HashSet plus one Add per painted
             // vertex every single frame that a self mesh collider is configured, and
             // allocation in the per-frame path is not allowed.
@@ -1636,7 +1633,7 @@ namespace SoftBodySuite.Field
 
         // Mirrors SquishSim.CheckAwake (SquishSim.cs:434-484): a sparse-stride bound
         // centre refreshed every frame (the region rides the animation even asleep) and
-        // a bound radius that GROWS with the sample and never shrinks: a frozen radius
+        // a bound radius that grows with the sample and never shrinks: a frozen radius
         // under blendshape growth would quietly erode the pre-wake margin.
         bool CheckAwake(float dt)
         {
@@ -1652,7 +1649,7 @@ namespace SoftBodySuite.Field
                 if (rd2 > rMaxS) rMaxS = rd2;
             }
             boundRadius = Mathf.Max(boundRadius, Mathf.Sqrt(rMaxS) * 1.15f);
-            float reach = boundRadius + 0.12f;   // wake ~12 cm BEFORE contact: no first-touch lag
+            float reach = boundRadius + 0.12f;   // wake ~12 cm before contact: no first-touch lag
 
             bool near = false;
             Transform tr = go.transform;
@@ -1699,7 +1696,7 @@ namespace SoftBodySuite.Field
         // ==================================================================
 
         // Game meshes duplicate vertices wherever UVs or normals split; the cage build
-        // depends on this hash MATCHING SquishProxy's (SquishProxy.cs:1676-1687): a
+        // depends on this hash matching SquishProxy's (SquishProxy.cs:1676-1687): a
         // 21-bit-per-axis packed long at 0.1 mm. Do not 'improve' it.
         void BuildWeldMap()
         {

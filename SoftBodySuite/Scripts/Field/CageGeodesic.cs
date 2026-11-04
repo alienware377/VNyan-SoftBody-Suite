@@ -10,10 +10,10 @@ namespace SoftBodySuite.Field
         public int n;
         public int[] nbrStart;     // CSR offsets, length n+1
         public int[] nbrIdx;       // neighbour node indices
-        public float[] nbrLen;     // PER-EDGE REST LENGTH (metres) - not uniform, see below
+        public float[] nbrLen;     // per-edge rest length (metres), not uniform, see below
         public float meanEdge;
 
-        // rest positions, kept so the geodesic can measure how far a contact has MOVED
+        // rest positions, kept so the geodesic can measure how far a contact has moved
         // without the caller having to hand them back every frame. Additive to the shared
         // contract; nothing outside this file is required to read it.
         public Vector3[] rest;
@@ -26,34 +26,34 @@ namespace SoftBodySuite.Field
     //
     // TWO THINGS HERE ARE NOT NEGOTIABLE.
     //
-    // 1. PER-EDGE REST LENGTHS. The cage is nominally isotropic at 8 mm, but a remesh that
+    // 1. Per-edge rest lengths. The cage is nominally isotropic at 8 mm, but a remesh that
     //    ran out of its 9 s budget returns a partially-remeshed cage with 3 mm edges next to
     //    40 mm ones in the same graph. Weighting every edge equally turns the "geodesic" into
-    //    a HOP COUNT, which is a different field: rings come out elliptical wherever the cage
+    //    a hop count, which is a different field: rings come out elliptical wherever the cage
     //    is anisotropic and the falloff distance means nothing in metres.
     //
-    // 2. SEED EVERY NODE ABOVE THE THRESHOLD AT DISTANCE ZERO. A capsule pressed lengthwise
-    //    into flesh touches a BAND, not a point. Seeding one centroid produces a circular
+    // 2. Seed every node above the threshold at distance zero. A capsule pressed lengthwise
+    //    into flesh touches a band, not a point. Seeding one centroid produces a circular
     //    ring whose crests are wrong everywhere the contact is not round; seeding the whole
     //    contact set produces the band's own distance field for the same cost (Dijkstra does
     //    not care how many sources it starts with).
     //
-    // CACHING IS MANDATORY, NOT AN OPTIMISATION. At ~4500 nodes and ~13500 edges one solve is
+    // Caching is mandatory, not an optimisation. At ~4500 nodes and ~13500 edges one solve is
     // 0.4-0.9 ms in managed Mono, and the stage wants two fields. Rebuilding both every frame
     // is 1-2 ms of an 8-12 ms budget spent recomputing something that barely changed. So:
-    // the contact field rebuilds only when the seeded SET moves materially, and an event field
+    // the contact field rebuilds only when the seeded set moves materially, and an event field
     // is solved exactly once, when the event is pushed, and memoised until the event dies.
     public class CageGeodesic
     {
-        // Unreached nodes get this rather than float.MaxValue. The brief had FieldProxy clamp
-        // MaxValue afterwards; writing the finite value here means no consumer can ever
+        // Unreached nodes get this rather than float.MaxValue. Clamping MaxValue later in
+        // FieldProxy would also work; writing the finite value here means no consumer can ever
         // multiply MaxValue by anything and get an infinity into the displacement.
         public const float Unreached = 1e6f;
 
-        // The seed cut for the shared CONTACT field. DeformField.seed is |conform * yield| in
-        // metres, so 0.1 mm is "this node is genuinely under a collider" rather than "this node
+        // The seed cut for the shared contact field. DeformField.seed is |conform * yield| in
+        // metres, so 0.1 mm is "this node is really under a collider" rather than "this node
         // caught a rounding crumb of the blur". Every consumer of ContactField has to use the
-        // SAME cut or they solve two different fields and the memo thrashes.
+        // same cut or they solve two different fields and the memo thrashes.
         public const float ContactSeedThreshold = 1e-4f;
 
         const int EventSlots = 8;          // matches DeformField.MaxEvents
@@ -81,7 +81,7 @@ namespace SoftBodySuite.Field
             CageGraph g = new CageGraph();
             g.n = n; g.rest = rest;
 
-            // dedupe on a packed (lo,hi) key - the same trick RemeshCage.EdgeTris uses
+            // dedupe on a packed (lo,hi) key, the same trick RemeshCage.EdgeTris uses
             HashSet<long> seen = new HashSet<long>();
             int[] deg = new int[n];
             List<long> edges = new List<long>(tris.Length);
@@ -193,7 +193,7 @@ namespace SoftBodySuite.Field
 
         public float[] ContactField { get { return dist; } }
 
-        // Whether the LAST SolveMulti had anything to seed from. `dist` is allocated by
+        // Whether the last SolveMulti had anything to seed from. `dist` is allocated by
         // SetGraph and is therefore non-null and all-ZERO before the first solve, which reads
         // as "every node is exactly at the contact": the difference between "no contact" and
         // "contact everywhere" is not visible in the array itself, so it is published here.
@@ -227,7 +227,7 @@ namespace SoftBodySuite.Field
             return evDist[eventSlot];
         }
 
-        // which memo slot holds this origin, or -1 - lets an event holder keep a stable handle
+        // which memo slot holds this origin, or -1. Lets an event holder keep a stable handle
         public int EventSlotFor(int originNode)
         {
             for (int s = 0; s < EventSlots; s++) if (evOrigin[s] == originNode) return s;

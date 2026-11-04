@@ -42,14 +42,14 @@ namespace SoftBodySuite.Field
     // Why this exists: the classic suite hooked 142 slider keys against 78 prefab
     // rows: 64 invisible dead sliders and three listener-less buttons, and not
     // one of them produced a warning. Adding ~70 more controls by hand would
-    // reproduce that with certainty. Here every control is DECLARED once, the
-    // missing ones are CLONED from a template at runtime, and SelfCheck reports
+    // reproduce that with certainty. Here every control is declared once, the
+    // missing ones are cloned from a template at runtime, and SelfCheck reports
     // both halves of the drift unconditionally at startup.
     //
     // This works without opening Unity because SuitePlugin.BuildSections()
     // discovers sections by scanning child names at runtime: a cloned
     // "Hdr_Field - Contact" plus cloned "Slider_fx_*" rows are picked up by the
-    // existing section machinery for free. Materialise MUST run BEFORE
+    // existing section machinery for free. Materialise must run before
     // BuildSections().
     public class UiSchema
     {
@@ -154,10 +154,10 @@ namespace SoftBodySuite.Field
         {
             if (window == null || sectionContent == null) return 0;
 
-            // FULL-ROW TEMPLATES. Every row used to be cloned from the bare Slider_ object
+            // Full-row templates. Every row used to be cloned from the bare Slider_ object
             // alone, so field rows never got the number box beside them (Value_* is a
-            // SIBLING in this prefab, not a child), and the clone carried the template's
-            // own "?" tooltip button - whose "?" the label code then overwrote with the
+            // sibling in this prefab, not a child), and the clone carried the template's
+            // own "?" tooltip button, whose "?" the label code then overwrote with the
             // row's name. That is the blue square with a word in it. Now each kind is
             // cloned from a real row of the same kind, parts and all, exactly as the
             // prefab panel builds them.
@@ -273,7 +273,7 @@ namespace SoftBodySuite.Field
                 }
                 catch (System.Exception ex)
                 {
-                    Debug.LogWarning("[SfxField] UiSchema: row '" + r.key + "' (" + r.kind + ") could not be built: " + ex.Message + " - skipped.");
+                    Debug.LogWarning("[SfxField] UiSchema: row '" + r.key + "' (" + r.kind + ") could not be built: " + ex.Message + " (skipped).");
                 }
             }
 
@@ -309,7 +309,7 @@ namespace SoftBodySuite.Field
         }
 
         // Clone a template object as a sibling, at (x, y), named `name`, minus any "?"
-        // button it carried (that button is wired to the TEMPLATE's tooltip).
+        // button it carried (that button is wired to the template's tooltip).
         static RectTransform CloneAt(RectTransform src, RectTransform parent, string name, float x, float y)
         {
             GameObject go = (GameObject)UnityEngine.Object.Instantiate(src.gameObject);
@@ -360,11 +360,11 @@ namespace SoftBodySuite.Field
             {
                 // cloned from a slider row: the slider must go or it will eat the
                 // pointer, and a Toggle has to exist for HookToggle to find one
-            // WHY DestroyImmediate AND NOT Destroy.
-            // Every row is cloned from a SLIDER row, so a toggle/button row has to shed the
+            // why DestroyImmediate and not Destroy.
+            // Every row is cloned from a slider row, so a toggle/button row has to shed the
             // Slider and grow a Toggle or Button instead. Object.Destroy is deferred to the
-            // END OF FRAME, so the Slider was still attached when AddComponent ran - and
-            // Selectable is DisallowMultipleComponent, so AddComponent returned NULL and the
+            // end of frame, so the Slider was still attached when AddComponent ran, and
+            // Selectable is DisallowMultipleComponent, so AddComponent returned null and the
             // very next line threw. Sliders dressed fine; every Toggle and every Button in
             // the field UI failed, which is all six effect switches, the three performance
             // toggles and all twelve preset buttons. DestroyImmediate removes it now, so the
@@ -376,7 +376,7 @@ namespace SoftBodySuite.Field
                 // REMOVING THE SLIDER COMPONENT DOES NOT REMOVE THE SLIDER.
                 // DefaultControls.CreateSlider leaves Background + Fill Area + Handle Slide
                 // Area behind as plain children, so a converted row kept the full look of a
-                // slider - a track with a draggable-looking knob - while being a Toggle
+                // slider (a track with a draggable-looking knob) while being a Toggle
                 // underneath. It read as a broken slider: you drag it and nothing happens.
                 // Strip the track furniture and give the control a face of its own.
                 AsCheckbox(clone, t);
@@ -390,8 +390,8 @@ namespace SoftBodySuite.Field
                 if (b == null) throw new System.Exception("could not add a Button to the cloned row");
                 b.onClick.RemoveAllListeners();
                 // Same leftover-furniture problem as the Toggle branch, and worse here:
-                // twelve preset rows that LOOK like sliders but are one-shot buttons. The
-                // clicks were landing all along - the status bar said so - but nothing about
+                // twelve preset rows that look like sliders but are one-shot buttons. The
+                // clicks were landing all along (the status bar said so), but nothing about
                 // the control said "press me".
                 AsPressable(clone, b);
             }
@@ -429,9 +429,9 @@ namespace SoftBodySuite.Field
                 if (tx.GetComponentInParent<InputField>() != null) continue;
                 tx.text = label;
 
-                // A HEADER'S LABEL IS THE HEADER. Do not move it.
-                // A header row sits at the CONTENT's left edge, so the reposition below -
-                // which parks a label 210 px to the LEFT of its row - pushed every section
+                // A header's label is the header. Do not move it.
+                // A header row sits at the content's left edge, so the reposition below
+                // (which parks a label 210 px to the left of its row) pushed every section
                 // title clean off the panel. With no visible title there was no visible
                 // section either, and the whole Field UI looked deleted while the log still
                 // read "82 of 82 materialised". Only control rows, which sit indented with
@@ -443,15 +443,15 @@ namespace SoftBodySuite.Field
                     return;
                 }
 
-                // SETTING .text IS NOT ENOUGH, AND THAT IS WHY THE PANEL WAS UNREADABLE.
-                // The clone inherits the TEMPLATE's label geometry - a box barely wide
-                // enough for the template's own caption - and uGUI clips to the rect. Every
+                // Setting .text is not enough.
+                // The clone inherits the template's label geometry (a box barely wide
+                // enough for the template's own caption), and uGUI clips to the rect. Every
                 // declared label came out as its first two or three characters ("La", "Co",
                 // "Sp"), which is unreadable and, worse, ambiguous: three different rows all
                 // read "Co". The text is never truncated in the data, only in the rect.
                 //
-                // Park it in the empty column to the LEFT of the slider: anchored to the
-                // row's left edge with the pivot on its RIGHT, so it grows leftwards into
+                // Park it in the empty column to the left of the slider: anchored to the
+                // row's left edge with the pivot on its right, so it grows leftwards into
                 // space nothing else uses, right-aligned so the labels line up in a neat
                 // edge against the controls. Overflow on both axes so a long label spills
                 // rather than clipping or wrapping onto two lines.
@@ -472,7 +472,7 @@ namespace SoftBodySuite.Field
         }
 
 
-        // ---- turning a cloned SLIDER row into something that looks like what it is ----
+        // ---- turning a cloned slider row into something that looks like what it is ----
         // DefaultControls.CreateSlider builds: Background, Fill Area/Fill, Handle Slide
         // Area/Handle. Removing the Slider component leaves every one of those in place.
 
@@ -529,7 +529,7 @@ namespace SoftBodySuite.Field
             StripTrack(row);
             Image bg = BackgroundOf(row);
             if (bg == null) { b.transition = Selectable.Transition.None; return; }
-            // keep the full width - a wide bar with its name beside it is a fine button -
+            // keep the full width (a wide bar with its name beside it is a fine button),
             // but colour it like a button and give it press feedback, which a slider track
             // deliberately does not have.
             bg.color = new Color(0.27f, 0.26f, 0.34f, 1f);

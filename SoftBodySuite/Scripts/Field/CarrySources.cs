@@ -6,11 +6,11 @@ namespace SoftBodySuite.Field
     // make pressed-in flesh go anywhere, and no way to move the whole mass from one push.
     // Both read the contact pass (seed = how far each node was pushed, dir = which way) and
     // the shared contact geodesic, so they cost one sweep each over the cage. Both write the
-    // WAVE bucket on purpose: the contact bucket is hard-capped at Max Dent, and a lift or a
+    // wave bucket on purpose: the contact bucket is hard-capped at Max Dent, and a lift or a
     // bulge capped at the dent limit would cut off exactly the motion these exist to add.
 
     // ------------------------------------------------------------------------------------
-    // PUSH-OUT RING. The volume a collider presses in comes back up as a soft ring around
+    // Push-out ring. The volume a collider presses in comes back up as a soft ring around
     // the dent, the way a finger pressed into a thigh raises a rim around it.
     // Volume is conserved on the uniform cage: every node has the same area, so the sum of
     // the ring heights equals (amount x) the sum of the dent depths.
@@ -97,7 +97,7 @@ namespace SoftBodySuite.Field
     }
 
     // ------------------------------------------------------------------------------------
-    // LIFT. Whatever push the contact gives - a hand under a heavy breast - is carried to
+    // Lift. Whatever push the contact gives (a hand under a heavy breast) is carried to
     // the whole painted mass, not just the flesh it touches. Softness sets how far the
     // carry reaches: low lifts the whole ball as one piece, high lets the sides lag and
     // droop around the lifted centre.
@@ -119,19 +119,19 @@ namespace SoftBodySuite.Field
             SoftBodySuite.FieldRegion p = ctx.p;
             int n = ctx.n;
             if (n <= 0 || f.seed == null || f.dir == null || ctx.geo == null) return;
-            // WHICH WAY TO LIFT. The first version averaged the flesh's ESCAPE directions,
+            // Which way to lift. The first version averaged the flesh's escape directions,
             // and with a hand buried in the middle of a breast the flesh above it escapes up
             // and the flesh below escapes down: measured, the net push flipped between
             // (0.28, 0.40, 0.87) and (0.03, -0.99, -0.15) frame to frame, so Lift often
-            // pushed the breast DOWN. Now the direction is the PRESS AXIS - minus the mean
-            // surface normal of the flesh the limb is touching - which is the way the hand
+            // pushed the breast down. Now the direction is the press axis (minus the mean
+            // surface normal of the flesh the limb is touching), which is the way the hand
             // pushes into the flesh, and does not flip. Only hand / finger / arm contacts
             // count; the torso capsules press all the time from every side.
             Vector3 nSum = Vector3.zero, cSum = Vector3.zero; float ws = 0f, s2 = 0f; int limbN = 0, otherN = 0;
             Vector3[] pos = ctx.pos, nrm = ctx.nrm;
-            // HOW FAR TO LIFT: the hand's RAW depth (limbDepth), not the contact seed. The seed
+            // How far to lift: the hand's raw depth (limbDepth), not the contact seed. The seed
             // is clamped at Max Dent (50 mm) before anything downstream sees it, and hits deeper
-            // than 10 cm are rejected outright by SELF_RANGE - so a hand pushed well into a big
+            // than 10 cm are rejected outright by SELF_RANGE, so a hand pushed well into a big
             // breast reported at most 50 mm of press, and Lift could never carry more.
             for (int i = 0; i < n; i++)
             {
@@ -150,7 +150,7 @@ namespace SoftBodySuite.Field
             Vector3 axis = -nSum.normalized;
             Vector3 center = cSum / ws;
             Vector3 P = axis * (s2 / ws);   // depth-weighted mean press depth along the axis
-            // AXIS WEIGHTS. Arms pressing the base of a big breast press FORWARD, and carrying
+            // Axis weights. Arms pressing the base of a big breast press forward, and carrying
             // the whole mass along that stretched it out in front like a sausage. Up is world
             // up; forward is the avatar's forward with the up part removed.
             {
@@ -162,17 +162,17 @@ namespace SoftBodySuite.Field
                 Vector3 pf = fw * Vector3.Dot(P, fw);
                 Vector3 ps = P - pu - pf;
                 P = pu * p.liftUp + pf * p.liftForward + ps * p.liftSide;
-                // report in BODY terms: the cage's own axes are the mesh's import axes,
-                // which on this avatar are not up/forward at all
+                // report in body terms: the cage's own axes are the mesh's import axes,
+                // which need not be up/forward at all
                 float cu = Vector3.Dot(P, up), cf = Vector3.Dot(P, fw), cs = (P - up * cu - fw * cf).magnitude;
-                if (P.magnitude > DiagPeak)   // keep the components of the STRONGEST frame
+                if (P.magnitude > DiagPeak)   // keep the components of the strongest frame
                 { DiagPeak = P.magnitude; DiagUp = cu; DiagFwd = cf; DiagSide = cs; }
             }
 
-            // diagnostics: how COHERENT the contact's push is. coherence = |net push| over
+            // diagnostics: how coherent the contact's push is. coherence = |net push| over
             // the mean size of the individual pushes. 1 = everything pushed the same way;
             // near 0 = pushes in different directions cancelled (a hand pressing the middle
-            // of a breast pushes flesh OUT in every direction round it).
+            // of a breast pushes flesh out in every direction round it).
             float meanMag = s2 / ws; int cn = limbN;
             // coherence now = how flat the touched patch is (1 = all normals agree)
             float coh = nSum.magnitude / ws;
@@ -192,7 +192,7 @@ namespace SoftBodySuite.Field
             for (int i = 0; i < n; i++)
             {
                 float d = (pos[i] - center).magnitude;
-                // nodes a LIMB is touching are already placed by the conform; blend them out
+                // nodes a limb is touching are already placed by the conform; blend them out
                 // so the carry does not push them off the hand
                 float held = (f.seedLimb != null && f.seedLimb[i]) ? Mathf.Clamp01(f.seed[i] / dent) : 0f;
                 float u = d / L;

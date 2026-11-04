@@ -5,28 +5,28 @@ namespace SoftBodySuite.Field
     // Cartoon-flesh squash & stretch.
     //
     // It lives with the motion family and not with the contact family because
-    // its squash is driven by the flesh centroid's VELOCITY, not by a collider -
+    // its squash is driven by the flesh centroid's velocity, not by a collider:
     // a running character squashes even with nothing touching it.
     // Nothing has to touch you for this to fire.
     //
     // Three parts:
-    //   1. a SOFTNESS field that replaces the paint mask inside the contact core,
+    //   1. a softness field that replaces the paint mask inside the contact core,
     //      plus three core knobs derived from Collision Softness;
     //   2. a velocity squash decomposed around the soft-weighted centroid;
     //   3. a secondary post-impact wobble.
     //
-    // ORDERING - two things the driver must honour, both flagged to the
+    // Ordering: two things the driver must honour, both flagged to the
     // integrator rather than worked around here:
     //
     //   (a) The core substitution is published in IsActive, not in Prepare,
     //       because ContactSource is Order 100 and this is Order 300. The driver
-    //       MUST therefore call IsActive on EVERY source before it calls Prepare
-    //       on ANY of them. That is the shape FieldContext was given
+    //       must therefore call IsActive on every source before it calls Prepare
+    //       on any of them. That is the shape FieldContext was given
     //       (coreOverride / ovMask / ov*) and it is why those fields exist.
     //
     //   (b) The secondary wobble reads f.excite, which MotionExciter writes at
-    //       Order 500 - after this. It is therefore one frame behind, which is
-    //       invisible on a secondary tremor, PROVIDED DeformField.BeginFrame does
+    //       Order 500, after this. It is therefore one frame behind, which is
+    //       invisible on a secondary tremor, provided DeformField.BeginFrame does
     //       not zero `excite`. MotionExciter overwrites the whole array every
     //       frame, so it can never go stale by more than one frame.
     public class OrganicSource : FieldSource
@@ -60,7 +60,7 @@ namespace SoftBodySuite.Field
             Ensure(ctx.n);
 
             // Softness field: soft = clamp01(mask * (1 - stiffness)). This
-            // REPLACES mask inside the contact core for this effect.
+            // replaces mask inside the contact core for this effect.
             float[] mask = ctx.mask;
             float inv = 1f - Mathf.Clamp01(p.stiffness01);
             int n = ctx.n;
@@ -128,7 +128,7 @@ namespace SoftBodySuite.Field
                     if (m <= 0f) { offRaw[i] = Vector3.zero; continue; }
 
                     // s in [0.4, 1]: at 2 m/s with Intensity 1 and soft 1 this is
-                    // about 0.77 - cartoon range without stamping it flat.
+                    // about 0.77, cartoon range without stamping it flat.
                     float drive = k * m;
                     float s = 1f / (1f + drive);
                     if (s < 0.4f) s = 0.4f;
@@ -141,7 +141,7 @@ namespace SoftBodySuite.Field
                     Vector3 pDir = centroid + axial * s + lateral * sLat;
 
                     // Direction Influence scales the directional squash against
-                    // REST, not against a uniform compression, on purpose: mixing
+                    // rest, not against a uniform compression, on purpose: mixing
                     // with a uniform compression measured 1.004 instead of 1.037
                     // on the lateral axis at DI 0.7 and lost 10% of the volume.
                     offRaw[i] = (pDir - pos[i]) * di;

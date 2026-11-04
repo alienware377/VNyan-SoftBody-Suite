@@ -20,7 +20,7 @@ namespace SoftBodySuite
     using SquishConfig = SoftBodySuite.SuiteConfig;
     using SquishSettings = SoftBodySuite.SuiteSettings;
 
-    // Soft Body Studio - wobble, jell-o and squish in one plugin, with the clothes
+    // Soft Body Studio: wobble, jell-o and squish in one plugin, with the clothes
     // fitted once at the very end instead of twice in the middle.
     // Runs LAST in LateUpdate (order 20000) so the bake sees the final pose of the
     // frame: tracking, Pose Studio, bone physics and everything else.
@@ -352,7 +352,7 @@ namespace SoftBodySuite
                 int bad = 0;
                 for (int i = 0; i < N; i++) if (Mathf.Abs(back[i] - (i * 0.5f * 2f + i)) > 1e-3f) bad++;
                 Debug.Log("[GPU] probe: " + (bad == 0 ? "PASS" : ("FAIL, " + bad + " wrong values"))
-                    + " - kernel ran on " + SystemInfo.graphicsDeviceName + " (" + SystemInfo.graphicsDeviceType
+                    + ", kernel ran on " + SystemInfo.graphicsDeviceName + " (" + SystemInfo.graphicsDeviceType
                     + "), dispatch + readback " + ms.ToString("0.00") + " ms");
             }
             catch (Exception e) { Debug.Log("[GPU] probe: threw " + e.GetType().Name + ": " + e.Message); }
@@ -497,9 +497,9 @@ namespace SoftBodySuite
         void ApplyPreset(SquishConfig src, string label)
         {
             // A preset written before v3 carries NO field data at all, so cloning it
-            // silently resets the whole field stage to its defaults - stage OFF (see
+            // silently resets the whole field stage to its defaults: stage off (see
             // FieldStageSettings's constructor), every region's sfxMix back to 0, and the
-            // cage's own remeshSize back to the factory 0.008 - and stamps the config back
+            // cage's own remeshSize back to the factory 0.008. It also stamps the config back
             // to version 2. Preset auto-load fires on every model change, so in practice
             // the field could never stay on, and from the outside that looks exactly like
             // "the new code does nothing". A preset that cannot describe the stage must not
@@ -556,7 +556,7 @@ namespace SoftBodySuite
                             { reg.field = had; restored++; }
                         }
                     }
-                Debug.Log("[SfxField] preset '" + label + "' predates the field stage - kept the"
+                Debug.Log("[SfxField] preset '" + label + "' predates the field stage; kept the"
                           + " current settings (stage + " + restored.ToString() + " region block(s))"
                           + " instead of resetting them.");
             }
@@ -776,13 +776,12 @@ namespace SoftBodySuite
 
         void Rebind()
         {
-            // WHICH STAGES ARE ACTUALLY LIVE, printed every time the binding changes.
+            // Which stages are actually live, printed every time the binding changes.
             //
-            // The config file is NOT the answer to this question. A preset auto-load runs
-            // after the file is read and restores the PRESET's stage toggles, so a file that
-            // says "all four off" can be a session with all four on - which is exactly how a
-            // measurement of "the field stage alone" was taken with Wobble, Jell-o, Squish
-            // and Clothes all running underneath it. Read this line, not the JSON.
+            // The config file does not answer this question. A preset auto-load runs
+            // after the file is read and restores the preset's stage toggles, so a file that
+            // says "all four off" can be a session with all four on. This log line is the
+            // reliable record of what is running.
             if (config != null && config.settings != null)
             {
                 SuiteSettings ss = config.settings;
@@ -837,7 +836,7 @@ namespace SoftBodySuite
                 // while that stage is actually running. Switched off, its verts are last
                 // frame's leftovers, and the clothes were being dragged onto them.
                 // The garments are fitted to the FINISHED body, so this has to name the LAST
-                // enabled deformer - field if it is on, else squish, else nothing. Point it at
+                // enabled deformer: field if it is on, else squish, else nothing. Point it at
                 // the squish stage while the field runs and the clothes lag one whole stage
                 // behind, which reads as a cloth bug rather than a wiring one.
                 jp.finalBodySource = delegate ()
@@ -1239,7 +1238,7 @@ namespace SoftBodySuite
                 { "Slider_sgstr", "How much of the push is applied. 1 = skin never shows through; lower lets some through, if the full push looks too stiff." },
                 { "Slider_jigstrength", "How BIG all the soft-body jiggle is, every stage at once (wobble, jell-o, squish, field) and the clothes riding it. 1 = your tuned look; 0.5 = the same motion at half the size. It only scales the result, so the timing and the shape of the movement stay exactly the same." },
                 { "Slider_jigsettle", "How LONG all the soft-body jiggle keeps going after a movement, every stage at once. 1 = your tuned look; 0.5 = every bounce, wobble, sway and ripple dies down in about half the time. The speed of each wobble stays the same; only how quickly it fades changes." },
-                { "Slider_sgsunk", "For models whose clothes already dip INTO the skin in places (often under and between the breasts). Cloth sunk in by up to this much, in metres, is watched too and lifted to just above the skin, even while nothing moves. 0 = leave the model's own clipping alone. Raise slowly: too high can catch a sleeve or strap that genuinely sits behind the body. Changing it refits the clothes." },
+                { "Slider_sgsunk", "For models whose clothes already dip INTO the skin in places (often under and between the breasts). Cloth sunk in by up to this much, in metres, is watched too and lifted to just above the skin, even while nothing moves. 0 = leave the model's own clipping alone. Raise slowly: too high can catch a sleeve or strap that really sits behind the body. Changing it refits the clothes." },
                 { "Slider_clipclear", "EXTRA margin (m) beyond the fit measured when the guard bound. 0 preserves the exact rest relationship (nothing moves while idle) and only holds the flesh back when a sim pushes it toward the cloth. Raise a millimetre or two if you still see the surface graze through." },
                 { "Slider_cliprange", "Bind range: painted body verts within this distance of a garment are guarded by it. Raise it if deep flesh still escapes, lower it to limit the guard to skin-tight areas." },
                 { "Slider_clipstr", "Blend of the correction (1 = never allowed through, lower = soft/partial). Use below 1 only if the flattening reads too hard." },
@@ -1285,7 +1284,7 @@ namespace SoftBodySuite
                 int fc = 0;
                 for (int i = 0; i < fldProxies.Count; i++)
                     if (fldProxies[i] != null && fldProxies[i].Alive) fc += fldProxies[i].CapsuleCount;
-                if (MeshProxy.debugDraw) SetStatus("collider visualisation ON - field capsules: " + fc);
+                if (MeshProxy.debugDraw) SetStatus("collider visualisation ON, field capsules: " + fc);
             });
             WireButton("Button_BlurWeights", OnBlurWeights);
             SetupRegionPresetUi();
@@ -1526,13 +1525,13 @@ namespace SoftBodySuite
             HookRegionSlider("sq_evacblob", 0f, 2f, (r, v) => r.squish.evacBlob = v, r => r.squish.evacBlob);
 
             // Belt as well as braces: the Field UI is one section of this window, and a
-            // throw inside it used to take SetupWindow - and therefore every OTHER control
-            // in the plugin - down with it, from Awake, before anything was wired.
+            // throw inside it used to take SetupWindow (and therefore every other control
+            // in the plugin) down with it, from Awake, before anything was wired.
             try { BuildFieldUi(); }
             catch (Exception e)
             {
                 Debug.LogWarning("[SfxField] the field UI failed to build: " + e.Message
-                    + " - the rest of the window is still being set up.");
+                    + ". The rest of the window is still being set up.");
             }
 
             PushSettingsToUI();
@@ -3524,9 +3523,9 @@ namespace SoftBodySuite
                         else { pendingRuleDelete = r; RebuildRuleMgr(); }
                     },
                     sure ? new Color(1f, 0.55f, 0.55f, 1f) : Color.white);
-                string note = inert ? "never matches - VNyan's placeholder name. Edit it or delete it."
+                string note = inert ? "never matches: VNyan's placeholder name. Edit it or delete it."
                             : (r.fuzzy ? "name includes the text" : "this exact model only");
-                if (!inert && !string.IsNullOrEmpty(r.note)) note += "   -   " + r.note;
+                if (!inert && !string.IsNullOrEmpty(r.note)) note += "; " + r.note;
                 RtText("Note_" + i, note, onW + gap, ry + rowH + 1f, cw - onW - gap, 14f, 9, FontStyle.Italic);
             }
             rtParent = ruleMgrPanel;

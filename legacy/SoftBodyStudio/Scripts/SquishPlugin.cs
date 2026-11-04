@@ -1349,7 +1349,7 @@ namespace SoftBodyStudio
                         if (src == null) continue;
                         SquishRegion r = mine.regions.Find(x => x != null && x.name == src.name);
                         if (r == null) { r = new SquishRegion { name = src.name }; mine.regions.Add(r); changed = true; }
-                        // mirror ONLY the region definition (verts/weights/enabled) - the
+                        // mirror ONLY the region definition (verts/weights/enabled); the
                         // wobble parameters stay whatever the user set HERE
                         if (r.enabled != src.enabled) { r.enabled = src.enabled; changed = true; }
                         if (!SameSelection(r, src))
@@ -1358,7 +1358,7 @@ namespace SoftBodyStudio
                             r.weight = new List<float>(src.weight);
                             changed = true;
                         }
-                        // colliders are OWNED by Squish Studio too - mirror the set
+                        // colliders are owned by Squish Studio too, so mirror the set
                         string sig = JsonConvert.SerializeObject(src.colliders);
                         if (JsonConvert.SerializeObject(r.colliders) != sig)
                         {

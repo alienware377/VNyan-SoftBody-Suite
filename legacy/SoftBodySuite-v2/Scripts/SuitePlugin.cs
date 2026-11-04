@@ -19,7 +19,7 @@ namespace SoftBodySuite
     using SquishConfig = SoftBodySuite.SuiteConfig;
     using SquishSettings = SoftBodySuite.SuiteSettings;
 
-    // Soft Body Studio - wobble, jell-o and squish in one plugin, with the clothes
+    // Soft Body Studio: wobble, jell-o and squish in one plugin, with the clothes
     // fitted once at the very end instead of twice in the middle.
     // Runs LAST in LateUpdate (order 20000) so the bake sees the final pose of the
     // frame: tracking, Pose Studio, bone physics and everything else.
@@ -2474,9 +2474,9 @@ namespace SoftBodySuite
                         else { pendingRuleDelete = r; RebuildRuleMgr(); }
                     },
                     sure ? new Color(1f, 0.55f, 0.55f, 1f) : Color.white);
-                string note = inert ? "never matches - VNyan's placeholder name. Edit it or delete it."
+                string note = inert ? "never matches: VNyan's placeholder name. Edit it or delete it."
                             : (r.fuzzy ? "name includes the text" : "this exact model only");
-                if (!inert && !string.IsNullOrEmpty(r.note)) note += "   -   " + r.note;
+                if (!inert && !string.IsNullOrEmpty(r.note)) note += "; " + r.note;
                 RtText("Note_" + i, note, onW + gap, ry + rowH + 1f, cw - onW - gap, 14f, 9, FontStyle.Italic);
             }
             rtParent = ruleMgrPanel;

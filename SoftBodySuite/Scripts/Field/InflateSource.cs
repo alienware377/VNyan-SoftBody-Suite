@@ -3,25 +3,25 @@ using UnityEngine;
 namespace SoftBodySuite.Field
 {
     // Internal pressure (the "Squish & Inflate" tail). Order 200,
-    // so it runs on the halo ContactSource has already written. It inflates AWAY from the
-    // contact - the flesh the collider is not touching bulges out because the squashed part
-    // has to go somewhere - with a ring weight that keeps a little of the swell just outside
+    // so it runs on the halo ContactSource has already written. It inflates away from the
+    // contact: the flesh the collider is not touching bulges out because the squashed part
+    // has to go somewhere, with a ring weight that keeps a little of the swell just outside
     // the contact edge.
     //
-    // THE DOMAIN FIX
-    // --------------
+    // Domain fix
+    // ----------
     // The pressure is defined as the mean of d_cap over the
-    // WHOLE INPUT GEOMETRY - the entire mesh, painted or not. Our cage only covers
+    // whole input geometry (the entire mesh, painted or not). Our cage only covers
     // the paint, so the same mean is computed over a much smaller, entirely-contacted
-    // population and comes out far larger. This is THE ONE UNRATIOED STATISTIC in the whole
+    // population and comes out far larger. This is the one unratioed statistic in the whole
     // field, and leaving it unratioed makes Soft Balloon inflate roughly by the
     // paint-coverage factor too hard.
     //
-    // The conversion is the AREA ratio cageArea / renderArea. Be honest about what that is:
-    // that mean is VERTEX-COUNT weighted, not area weighted, and a VRM's vertex
+    // The conversion is the area ratio cageArea / renderArea. Note that the mean itself
+    // is vertex-count weighted, not area weighted, and a VRM's vertex
     // density is wildly non-uniform (a dense face, a sparse thigh), so a vertex-count ratio
     // and an area ratio give different numbers on a real avatar. The area ratio is the
-    // physically meaningful one and is what the plan specifies; the discrepancy is logged at
+    // physically meaningful one, so it is the one used; the discrepancy is logged at
     // first use rather than buried.
     public class InflateSource : FieldSource
     {
@@ -39,13 +39,13 @@ namespace SoftBodySuite.Field
 
         public override void Reset() { loggedRatio = false; pressure = 0f; }
 
-        // NOTHING HERE, AND THAT IS THE FIX.
+        // Nothing here, on purpose.
         // The pressure statistic is the mean of f.seed, and f.seed does not exist yet at
         // Prepare time: DeformField.BeginFrame zeroes it every frame and ContactSource is
-        // the only writer, filling it in its WRITE (ContactSource.cs:156), not its Prepare.
-        // FieldRegistry runs EVERY Prepare before ANY Write, so a mean taken here was a mean
-        // of a freshly-cleared array - exactly 0, every frame, forever, which zeroed pressure
-        // and made Write return on its first line. That is what "structurally inert" meant:
+        // the only writer, filling it in its write (ContactSource.cs:156), not its Prepare.
+        // FieldRegistry runs every Prepare before any Write, so a mean taken here was a mean
+        // of a freshly-cleared array: exactly 0, every frame, forever, which zeroed pressure
+        // and made Write return on its first line. The source was structurally inert:
         // no parameter value could ever have switched it on.
         // The mean now happens at the top of Write, where Order 200 > 100 guarantees
         // ContactSource.Write has already filled the seed.
@@ -74,7 +74,7 @@ namespace SoftBodySuite.Field
                 Debug.Log(string.Concat("[SfxField] Field/Inflate: cage/render area ratio ",
                     ratio.ToString("0.0000"), "  (cage ", f.cageArea.ToString("0.00000"),
                     " m2, render ", f.renderArea.ToString("0.00000"),
-                    " m2) - pressure is scaled by this so it matches a mean taken over the whole mesh."));
+                    " m2); pressure is scaled by this so it matches a mean taken over the whole mesh."));
             }
 
             if (pressure <= 0f) return;

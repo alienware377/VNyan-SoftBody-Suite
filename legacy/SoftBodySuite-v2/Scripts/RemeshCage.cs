@@ -7,8 +7,8 @@ namespace SoftBodySuite.Jello
     // to a uniform edge length so the solver never sees the original mesh's mixed
     // 0.4mm-8mm topology. The cage is "skinned" by barycentric binding to the original
     // surface, physics runs on the cage, and the deformation field is projected back
-    // onto the original vertices (barycentric again). Rendered detail is untouched -
-    // only the PHYSICS sees the clean uniform mesh.
+    // onto the original vertices (barycentric again). Rendered detail is untouched;
+    // only the physics sees the clean uniform mesh.
     public class RemeshCage
     {
         public Vector3[] simRest;
@@ -102,7 +102,7 @@ namespace SoftBodySuite.Jello
             System.Diagnostics.Stopwatch sw = System.Diagnostics.Stopwatch.StartNew();
             const long BUDGET = 9000;
             // hard ceiling on cage size: a correct build lands near `est` verts, so this
-            // only trips on a genuine runaway: it guarantees the loop can never hang
+            // only trips on a real runaway: it guarantees the loop can never hang
             int vertCeiling = Mathf.Clamp((int)(est * 2f) + 4000, 16000, 120000);
             bool budgetHit = false;
             for (int pass = 0; pass < passes && !budgetHit; pass++)

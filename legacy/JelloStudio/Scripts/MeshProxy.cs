@@ -815,7 +815,7 @@ namespace JelloStudio
                 Vector3 e1, e2, n3;
                 TriFrame(A3, B3, C3, out e1, out e2, out n3);
                 // canonicalize the frame: cage-tri winding isn't guaranteed, and the anti-
-                // clip floor must know which way is genuinely OUT of the body. Same rule
+                // clip floor must know which way is really OUT of the body. Same rule
                 // is applied per frame, so offsets stay consistent.
                 if (Vector3.Dot(n3, refN[f.gA[g2]] + refN[f.gB[g2]] + refN[f.gC[g2]]) < 0f) { n3 = -n3; e2 = -e2; }
                 Vector3 d3 = q2 - cpB;

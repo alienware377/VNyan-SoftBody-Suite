@@ -3,11 +3,11 @@ using UnityEngine;
 
 namespace SoftBodySuite.Field
 {
-    // Everything one solve needs, with NO UnityEngine.Object anywhere in it. That is
+    // Everything one solve needs, with no UnityEngine.Object anywhere in it. That is
     // the rule that keeps the whole field movable to a worker thread later: the main
     // thread captures Transforms into plain numbers (FieldProxy.CaptureFrameInputs)
-    // and the sources only ever see this object. Allocated ONCE per sim and reused;
-    // the array fields are ALIASES into the field, never copies.
+    // and the sources only ever see this object. Allocated once per sim and reused;
+    // the array fields are aliases into the field, never copies.
     public class FieldContext
     {
         public SoftBodySuite.FieldRegion p;
@@ -27,21 +27,21 @@ namespace SoftBodySuite.Field
         public float dens;
 
         // The painted region's own size, in metres: the distance from the paint-weighted
-        // centroid of the cage to its furthest painted node, measured ONCE per cage build
+        // centroid of the cage to its furthest painted node, measured once per cage build
         // in the rest pose. This is the field's feature-size measure, and it is what turns
-        // FieldRegion.rippleAmplitude / wobbleAmplitude from a fraction into metres - see
+        // FieldRegion.rippleAmplitude / wobbleAmplitude from a fraction into metres; see
         // the note on FieldRegion.amplitudeRelative. Rest pose, not the posed cage, so the
         // wave height does not breathe with the animation.
         public float regionRadius = 0.06f;
 
         // Resolved metre values for this frame, written by FieldProxy from regionRadius.
-        // RippleSource and NoiseJiggleSource read THESE and never p.rippleAmplitude /
+        // RippleSource and NoiseJiggleSource read these and never p.rippleAmplitude /
         // p.wobbleAmplitude, so the number the user typed is never written back over.
         public float rippleAmpM;
         public float wobbleAmpM;
 
         // The effect family this region is tuned as (FieldEffects.Resolve of
-        // FieldRegion.effect), resolved ONCE per frame by FieldProxy and read by
+        // FieldRegion.effect), resolved once per frame by FieldProxy and read by
         // FieldRegistry.PrepareAll to decide which sources exist at all.
         public int family;
         // FieldEffects.FootprintOnly(family): ContactSource runs the raw
@@ -68,7 +68,7 @@ namespace SoftBodySuite.Field
         public float waveScale = 1f;
         public Vector3 contactCentroid;
 
-        // ripple start points, captured on the MAIN thread (proxy-local)
+        // ripple start points, captured on the main thread (proxy-local)
         public Vector3[] pickPts = new Vector3[16];   // the user's picked points, this frame
         public int pickCount;
         public Vector3[] nipO = new Vector3[4], nipD = new Vector3[4];   // breast-bone rays
@@ -90,7 +90,7 @@ namespace SoftBodySuite.Field
         public float[] ovMask;     // softness field replacing mask inside the core
     }
 
-    // One effect = one file that ships its own maths AND its own UI rows. Adding a
+    // One effect = one file that ships its own maths and its own UI rows. Adding a
     // new effect should cost one file and nothing
     // else, so nothing here may ever need editing to add a source.
     public abstract class FieldSource
@@ -105,15 +105,15 @@ namespace SoftBodySuite.Field
         //   MotionExciter     500
         //   RippleSource      600
         //   NoiseJiggleSource 700
-        // MotionExciter is at 500 ON PURPOSE, after every contact-writing source,
-        // because CONTACT OWNS THE ORIGIN: the exciter has to see whether a contact
+        // MotionExciter is at 500 on purpose, after every contact-writing source,
+        // because contact owns the origin: the exciter has to see whether a contact
         // fired this frame before it decides whether to push a motion event of its own.
         public abstract int Order { get; }
 
         public abstract bool IsActive(FieldContext ctx);
 
         // Global reductions only (contact centroid, push axis, pressure mean): the
-        // things a LATER source might need to read. Never touches disp.
+        // things a later source might need to read. Never touches disp.
         public abstract void Prepare(FieldContext ctx);
 
         // Where the source actually writes displacement and ORs its postFlags.
@@ -125,7 +125,7 @@ namespace SoftBodySuite.Field
         public virtual void Reset() { }
     }
 
-    // The ordered list of live sources. Deliberately knows NOTHING about the concrete
+    // The ordered list of live sources. Deliberately knows nothing about the concrete
     // effect classes: all wiring lives in FieldPresets.RegisterAll(FieldRegistry),
     // which FieldProxy calls. With an empty registry every method below is a no-op
     // that costs nothing, and that is exactly what makes the pass-through check (the empty field
@@ -147,7 +147,7 @@ namespace SoftBodySuite.Field
             sources.Add(s);
         }
 
-        // Insertion sort, called ONCE after registration. Seven items; List.Sort would
+        // Insertion sort, called once after registration. Seven items; List.Sort would
         // want a Comparison delegate and LINQ is banned outright.
         public void SortByOrder()
         {
@@ -169,24 +169,24 @@ namespace SoftBodySuite.Field
             for (int i = 0; i < sources.Count; i++) sources[i].Reset();
         }
 
-        // TWO passes over the whole list, never merged. Prepare is where a source
+        // Two passes over the whole list, never merged. Prepare is where a source
         // computes the global reductions a later source may read (ContactSource's
         // centroid and push axis, which MotionExciter at Order 500 depends on);
         // Write is where disp is touched. Merging them would make the reduction a
         // source produced visible to only half the sources that need it, depending on
         // where it happened to sort.
-        // IsActive is ALSO a publish step for some sources: OrganicSource is Order 300
+        // IsActive is also a publish step for some sources: OrganicSource is Order 300
         // but it sets ctx.coreOverride there, and ContactSource at Order 100 reads it.
-        // So every source is asked IsActive before ANY source is prepared, and the
-        // answers are cached for the whole frame - never re-asked inside Write, where a
+        // So every source is asked IsActive before any source is prepared, and the
+        // answers are cached for the whole frame and never re-asked inside Write, where a
         // source that has already published would answer a different question.
         bool[] active = new bool[0];
 
-        // The effect-family gate runs BEFORE IsActive and short-circuits it. That
+        // The effect-family gate runs before IsActive and short-circuits it. That
         // ordering is load-bearing: IsActive is a publish step for OrganicSource
         // (it writes ctx.coreOverride), and a source outside the current family
         // must not get the chance to publish anything. The registry still knows
-        // nothing about the concrete effect CLASSES - it asks FieldEffects about a
+        // nothing about the concrete effect classes; it asks FieldEffects about a
         // string id, which is the same thing it already uses for diagnostics.
         public void PrepareAll(FieldContext ctx)
         {
