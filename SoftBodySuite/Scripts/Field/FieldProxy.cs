@@ -21,8 +21,8 @@ namespace SoftBodySuite.Field
     // and SquishSim are ~8,600 lines of tuned behaviour with no field counterpart;
     // replacing them would mean frame 1 is identical to nothing. So this runs AFTER
     // Squish and BEFORE the cloth passes, takes upVerts/upNormals, and crossfades its
-    // own field in with sfxMix — which is 0 by default, and at 0 this file must publish
-    // the bytes it was handed, unchanged. That is Milestone 1 and it is checkable:
+    // own field in with sfxMix, which is 0 by default, and at 0 this file must publish
+    // the bytes it was handed, unchanged. That pass-through is checkable:
     // FieldDiag.VerifyIdentity, maxDelta == 0.0f exactly.
     public class FieldProxy
     {
@@ -62,7 +62,7 @@ namespace SoftBodySuite.Field
         // ---- the field: ONE SOLVER PER PAINTED REGION ----
         // Each enabled, painted region gets its own cage, field, sources, settings, motion
         // and ripple state, and their displacements ADD onto the one rendered body
-        // (RemeshCage.Project adds into its target). Until 2026-10-13 there was one cage for
+        // (RemeshCage.Project adds into its target). Earlier builds had one cage for
         // the UNION of all regions, driven by the FIRST region's sliders: adding a thighs
         // region doubled the "region size" every ripple / jiggle value is scaled by (0.23 m ->
         // 0.48 m), overran the cage build's time budget, and the thighs' own sliders did nothing.
@@ -326,7 +326,7 @@ namespace SoftBodySuite.Field
             // The sleep bound GROWS and never shrinks, on purpose. Across a repaint that is
             // wrong: a region shrunk to a quarter of its old size keeps the old radius, which
             // both wakes the proxy early and makes CaptureFrameInputs call the flesh
-            // "overlapping" — which charges the impulse envelope off nothing.
+            // "overlapping", which charges the impulse envelope off nothing.
             boundRadius = 0f;
         }
 
@@ -425,7 +425,7 @@ namespace SoftBodySuite.Field
 
         // Kicked off on a background thread; the field is inert (zero displacement)
         // until the cage arrives, VNyan itself stays responsive. Mirrors
-        // JelloProxy.StartCageBuild exactly — including the rule about logging.
+        // JelloProxy.StartCageBuild exactly, including the rule about logging.
         void StartCageBuilds()
         {
             for (int i = 0; i < solvers.Count; i++) StartCageBuild(solvers[i]);
@@ -453,11 +453,11 @@ namespace SoftBodySuite.Field
             s.cageLastStage = null;
             s.cageSw = System.Diagnostics.Stopwatch.StartNew();
             Debug.Log("[SfxField] '" + s.name + "' cage build started (edge " + L.ToString("0.0000") + " m, " + passes
-                + " passes) — running in background");
+                + " passes): running in background");
             System.Threading.Thread th = new System.Threading.Thread(() =>
             {
                 // NO Debug.Log in here: logging from a worker thread can deadlock
-                // against the host's log handler — progress goes via c.stage instead
+                // against the host's log handler: progress goes via c.stage instead
                 try { c.buildOk = c.Build(mvp, tris, wo, wm, wRep, mnrm, L, passes); }
                 catch (System.Exception e) { c.note = "exception: " + e.Message; }
                 finally { c.buildDone = true; }
@@ -486,7 +486,7 @@ namespace SoftBodySuite.Field
             {
                 if (s.cageSw != null && s.cageSw.ElapsedMilliseconds > 30000)
                 {
-                    Debug.LogWarning("[SfxField] '" + s.name + "' cage build timed out — the field stays inert on this mesh");
+                    Debug.LogWarning("[SfxField] '" + s.name + "' cage build timed out: the field stays inert on this mesh");
                     cageToken++; s.cageBuilding = null;
                 }
                 return;
@@ -496,7 +496,7 @@ namespace SoftBodySuite.Field
             if (!c.buildOk)
             {
                 Debug.LogWarning("[SfxField] '" + s.name + "' cage remesh failed (stage: " + c.stage
-                    + ") — the field stays inert on this mesh");
+                    + "): the field stays inert on this mesh");
                 return;
             }
             FinishCage(s, c);
@@ -546,10 +546,10 @@ namespace SoftBodySuite.Field
             if (warn && Mathf.Abs(s.usedEdge - 0.008f) > 0.008f * 0.05f)
                 Debug.LogWarning("[SfxField] cage edge drifted: asked 0.0080 m, got "
                     + s.usedEdge.ToString("0.00000") + " m ("
-                    + ((s.usedEdge / 0.008f - 1f) * 100f).ToString("0.0") + "%) — dens="
+                    + ((s.usedEdge / 0.008f - 1f) * 100f).ToString("0.0") + "%): dens="
                     + s.dens.ToString("0.00") + "; every tuned footprint scales with this");
             if (warn && c.note.Length > 0)
-                Debug.LogWarning("[SfxField] cage built WITH A NOTE — treat tuned numbers as suspect: " + c.note);
+                Debug.LogWarning("[SfxField] cage built WITH A NOTE, so treat tuned numbers as suspect: " + c.note);
 
             Debug.Log("[SfxField] '" + s.name + "' cage LIVE: " + nn + " verts, edge=" + s.usedEdge.ToString("0.00000")
                 + " m, dens=" + s.dens.ToString("0.00")
@@ -617,8 +617,8 @@ namespace SoftBodySuite.Field
         }
 
         // A channel toggle that the current effect family does not include would
-        // otherwise do nothing with no explanation - the exact defect class this fork
-        // is being cleaned of. Say it out loud instead, once per family change.
+        // otherwise do nothing with no explanation. Say so instead, once per family
+        // change.
         void WarnGatedChannels(RegionSolver s)
         {
             if (s.tuned == null) return;
@@ -670,7 +670,7 @@ namespace SoftBodySuite.Field
             {
                 // the renderer's mesh was swapped out from under us (outfit systems etc.)
                 Debug.LogWarning("[SfxField] '" + smr.name + "' vertex count changed ("
-                    + bakedVerts.Length + " -> " + scratch.Count + ") — detaching, will rebind");
+                    + bakedVerts.Length + " -> " + scratch.Count + "): detaching, will rebind");
                 Detach();
                 return;
             }
@@ -720,10 +720,10 @@ namespace SoftBodySuite.Field
                 anyLive = true;
             }
 
-            // ---- THE M1 PATH ----
+            // ---- pass-through path ----
             // No sim, no mix, no cage or no sources: publish what arrived, untouched.
             // Straight copy, no arithmetic. Not "add a zero vector", not "Lerp with
-            // t = 0" — 0.0f + -0.0f is +0.0f, a different bit pattern, and a Lerp
+            // t = 0": 0.0f + -0.0f is +0.0f, a different bit pattern, and a Lerp
             // rounds. The only bit-exact publish is the one that does nothing.
             if (!simEnabled || !anyLive)
             {
@@ -741,7 +741,7 @@ namespace SoftBodySuite.Field
             if (!awake)
             {
                 // ASLEEP: no capture, no InterpBaked, no source, no FieldPost. After the
-                // 0.35 s grace this costs one bound refresh and nothing else — "a
+                // 0.35 s grace this costs one bound refresh and nothing else: "a
                 // sleeping avatar must cost zero" is a hard requirement, and a sleeping
                 // proxy that still ran cage.InterpBaked would not meet it.
                 if (!asleepZeroed)
@@ -771,7 +771,7 @@ namespace SoftBodySuite.Field
             if (!computeFrame && heldValid && heldDisp != null && heldDisp.Length == disp.Length)
             {
                 // HELD frame: reuse the last computed field (fresh skinning still flows
-                // through — only the offset field is one frame old)
+                // through: only the offset field is one frame old)
                 System.Array.Copy(heldDisp, disp, disp.Length);
                 PublishWithDisp();
                 return;
@@ -779,7 +779,7 @@ namespace SoftBodySuite.Field
 
             float pdt = hrAny ? Mathf.Min(dt * 2f, 0.05f) : dt;
 
-            // (1) MAIN-THREAD CAPTURE — the only place a Transform is read.
+            // (1) MAIN-THREAD CAPTURE: the only place a Transform is read.
             swPass.Reset(); swPass.Start();
             UpdateColliderClouds(tr);
             CaptureFrameInputs(tr, pdt);
@@ -791,7 +791,7 @@ namespace SoftBodySuite.Field
             { heldDisp = new Vector3[disp.Length]; heldPrev = new Vector3[disp.Length]; }
             if (halfRateLerp && heldValid)
             {
-                // LERP mode: show the midpoint between the previous and the new tick —
+                // LERP mode: show the midpoint between the previous and the new tick:
                 // smoother than holding, at half a physics tick of extra latency
                 System.Array.Copy(heldDisp, heldPrev, disp.Length);
                 System.Array.Copy(disp, heldDisp, disp.Length);
@@ -966,7 +966,7 @@ namespace SoftBodySuite.Field
             display.SetNormals(bakedNormals);
             if (contributed) display.RecalculateBounds();
             msField = Mathf.Lerp(msField, (float)swDbg.Elapsed.TotalMilliseconds, 0.08f);
-            // only meaningful on an M1 frame: on a contributing frame the delta IS the
+            // only meaningful on a pass-through frame: on a contributing frame the delta IS the
             // field, and watching it would cry wolf on every dent
             if (!contributed && FieldDiag.identityWatch && idInput != null)
                 FieldDiag.WatchFrame(smr.name, idInput, bakedVerts);
@@ -1317,7 +1317,7 @@ namespace SoftBodySuite.Field
             // wrong: it takes `now` as a parameter - FieldCollider.cs:374-378 says so itself.)
             if (s.tuned == null || s.tuned.selfCollision <= 0.5f) s.col.SetCageForSelf(null, null, now);
 
-            // (4) Prepare pass, then Write pass — two passes over the whole registry,
+            // (4) Prepare pass, then Write pass: two passes over the whole registry,
             //     never merged. A reduction one source computes in Prepare has to be
             //     visible to every source's Write, not just the ones that sort later.
             swSolve.Reset(); swSolve.Start();
@@ -1461,7 +1461,7 @@ namespace SoftBodySuite.Field
                 capLimb[cnt] = true;   // a collider the user placed on purpose counts as a presser
                 cnt++;
             }
-            // mesh colliders arrive as capsules too — MeshColliderCloud already reduces
+            // mesh colliders arrive as capsules too: MeshColliderCloud already reduces
             // a whole skinned mesh to auto-fitted bone capsules, so there is nothing for
             // a sphere path to do that this does not do better.
             foreach (KeyValuePair<string, MeshColliderCloud> kv in colMeshCloud)
@@ -1572,7 +1572,7 @@ namespace SoftBodySuite.Field
             ctx.overlapping = overlap;
         }
 
-        // Reduce every referenced collider mesh ONCE to auto-fitted bone capsules — no
+        // Reduce every referenced collider mesh ONCE to auto-fitted bone capsules: no
         // per-frame baking. When the collider is this mesh itself, painted vertices are
         // excluded so the region does not collide with its own flesh; hands on the same
         // mesh still squash it.
@@ -1636,7 +1636,7 @@ namespace SoftBodySuite.Field
 
         // Mirrors SquishSim.CheckAwake (SquishSim.cs:434-484): a sparse-stride bound
         // centre refreshed every frame (the region rides the animation even asleep) and
-        // a bound radius that GROWS with the sample and never shrinks — a frozen radius
+        // a bound radius that GROWS with the sample and never shrinks: a frozen radius
         // under blendshape growth would quietly erode the pre-wake margin.
         bool CheckAwake(float dt)
         {
@@ -1699,7 +1699,7 @@ namespace SoftBodySuite.Field
         // ==================================================================
 
         // Game meshes duplicate vertices wherever UVs or normals split; the cage build
-        // depends on this hash MATCHING SquishProxy's (SquishProxy.cs:1676-1687) — a
+        // depends on this hash MATCHING SquishProxy's (SquishProxy.cs:1676-1687): a
         // 21-bit-per-axis packed long at 0.1 mm. Do not 'improve' it.
         void BuildWeldMap()
         {
@@ -1768,7 +1768,7 @@ namespace SoftBodySuite.Field
         }
 
         // One-shot identity check against the arrays that arrived this frame. Only
-        // meaningful on a frame that ran the M1 path; on a contributing frame the
+        // meaningful on a frame that ran the pass-through path; on a contributing frame the
         // delta is the field, which is the point.
         public bool VerifyIdentityNow(out float maxDelta)
         {

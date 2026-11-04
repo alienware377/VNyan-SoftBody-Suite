@@ -9,9 +9,9 @@ using UnityEngine.UI;
 
 namespace SquishStudio
 {
-    // Squish Studio — mesh-level soft-body deformation with live weight painting.
+    // Squish Studio: mesh-level soft-body deformation with live weight painting.
     // Runs LAST in LateUpdate (order 20000) so the bake sees the final pose of the
-    // frame: tracking, Pose Studio, bone physics — everything.
+    // frame: tracking, Pose Studio, bone physics and everything else.
     [DefaultExecutionOrder(20700)]   // FINAL stage: runs after SoftBody (20500) and Jello (20600)
     public class SquishPlugin : MonoBehaviour, VNyanInterface.IButtonClickedHandler
     {
@@ -215,7 +215,7 @@ namespace SquishStudio
                 selProxy.RebuildSims(boundAvatar, boundAnimator);
                 if (selProxy.overlayOn) selProxy.RefreshOverlayColors(selRegion);
             }
-            SaveConfig();   // regions are the source of truth for Wobble Studio's mirror — keep the file fresh
+            SaveConfig();   // regions are the source of truth for Wobble Studio's mirror: keep the file fresh
         }
 
         void Update()
@@ -352,7 +352,7 @@ namespace SquishStudio
                 proxies[i].Frame(dt, Mathf.Clamp(config.settings.substeps, 1, 8), Vector3.down, true);
                 if (!proxies[i].Alive) anyDead = true;
             }
-            if (anyDead) { Rebind(); return; }   // a proxy self-detached (mesh swap) — reattach cleanly
+            if (anyDead) { Rebind(); return; }   // a proxy self-detached (mesh swap): reattach cleanly
 
             HandlePainting();
         }
@@ -376,7 +376,7 @@ namespace SquishStudio
         {
             if (!stroking) return;
             stroking = false;
-            // stroke finished — apply the new weights to the live sim
+            // stroke finished: apply the new weights to the live sim
             if (selProxy != null) selProxy.RebuildSims(boundAvatar, boundAnimator);
         }
 
@@ -442,7 +442,7 @@ namespace SquishStudio
                 { "Button_PaintSub", "Brush erases weight." },
                 { "Button_Undo", "Undo the last paint stroke (Ctrl+Z)." },
                 { "Button_Redo", "Redo (Ctrl+Shift+Z)." },
-                { "Button_BlurWeights", "Smooth the painted weights — softens hard paint edges (fewer artifacts at region borders)." },
+                { "Button_BlurWeights", "Smooth the painted weights. This softens hard paint edges (fewer artifacts at region borders)." },
                 { "Slider_radius", "Brush size in meters." },
                 { "Slider_strength", "How much weight each stroke adds/removes." },
                 { "Slider_overlayop", "Overlay transparency." },
@@ -450,14 +450,14 @@ namespace SquishStudio
                 { "Slider_groupthr", "Minimum skin weight for a vertex to be selected by vertex-group picking." },
                 { "Button_PickGroups", "Select region vertices from the mesh's bone weight groups (multi-select checkbox list)." },
                 { "Button_ClearWeights", "Erase ALL paint in this region." },
-                { "Button_ApplyMulti", "Copy region(s) onto other meshes: Auto (same bones as the painted area), bone group, or surface projection — with radius / bone-cutoff options and a copy-ALL-regions switch." },
+                { "Button_ApplyMulti", "Copy region(s) onto other meshes: Auto (same bones as the painted area), bone group, or surface projection, with radius / bone-cutoff options and a copy-ALL-regions switch." },
                 { "Slider_squish", "How strongly the skin dents under a collider. The soft, aesthetic layer." },
                 { "Slider_squishdepth", "Maximum dent depth in meters. 0 = automatic from region size." },
-                { "Slider_bulge", "Volume pushed sideways around the contact — the flesh 'flows' out around fingers/arms." },
+                { "Slider_bulge", "Volume pushed sideways around the contact: the flesh 'flows' out around fingers/arms." },
                 { "Slider_selfsquish", "Squish when this region presses into ANOTHER region (breasts pressing together)." },
                 { "Slider_maxdent", "Penetration limiter: dent depth (m) where the flesh 'gives way'. Deeper presses stop denting and instead move the whole breast (see the two Evacuate sliders). This is the anti-swallow control." },
-                { "Slider_evacbone", "Past the limit, TRANSLATE the region's own driver bones (auto-detected, e.g. breast bones) away from the press. Only the top bone of each chain moves — nested bones ride along, so messy rigs can't fight." },
-                { "Slider_evacall", "Evacuate ALL bones: nested/child driver bones ALSO translate individually (on top of the parent's shift), each pushed by the contact demand measured around ITS OWN spot — finer, deeper local evacuation. Multiplier on the bone-evac strength. 0 = classic topmost-only." },
+                { "Slider_evacbone", "Past the limit, TRANSLATE the region's own driver bones (auto-detected, e.g. breast bones) away from the press. Only the top bone of each chain moves: nested bones ride along, so messy rigs can't fight." },
+                { "Slider_evacall", "Evacuate ALL bones: nested/child driver bones ALSO translate individually (on top of the parent's shift), each pushed by the contact demand measured around ITS OWN spot, for finer, deeper local evacuation. Multiplier on the bone-evac strength. 0 = classic topmost-only." },
                 { "Slider_evacblob", "Past the limit, shift + squash the whole painted blob away from the press (water-balloon style). Works even when the region has no dedicated bones." },
                 { "Input_ColBone", "Bone name for a simple sphere/capsule collider (e.g. LeftHand)." },
                 { "Input_ColRadius", "Collider radius / skin gap in meters. For mesh colliders this is how far the skin stays above the surface." },
@@ -468,14 +468,14 @@ namespace SquishStudio
                 { "Button_RemoveCollider", "Remove the collider selected in the list." },
                 { "Dropdown_ColBonePick", "Pick a bone from the avatar for a manual sphere collider (no typing needed)." },
                 { "Button_ShowCol", "Toggle translucent capsules showing every ACTIVE collider (same as F10). Collider sets are made HERE and mirror to Wobble + SoftBody Studio." },
-                { "Toggle_clipguard", "OPTIONAL, and it reshapes the BODY: flesh is tucked inside the clothes covering it. Prefer Jello Studio's 'Keep clothes off the skin', which fixes clipping by moving the CLOTHES instead and leaves your body silhouette untouched. Only use this for garments no soft-body plugin drives.\n\nOriginal note: anti-clip guarantee. Runs at the very end of the pipeline, on the body that actually renders: every painted vertex is bound to the clothes covering it and is held INSIDE that cloth. Works no matter how well the clothes track the body — nothing can poke through. Prefers a garment's deformed (soft-body driven) shape when one exists." },
+                { "Toggle_clipguard", "OPTIONAL, and it reshapes the BODY: flesh is tucked inside the clothes covering it. Prefer Jello Studio's 'Keep clothes off the skin', which fixes clipping by moving the CLOTHES instead and leaves your body silhouette untouched. Only use this for garments no soft-body plugin drives.\n\nOriginal note: anti-clip guarantee. Runs at the very end of the pipeline, on the body that actually renders: every painted vertex is bound to the clothes covering it and is held INSIDE that cloth. Works no matter how well the clothes track the body: nothing can poke through. Prefers a garment's deformed (soft-body driven) shape when one exists." },
                 { "Slider_clipclear", "EXTRA margin (m) beyond the fit measured when the guard bound. 0 preserves the exact rest relationship (nothing moves while idle) and only holds the flesh back when a sim pushes it toward the cloth. Raise a millimetre or two if you still see the surface graze through." },
                 { "Slider_cliprange", "Bind range: painted body verts within this distance of a garment are guarded by it. Raise it if deep flesh still escapes, lower it to limit the guard to skin-tight areas." },
                 { "Slider_clipstr", "Blend of the correction (1 = never allowed through, lower = soft/partial). Use below 1 only if the flattening reads too hard." },
-                { "Toggle_NativeOff", "Disable VNyan/native spring & dynamic bones while squishing — they fight the mesh simulation." },
-                { "Toggle_HalfRate", "HALF-RATE physics: compute the simulation every 2nd frame (with doubled timestep) and hold the result between — near-halves the physics cost on slower PCs. Skinning/animation still updates every frame, so it is barely visible." },
-                { "Toggle_HalfRateLerp", "HALF-RATE + SMOOTH: like half-rate physics, but held frames show a blend between the last two physics ticks instead of a repeat — smoother motion at the same cost, with half a tick of extra latency. Mutually exclusive with the other rate options." },
-                { "Toggle_AsyncSim", "ASYNC physics: run the whole simulation on a background worker thread — the main thread only captures inputs and applies last frame's result, so almost the entire physics cost disappears from the frame. Costs 1 frame of physics latency. Mutually exclusive with the half-rate options; disabled while F10 debug is on." },
+                { "Toggle_NativeOff", "Disable VNyan/native spring & dynamic bones while squishing: they fight the mesh simulation." },
+                { "Toggle_HalfRate", "HALF-RATE physics: compute the simulation every 2nd frame (with doubled timestep) and hold the result in between, which nearly halves the physics cost on slower PCs. Skinning/animation still updates every frame, so it is barely visible." },
+                { "Toggle_HalfRateLerp", "HALF-RATE + SMOOTH: like half-rate physics, but held frames show a blend between the last two physics ticks instead of a repeat, for smoother motion at the same cost, with half a tick of extra latency. Mutually exclusive with the other rate options." },
+                { "Toggle_AsyncSim", "ASYNC physics: run the whole simulation on a background worker thread. The main thread only captures inputs and applies last frame's result, so almost the entire physics cost disappears from the frame. Costs 1 frame of physics latency. Mutually exclusive with the half-rate options; disabled while F10 debug is on." },
                 { "Toggle_NativeScoped", "Only disable native physics on bones that drive painted regions (instead of everywhere)." },
                 { "Button_Reload", "Re-read the saved config from disk and re-bind." },
                 { "Button_Save", "Write everything to squishstudio.json (also syncs regions to Wobble Studio)." },
@@ -559,7 +559,7 @@ namespace SquishStudio
                 if (suppress || config.settings == null) return;
                 config.settings.clipGuard = v;
                 for (int i = 0; i < proxies.Count; i++) proxies[i].ClipGuardInvalidate();
-                SetStatus(v ? "clip guard ON — flesh will be held inside the clothes covering it"
+                SetStatus(v ? "clip guard ON: flesh will be held inside the clothes covering it"
                             : "clip guard off");
             });
             HookSlider("clipclear", 0f, 0.03f, v =>
@@ -676,7 +676,7 @@ namespace SquishStudio
         }
 
         // Unity dropdowns sometimes leave the closed caption blank after options rebuild
-        // wire the caption Text permanently so Unity itself refreshes it on USER selection —
+        // wire the caption Text permanently so Unity itself refreshes it on USER selection:
         // the prefab dropdowns ship with captionText unassigned, which is why the closed box
         // showed blank even though the value was set (ForceCaption only covered rebuilds)
         static void FixDropdown(Dropdown dd)
@@ -761,7 +761,7 @@ namespace SquishStudio
             rt.pivot = new Vector2(0.5f, 0f);
             rt.sizeDelta = new Vector2(w, h);
             tipBubble.GetComponent<Image>().color = new Color(0.16f, 0.15f, 0.24f, 0.99f);
-            rt.position = near.position;              // same canvas — world snap, then nudge up
+            rt.position = near.position;              // same canvas: world snap, then nudge up
             rt.anchoredPosition += new Vector2(0f, 14f);
             // keep the bubble inside the window horizontally
             float half = ((RectTransform)window.transform).sizeDelta.x * 0.5f;
@@ -841,7 +841,7 @@ namespace SquishStudio
         RectTransform sectionContent;
         float sectionContentH;
 
-        // sections that mean "off" when their sliders sit at zero — these get a tick box
+        // sections that mean "off" when their sliders sit at zero: these get a tick box
         static bool SectionCanMute(string label)
         {
             string l = label.ToLowerInvariant();
@@ -1070,7 +1070,7 @@ namespace SquishStudio
             }
             if (colBoneDropdown != null)
             {
-                // every bone that skins any mesh, deduped + sorted — an actual picker
+                // every bone that skins any mesh, deduped + sorted: an actual picker
                 // instead of typing bone names by hand
                 HashSet<string> bset = new HashSet<string>();
                 for (int i = 0; i < rends.Length; i++)
@@ -1122,7 +1122,7 @@ namespace SquishStudio
             if (sm.regions.Count == 0) { SquishRegion r = new SquishRegion(); r.name = "region 1"; sm.regions.Add(r); }
             selMesh = sm; selRegion = sm.regions[0];
             Rebind(); RefreshMeshList(); PushRegionToUI();
-            SetStatus("squish enabled on '" + nm + "' — paint a region, then Save");
+            SetStatus("squish enabled on '" + nm + "': paint a region, then Save");
         }
 
         void OnDisableMesh()
@@ -1162,7 +1162,7 @@ namespace SquishStudio
             SquishRegion r = new SquishRegion(); r.name = "region " + (selMesh.regions.Count + 1);
             selMesh.regions.Add(r); selRegion = r;
             Rebind(); RefreshRegionList();
-            SetStatus("added '" + r.name + "' — paint weights or select from a bone group");
+            SetStatus("added '" + r.name + "': paint weights or select from a bone group");
         }
 
         void OnRemoveRegion()
@@ -1267,13 +1267,13 @@ namespace SquishStudio
             float y = pad;
             RtText("Title", "Pick vertex groups for '" + selRegion.name + "'", pad, y, w - 2 * pad, 20f, 13, FontStyle.Bold); y += 24f;
             RtText("Sub", "Union of ticked groups" + (groupChildren ? " + their child bones" : "")
-                + (bones.Count > visRows ? " — scroll for all " + bones.Count : ""), pad, y, w - 2 * pad, 16f, 10, FontStyle.Italic); y += 20f;
+                + (bones.Count > visRows ? ": scroll for all " + bones.Count : ""), pad, y, w - 2 * pad, 16f, 10, FontStyle.Italic); y += 20f;
 
             float half = (w - 2 * pad - 6f) / 2f;
             RtButton("All", "All", pad, y, half, rowH, () => { groupSel.Clear(); for (int i = 0; i < bones.Count; i++) groupSel.Add(bones[i]); SaveGroupScroll(); RebuildGroupPanel(); });
             RtButton("None", "None", pad + half + 6f, y, half, rowH, () => { groupSel.Clear(); SaveGroupScroll(); RebuildGroupPanel(); }); y += rowH + 4f;
 
-            // scrollable bone list (mouse wheel / drag) — EVERY skinned bone, no cap
+            // scrollable bone list (mouse wheel / drag): EVERY skinned bone, no cap
             GameObject vp = new GameObject("VP", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(RectMask2D));
             RectTransform vprt = vp.GetComponent<RectTransform>();
             vprt.SetParent(groupPanel.transform, false);
@@ -1345,7 +1345,7 @@ namespace SquishStudio
             PushUndo(selRegion);
             selProxy.BlurRegion(selRegion, 0.6f);
             AfterWeightEdit(selRegion);
-            SetStatus("blurred (" + selRegion.vertIndex.Count + " verts) — click again for more");
+            SetStatus("blurred (" + selRegion.vertIndex.Count + " verts): click again for more");
         }
 
         // ---------- colliders ----------
@@ -1380,7 +1380,7 @@ namespace SquishStudio
             SquishCollider c = new SquishCollider(); c.bone = bone; c.radius = Mathf.Max(0.005f, rad);
             selRegion.colliders.Add(c);
             RebindSel(); RefreshColliderList();
-            SetStatus("collider '" + bone + "' added — Save to keep");
+            SetStatus("collider '" + bone + "' added: Save to keep");
         }
 
         // Add the mesh currently shown in the Mesh dropdown as a WHOLE-MESH collider for
@@ -1401,7 +1401,7 @@ namespace SquishStudio
             c.mesh = nm; c.radius = Mathf.Clamp(rad, 0.004f, 0.1f);
             selRegion.colliders.Add(c);
             Rebind(); RefreshColliderList();
-            SetStatus("mesh collider '" + nm + "' added (r=" + c.radius.ToString("0.000") + ") — Save to keep");
+            SetStatus("mesh collider '" + nm + "' added (r=" + c.radius.ToString("0.000") + "): Save to keep");
         }
 
         void OnRemoveCollider()
@@ -1414,7 +1414,7 @@ namespace SquishStudio
 
         // ==================== native bone physics override ====================
         // Disables VRM SpringBone / DynamicBone / MagicaCloth / SPCR solvers that fight
-        // the mesh squish — either globally or only where their bones skin painted
+        // the mesh squish, either globally or only where their bones skin painted
         // regions. Everything is restored when toggled off, rebound, or destroyed.
         readonly List<Behaviour> nativeDisabled = new List<Behaviour>();
 
@@ -1453,7 +1453,7 @@ namespace SquishStudio
         // pulled in neighbouring chains too (breast paint carries residual weights to
         // belly/spine bones, so the belly's spring bones died when only breast bones
         // were selected). A bone now qualifies only when the PAINTED share of its total
-        // skin influence is significant — its own flesh is mostly inside the region.
+        // skin influence is significant: its own flesh is mostly inside the region.
         HashSet<Transform> CollectRegionBones()
         {
             HashSet<Transform> set = new HashSet<Transform>();
@@ -1527,7 +1527,7 @@ namespace SquishStudio
                 if (many != null)
                     foreach (object o in many) { Transform tr = o as Transform; if (tr != null) roots.Add(tr); }
             }
-            if (roots.Count == 0) return false;   // undeterminable — leave it running
+            if (roots.Count == 0) return false;   // undeterminable: leave it running
             foreach (Transform rb in regionBones)
                 for (int r = 0; r < roots.Count; r++)
                     if (roots[r] != null && (rb == roots[r] || rb.IsChildOf(roots[r]))) return true;
@@ -1556,9 +1556,9 @@ namespace SquishStudio
         {
             if (window == null) return;
             // selection can die while the panel is open (mesh switch, region delete, reload)
-            // and every option click rebuilds — bail safely instead of NRE-ing mid-build
+            // and every option click rebuilds: bail safely instead of NRE-ing mid-build
             if (selMesh == null || selRegion == null)
-            { CloseApplyPanel(); SetStatus("apply panel closed — select a mesh + region first"); return; }
+            { CloseApplyPanel(); SetStatus("apply panel closed: select a mesh + region first"); return; }
             SkinnedMeshRenderer[] rends = boundAvatar != null
                 ? boundAvatar.GetComponentsInChildren<SkinnedMeshRenderer>(true) : new SkinnedMeshRenderer[0];
 
@@ -1566,7 +1566,7 @@ namespace SquishStudio
             for (int i = 0; i < rends.Length; i++)
                 if (rends[i] != null && rends[i].name != selMesh.mesh) targets.Add(rends[i].name);
             // ticks remembered from another source mesh may no longer be valid targets
-            // (the SOURCE itself must never be in here — src==dst would wipe its paint)
+            // (the SOURCE itself must never be in here: src==dst would wipe its paint)
             applySel.RemoveWhere(delegate(string n) { return !targets.Contains(n); });
 
             float w = 340f, rowH = 24f, pad = 10f;
@@ -1597,12 +1597,12 @@ namespace SquishStudio
                 () => { applyMethod = 1; RebuildApply(); }); y += rowH + 8f;
 
             RtButton("AllReg", applyMethod == 0
-                ? "☐ Copy ALL regions — n/a for the group-pick method"
+                ? "☐ Copy ALL regions: n/a for the group-pick method"
                 : (applyAllRegions ? "☒ " : "☐ ") + "Copy ALL regions of this mesh (" + selMesh.regions.Count + ")",
                 pad, y, w - 2 * pad, rowH,
                 () =>
                 {
-                    if (applyMethod == 0) { SetStatus("one group pick can't fill several regions — use Auto or surface transfer"); return; }
+                    if (applyMethod == 0) { SetStatus("one group pick can't fill several regions: use Auto or surface transfer"); return; }
                     applyAllRegions = !applyAllRegions; RebuildApply();
                 }); y += rowH + 2f;
 
@@ -1746,7 +1746,7 @@ namespace SquishStudio
                 for (int r = 0; r < rends.Length; r++) if (rends[r] != null && rends[r].name == nm) { target = rends[r]; break; }
                 if (target == null) continue;
 
-                // existing config entry only — created lazily on the first real commit so a
+                // existing config entry only: created lazily on the first real commit so a
                 // fully-failed apply doesn't enable a do-nothing proxy on this mesh
                 SquishMesh sm = null;
                 for (int m = 0; m < config.meshes.Count; m++) if (config.meshes[m].mesh == nm) sm = config.meshes[m];
@@ -1792,7 +1792,7 @@ namespace SquishStudio
 
             Destroy(applyPanel); applyPanel = null;
             Rebind(); RefreshMeshList();
-            // auto-save like every other weight edit — this is what triggers the
+            // auto-save like every other weight edit: this is what triggers the
             // Wobble/Jello region mirror (2 s mtime watch) and their cage rebuilds
             if (anyApplied) SaveConfig();
             string msg = "applied " + (applyAllRegions ? srcs.Count + " region(s)" : "'" + selRegion.name + "'")
@@ -1805,7 +1805,7 @@ namespace SquishStudio
                 if (bonesPer[0].Count > 4) bl += " +" + (bonesPer[0].Count - 4);
                 msg += " [bones: " + bl + "]";
             }
-            SetStatus(msg + (anyApplied ? " — saved (mirrors to Wobble/Jello in ~2 s)" : ""));
+            SetStatus(msg + (anyApplied ? ": saved (mirrors to Wobble/Jello in ~2 s)" : ""));
         }
 
         // ==================== config IO ====================
@@ -1828,7 +1828,7 @@ namespace SquishStudio
                 if (config.meshes == null) config.meshes = new List<SquishMesh>();
             }
             catch (Exception e) { Debug.LogWarning("[Squish] config load failed: " + e.Message); config = new SquishConfig(); }
-            // reloading replaces every region object — snapshots referencing the old ones are dead
+            // reloading replaces every region object: snapshots referencing the old ones are dead
             undoStack.Clear(); redoStack.Clear();
             selMesh = null; selRegion = null;
         }

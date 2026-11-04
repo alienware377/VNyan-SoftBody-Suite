@@ -38,7 +38,7 @@ namespace SoftBodySuite.Jello
             EndBuild();
         }
 
-        // one cloud built from SEVERAL meshes ("(all meshes)" collider) — bones already
+        // one cloud built from SEVERAL meshes ("(all meshes)" collider): bones already
         // covered by an earlier mesh are skipped so body+clothing don't double up
         public void BuildFromSkinMulti(List<SkinnedMeshRenderer> smrs, SkinnedMeshRenderer self, HashSet<int> exclude, List<Vector3> regionWorld)
         {
@@ -63,7 +63,7 @@ namespace SoftBodySuite.Jello
         {
             ca = new Vector3[caps.Count]; cb = new Vector3[caps.Count]; cr = new float[caps.Count];
             cm = new Vector3[caps.Count]; re2 = new float[caps.Count];
-            buildInfo = caps.Count + " capsules — " + bsb;
+            buildInfo = caps.Count + " capsules: " + bsb;
             bsb = null; usedBones = null;
         }
 
@@ -159,7 +159,7 @@ namespace SoftBodySuite.Jello
                 }
                 if (isHand)
                 {
-                    // trim the mitt to palm length — fitting the merged fingers' full
+                    // trim the mitt to palm length: fitting the merged fingers' full
                     // extent produced an absurdly long capsule
                     Vector3 mid = (pa + pb) * 0.5f, ax2 = pb - pa;
                     float hl = ax2.magnitude * 0.5f;
@@ -189,7 +189,7 @@ namespace SoftBodySuite.Jello
                 // STRICT WHITELIST: only the arm chain ever gets capsules. Statistical
                 // filters (pre-clip overlap tests) let soft-tissue bones slip through
                 // depending on paint/pose at build time (breast bones once got r=0.12
-                // capsules) — the decided collider set must be identical for EVERY mesh.
+                // capsules): the decided collider set must be identical for EVERY mesh.
                 string bn = bones[b].name.ToLowerInvariant();
                 bool limb = bn.Contains("arm") || bn.Contains("elbow") || bn.Contains("wrist")
                     || bn.Contains("hand") || bn.Contains("finger") || bn.Contains("thumb") || bn.Contains("shoulder");
@@ -329,7 +329,7 @@ namespace SoftBodySuite.Jello
         int[] contact; int nContact;
         float[] localScale; float medianScale;
         public float measMinEdge, measMaxEdge;   // region's actual edge-length range (for auto grid sync)
-        // smooth write-back: every ORIGINAL vertex blends offsets of nearby sim nodes —
+        // smooth write-back: every ORIGINAL vertex blends offsets of nearby sim nodes:
         // writing one coarse node's offset verbatim to all its members made the
         // displacement piecewise-constant (checkerboard cliffs at every 2 mm cell border)
         int[] wbVert; int[] wbOff; int[] wbNode; float[] wbW; // nodes in collider range this substep (others skip narrowphase)
@@ -342,7 +342,7 @@ namespace SoftBodySuite.Jello
         public Transform[] colTr;
         public SquishCollider[] colCfg;
         public MeshColliderCloud[] clouds;
-        public bool skipCollision;   // set when chained onto Squish Studio's output —
+        public bool skipCollision;   // set when chained onto Squish Studio's output:
                                      // collision was already resolved there; two solvers
                                      // projecting to different targets shred the contact
         public Transform refBone;
@@ -360,7 +360,7 @@ namespace SoftBodySuite.Jello
                 if (vi >= 0 && vi < mv) wAll[vi] = Mathf.Max(wAll[vi], region.weight[i]);
             }
             // COARSEN: micro-detail geometry (0.4 mm areola edges) is pathological for
-            // PBD — mm-scale errors become cm-scale corrections and the patch oscillates
+            // PBD: mm-scale errors become cm-scale corrections and the patch oscillates
             // into a standing crumple. Merge welded nodes within ~2 mm into ONE sim node
             // (all duplicates still get written, so the rendered detail is untouched).
             Vector3[] mvp = mesh.vertices;
@@ -514,7 +514,7 @@ namespace SoftBodySuite.Jello
             nbr = new int[n][];
             for (int i = 0; i < n; i++) nbr[i] = adj[i].ToArray();
             // per-node LOCAL SCALE: mean rest distance to graph neighbours. This mesh mixes
-            // 0.4 mm and 8 mm edges — anything scale-blind misbehaves somewhere, so tension
+            // 0.4 mm and 8 mm edges: anything scale-blind misbehaves somewhere, so tension
             // and correction limits adapt to it.
             localScale = new float[n];
             List<float> scaleSamples = new List<float>();
@@ -528,7 +528,7 @@ namespace SoftBodySuite.Jello
             scaleSamples.Sort();
             medianScale = scaleSamples.Count > 0 ? scaleSamples[scaleSamples.Count / 2] : 0.005f;
             // 2-ring bending edges: pure distance constraints crumple like cloth (no fold
-            // resistance) — an edge to each neighbour-of-neighbour keeps the surface flat
+            // resistance): an edge to each neighbour-of-neighbour keeps the surface flat
             HashSet<long> bSet = new HashSet<long>();
             List<int> ba = new List<int>(), bb = new List<int>();
             for (int i = 0; i < n; i++)
@@ -546,7 +546,7 @@ namespace SoftBodySuite.Jello
                     }
                 }
             bA = ba.ToArray(); bB = bb.ToArray();
-            // shard law: every field that scales displacement must be smooth — raw
+            // shard law: every field that scales displacement must be smooth. Raw
             // hand-painted weights are vertex-noisy and print into the surface
             wS = new float[n];
             for (int i = 0; i < n; i++) wS[i] = w[i];
@@ -747,7 +747,7 @@ namespace SoftBodySuite.Jello
                 });
                 tAttach += DynLap();
                 // 2. distance constraints (rest = current skinned bake).
-                // Skipped wholesale when the stiffness is 0 (the validated setup) —
+                // Skipped wholesale when the stiffness is 0 (the validated setup):
                 // iterating every edge to multiply by zero is pure waste.
                 if (ck && kStretch > 0.0001f) { CkBegin(); EdgesRef(ckPos, kStretch, compressK, corrCap); }
                 if (kStretch > 0.0001f)
@@ -779,7 +779,7 @@ namespace SoftBodySuite.Jello
                 }
                 if (ck && kStretch > 0.0001f) CkEnd("edges");
                 tEdge += DynLap();
-                // 2b. bending (2-ring) constraints — fold resistance so the surface stays
+                // 2b. bending (2-ring) constraints: fold resistance so the surface stays
                 // a smooth sheet instead of crumpling
                 float kBend = kStretch * Mathf.Clamp01(cfg.xBend);
                 if (ck && kBend > 0.0001f) { CkBegin(); BendRef(ckPos, kBend, compressK, corrCap); }
@@ -810,7 +810,7 @@ namespace SoftBodySuite.Jello
                 tBend += DynLap();
                 // SKIN TENSION: with compression nearly free, slack surface has no defined
                 // resting shape and wanders into crinkle. Pull each node toward its
-                // neighbours' AVERAGE OFFSET (Laplacian on the deformation field) — smooths
+                // neighbours' AVERAGE OFFSET (Laplacian on the deformation field): smooths
                 // deformation without shrinking the rest shape (offset 0 stays 0).
                 if (ck && tension > 0.001f) { CkBegin(); TensionRef(ckPos, baked, tension); }
                 if (tension > 0.001f)
@@ -1075,7 +1075,7 @@ namespace SoftBodySuite.Jello
                     MeshColliderCloud cl = clouds != null && c < clouds.Length ? clouds[c] : null;
                     if (cl == null) continue;
                     Vector3 push;
-                    if (cl.TryPushPlanar(pos[i], -0.003f, out push))   // tuck UNDER the glove surface — skin AT the surface renders grazing slivers
+                    if (cl.TryPushPlanar(pos[i], -0.003f, out push))   // tuck UNDER the glove surface: skin AT the surface renders grazing slivers
                     {
                         pos[i] += push * relax;
                         if (push.magnitude > rawPen[i]) rawPen[i] = push.magnitude;
@@ -1129,7 +1129,7 @@ namespace SoftBodySuite.Jello
                     O[i] = new Vector3(ox + (bx - ox) * 0.35f, oy + (by - oy) * 0.35f, oz + (bz - oz) * 0.35f);
                 }
             // Taubin smoothing (alternating +0.5 / -0.53 passes): removes PEAKS from the
-            // deformation field while preserving the overall shape (shrink-free) — the
+            // deformation field while preserving the overall shape (shrink-free): the
             // heavy-duty output filter for troubleshooting
             int tp = Mathf.Clamp(Mathf.RoundToInt(cfg.xSmoothPasses), 0, 100);
             for (int pass2 = 0; pass2 < tp; pass2++)

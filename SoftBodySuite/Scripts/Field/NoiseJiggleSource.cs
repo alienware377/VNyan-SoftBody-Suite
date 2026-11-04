@@ -40,12 +40,12 @@ namespace SoftBodySuite.Field
             f.Require(FieldPostFlags.WaveSmooth);
 
             // SOLVE it, do not just read it. ContactField is allocated by SetGraph and is
-            // non-null and all-ZERO until somebody calls SolveMulti, and exp(-0*decay) is 1 —
+            // non-null and all-ZERO until somebody calls SolveMulti, and exp(-0*decay) is 1,
             // so reading it raw made Wobble Decay a dead slider and gave every node full
             // amplitude no matter how far from the impact it was.
             float[] dist = (ctx.geo != null && ctx.field != null)
                 ? ctx.geo.SolveMulti(ctx.field.seed, CageGeodesic.ContactSeedThreshold) : null;
-            // With nothing touching, the envelope was charged by MotionExciter's motion path —
+            // With nothing touching, the envelope was charged by MotionExciter's motion path:
             // an extra beyond contact - and whole-mass lag shakes the painted region
             // evenly rather than radiating from a point. So no anchor means no falloff, not no
             // jiggle. Only a real contact gives Wobble Decay something to decay from.

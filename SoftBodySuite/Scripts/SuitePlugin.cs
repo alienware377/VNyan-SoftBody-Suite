@@ -23,26 +23,26 @@ namespace SoftBodySuite
     // Soft Body Studio - wobble, jell-o and squish in one plugin, with the clothes
     // fitted once at the very end instead of twice in the middle.
     // Runs LAST in LateUpdate (order 20000) so the bake sees the final pose of the
-    // frame: tracking, Pose Studio, bone physics — everything.
+    // frame: tracking, Pose Studio, bone physics and everything else.
     [DefaultExecutionOrder(20700)]   // FINAL stage: runs after SoftBody (20500) and Jello (20600)
     public class SquishPlugin : MonoBehaviour, VNyanInterface.IButtonClickedHandler
     {
         const string BUTTON_NAME = "Soft Body Suite";
-        // Every path this fork owns, in one place. ConfigMigrate is passed these
-        // rather than repeating the literals - the shipped build had the write
+        // Every file path the plugin uses, in one place. ConfigMigrate is passed these
+        // rather than repeating the literals. The classic suite (v2) had the write
         // path and the read path hardcoded separately in two files.
         public const string CONFIG_FILE       = "softfleshfield.json";
         public const string PRESET_FILE       = "softfleshfield.presets.json";
         public const string MIGRATE_LOG       = "softfleshfield.migration.log";
         public const string UPSTREAM_CONFIG   = "softbodysuite.json";
         public const string UPSTREAM_PRESETS  = "softbodysuite.presets.json";
-        // 1 = the three old studio plugins, 2 = the merged suite, 3 = this fork (adds the
+        // 1 = the three old studio plugins, 2 = the merged suite, 3 = Soft Body Suite 3 (adds the
         // per-region `field` block and the `field` stage settings). SuiteSettings.version
         // has been written since v2; ConfigMigrate stamps this on every config it upgrades.
         public const int    CONFIG_VERSION    = 3;
 
         public GameObject windowPrefab;
-        // M0 GPU probe: assigned by SuiteBuild, so it travels inside the .vnobj as a
+        // GPU probe: assigned by SuiteBuild, so it travels inside the .vnobj as a
         // dependency of this prefab. If it arrives non-null and runs, the field can move
         // to the GPU; if not, it cannot, and nothing else in the suite changes.
         public ComputeShader gpuProbe;
@@ -258,7 +258,7 @@ namespace SoftBodySuite
                 if (selProxy.overlayOn) selProxy.RefreshOverlayColors(selRegion);
                 QueueStageRebuild(selProxy);
             }
-            SaveConfig();   // regions are the source of truth for Wobble Studio's mirror — keep the file fresh
+            SaveConfig();   // regions are the source of truth for Wobble Studio's mirror: keep the file fresh
         }
 
         void Update()
@@ -289,8 +289,8 @@ namespace SoftBodySuite
                         if (fldProxies[i] != null && fldProxies[i].Alive) fldProxies[i].LogFieldInfo();
             }
 
-            // F9: the M1 identity check. With no source active this must report a maxDelta
-            // of exactly 0 every frame at Field Mix 0 AND at 1 — the publish path is a
+            // F9: pass-through identity check. With no source active this must report a maxDelta
+            // of exactly 0 every frame at Field Mix 0 AND at 1: the publish path is a
             // memcpy, so there is no epsilon here and anything non-zero is a real bug.
             if (Input.GetKeyDown(KeyCode.F9))
             {
@@ -425,7 +425,7 @@ namespace SoftBodySuite
         {
             if (presets != null) return;
             presetPath = Path.Combine(Application.persistentDataPath, PRESET_FILE);
-            // One-shot import of the shipped plugin's presets. Copy, never move: going
+            // One-shot import of the classic suite's presets. Copy, never move: going
             // back to Soft Body Suite must stay possible, so its file is never touched.
             if (!File.Exists(presetPath))
             {
@@ -562,7 +562,7 @@ namespace SoftBodySuite
             }
 
             // Clone round-trips through JSON, so every [JsonIgnore] paint pointer on every
-            // stage block — FieldRegion included — comes back null. Rebind runs before
+            // stage block (FieldRegion included) comes back null. Rebind runs before
             // SaveConfig's own Sync(), so it has to happen here or the stages attach to a
             // region with no paint, no colliders and no refBone, silently.
             config.Sync();
@@ -833,7 +833,7 @@ namespace SoftBodySuite
                 if (config.settings != null && config.settings.field.enabled)
                     fp.Attach(target, sm, boundAvatar, boundAnimator);
                 fldProxies.Add(fp);
-                // Clothes follow the FINISHED body — but only ask the squish stage for it
+                // Clothes follow the FINISHED body, but only ask the squish stage for it
                 // while that stage is actually running. Switched off, its verts are last
                 // frame's leftovers, and the clothes were being dragged onto them.
                 // The garments are fitted to the FINISHED body, so this has to name the LAST
@@ -924,7 +924,7 @@ namespace SoftBodySuite
 
             if (!st.wobble.enabled && !st.jello.enabled && !st.squish.enabled && !st.field.enabled)
             {
-                if (proxies.Count > 0) DetachAll();   // nothing left to draw — give the body back
+                if (proxies.Count > 0) DetachAll();   // nothing left to draw: give the body back
                 return;
             }
 
@@ -969,7 +969,7 @@ namespace SoftBodySuite
                     perfWob += (float)perfSw.Elapsed.TotalMilliseconds;
                     v = wp.OutVerts; nrm = wp.OutNormals;
                 }
-                // The jell-o stage ALWAYS runs, even switched off — with its sim disabled it
+                // The jell-o stage ALWAYS runs, even switched off: with its sim disabled it
                 // simply passes the body through. It has to, because the clothes are fitted
                 // from here, and they need a body that is up to date this frame.
                 jp.upVerts = v; jp.upNormals = nrm;
@@ -1018,7 +1018,7 @@ namespace SoftBodySuite
                 // The guard moves the BODY back inside the clothes, and it only knows how
                 // to move the squish stage's copy. With the field on, that copy is hidden
                 // and one stage out of date, so running it would poke a mesh nobody can
-                // see. It is switched off instead of quietly doing the wrong thing — the
+                // see. It is switched off instead of quietly doing the wrong thing: the
                 // field stage has no guard of its own yet.
                 if (st.cloth.enabled && st.cloth.guard.enabled && st.squish.enabled && !st.field.enabled)
                     sp.RunClipGuard();
@@ -1036,7 +1036,7 @@ namespace SoftBodySuite
                 if (!sp.Alive || !jp.Alive || !wp.Alive) anyDead = true;
                 if (st.field.enabled && !fp.Alive) anyDead = true;
             }
-            if (anyDead) { Rebind(); return; }   // a stage self-detached (mesh swap) — reattach cleanly
+            if (anyDead) { Rebind(); return; }   // a stage self-detached (mesh swap): reattach cleanly
 
             HandlePainting();
             HandleRipplePick();
@@ -1109,7 +1109,7 @@ namespace SoftBodySuite
         {
             if (!stroking) return;
             stroking = false;
-            // stroke finished — apply the new weights to the live sim
+            // stroke finished: apply the new weights to the live sim
             if (selProxy != null) selProxy.RebuildSims(boundAvatar, boundAnimator);
             QueueStageRebuild(selProxy);
         }
@@ -1205,7 +1205,7 @@ namespace SoftBodySuite
                 { "Button_PaintSub", "Brush erases weight." },
                 { "Button_Undo", "Undo the last paint stroke (Ctrl+Z)." },
                 { "Button_Redo", "Redo (Ctrl+Shift+Z)." },
-                { "Button_BlurWeights", "Smooth the painted weights — softens hard paint edges (fewer artifacts at region borders)." },
+                { "Button_BlurWeights", "Smooth the painted weights. This softens hard paint edges (fewer artifacts at region borders)." },
                 { "Slider_radius", "Brush size in meters." },
                 { "Slider_strength", "How much weight each stroke adds/removes." },
                 { "Slider_overlayop", "Overlay transparency." },
@@ -1213,14 +1213,14 @@ namespace SoftBodySuite
                 { "Slider_groupthr", "Minimum skin weight for a vertex to be selected by vertex-group picking." },
                 { "Button_PickGroups", "Select region vertices from the mesh's bone weight groups (multi-select checkbox list)." },
                 { "Button_ClearWeights", "Erase ALL paint in this region." },
-                { "Button_ApplyMulti", "Copy region(s) onto other meshes: Auto (same bones as the painted area), bone group, or surface projection — with radius / bone-cutoff options and a copy-ALL-regions switch." },
+                { "Button_ApplyMulti", "Copy region(s) onto other meshes: Auto (same bones as the painted area), bone group, or surface projection, with radius / bone-cutoff options and a copy-ALL-regions switch." },
                 { "Slider_squish", "How strongly the skin dents under a collider. The soft, aesthetic layer." },
                 { "Slider_squishdepth", "Maximum dent depth in meters. 0 = automatic from region size." },
-                { "Slider_bulge", "Volume pushed sideways around the contact — the flesh 'flows' out around fingers/arms." },
+                { "Slider_bulge", "Volume pushed sideways around the contact: the flesh 'flows' out around fingers/arms." },
                 { "Slider_selfsquish", "Squish when this region presses into ANOTHER region (breasts pressing together)." },
                 { "Slider_maxdent", "Penetration limiter: dent depth (m) where the flesh 'gives way'. Deeper presses stop denting and instead move the whole breast (see the two Evacuate sliders). This is the anti-swallow control." },
-                { "Slider_evacbone", "Past the limit, TRANSLATE the region's own driver bones (auto-detected, e.g. breast bones) away from the press. Only the top bone of each chain moves — nested bones ride along, so messy rigs can't fight." },
-                { "Slider_evacall", "Evacuate ALL bones: nested/child driver bones ALSO translate individually (on top of the parent's shift), each pushed by the contact demand measured around ITS OWN spot — finer, deeper local evacuation. Multiplier on the bone-evac strength. 0 = classic topmost-only." },
+                { "Slider_evacbone", "Past the limit, TRANSLATE the region's own driver bones (auto-detected, e.g. breast bones) away from the press. Only the top bone of each chain moves: nested bones ride along, so messy rigs can't fight." },
+                { "Slider_evacall", "Evacuate ALL bones: nested/child driver bones ALSO translate individually (on top of the parent's shift), each pushed by the contact demand measured around ITS OWN spot, for finer, deeper local evacuation. Multiplier on the bone-evac strength. 0 = classic topmost-only." },
                 { "Slider_evacblob", "Past the limit, shift + squash the whole painted blob away from the press (water-balloon style). Works even when the region has no dedicated bones." },
                 { "Input_ColBone", "Bone name for a simple sphere/capsule collider (e.g. LeftHand)." },
                 { "Input_ColRadius", "Collider radius / skin gap in meters. For mesh colliders this is how far the skin stays above the surface." },
@@ -1231,7 +1231,7 @@ namespace SoftBodySuite
                 { "Button_RemoveCollider", "Remove the collider selected in the list." },
                 { "Dropdown_ColBonePick", "Pick a bone from the avatar for a manual sphere collider (no typing needed)." },
                 { "Button_ShowCol", "Toggle translucent capsules showing every ACTIVE collider (same as F10). The colliders made here are used by all three stages." },
-                { "Toggle_clipguard", "OPTIONAL, and it reshapes the BODY: flesh is tucked inside the clothes covering it. Prefer 'Keep clothes off the skin' above, which fixes clipping by moving the CLOTHES instead and leaves your body silhouette untouched. Only use this for garments that aren't moved onto the body.\n\nOriginal note: anti-clip guarantee. Runs at the very end of the pipeline, on the body that actually renders: every painted vertex is bound to the clothes covering it and is held INSIDE that cloth. Works no matter how well the clothes track the body — nothing can poke through. Prefers a garment's deformed (soft-body driven) shape when one exists." },
+                { "Toggle_clipguard", "OPTIONAL, and it reshapes the BODY: flesh is tucked inside the clothes covering it. Prefer 'Keep clothes off the skin' above, which fixes clipping by moving the CLOTHES instead and leaves your body silhouette untouched. Only use this for garments that aren't moved onto the body.\n\nOriginal note: anti-clip guarantee. Runs at the very end of the pipeline, on the body that actually renders: every painted vertex is bound to the clothes covering it and is held INSIDE that cloth. Works no matter how well the clothes track the body: nothing can poke through. Prefers a garment's deformed (soft-body driven) shape when one exists." },
                 { "Toggle_skinguard", "The last clothes pass. Any part of a garment near the skin, followed or not, is pushed back OUT of the body you actually see this frame, with a soft bulge around each push. Only where the body was moved by the jiggle; everywhere else the clothes are left exactly as they were. Rigid floating parts (bows) are skipped." },
                 { "Slider_sggap", "How close the cloth may come to the skin, in metres. Cloth that sat closer than this when it was fitted keeps its own smaller gap, so a tight top is never puffed up. Raise a little if you still see skin graze through." },
                 { "Slider_sgreach", "Only cloth within this distance of the skin is watched, in metres. Raise it for loose garments; lower it if parts far from the body get nudged. Changing it refits the clothes." },
@@ -1243,10 +1243,10 @@ namespace SoftBodySuite
                 { "Slider_clipclear", "EXTRA margin (m) beyond the fit measured when the guard bound. 0 preserves the exact rest relationship (nothing moves while idle) and only holds the flesh back when a sim pushes it toward the cloth. Raise a millimetre or two if you still see the surface graze through." },
                 { "Slider_cliprange", "Bind range: painted body verts within this distance of a garment are guarded by it. Raise it if deep flesh still escapes, lower it to limit the guard to skin-tight areas." },
                 { "Slider_clipstr", "Blend of the correction (1 = never allowed through, lower = soft/partial). Use below 1 only if the flattening reads too hard." },
-                { "Toggle_NativeOff", "Disable VNyan/native spring & dynamic bones while squishing — they fight the mesh simulation." },
-                { "Toggle_HalfRate", "HALF-RATE physics: compute the simulation every 2nd frame (with doubled timestep) and hold the result between — near-halves the physics cost on slower PCs. Skinning/animation still updates every frame, so it is barely visible." },
-                { "Toggle_HalfRateLerp", "HALF-RATE + SMOOTH: like half-rate physics, but held frames show a blend between the last two physics ticks instead of a repeat — smoother motion at the same cost, with half a tick of extra latency. Mutually exclusive with the other rate options." },
-                { "Toggle_AsyncSim", "ASYNC physics: run the whole simulation on a background worker thread — the main thread only captures inputs and applies last frame's result, so almost the entire physics cost disappears from the frame. Costs 1 frame of physics latency. Mutually exclusive with the half-rate options; disabled while F10 debug is on." },
+                { "Toggle_NativeOff", "Disable VNyan/native spring & dynamic bones while squishing: they fight the mesh simulation." },
+                { "Toggle_HalfRate", "HALF-RATE physics: compute the simulation every 2nd frame (with doubled timestep) and hold the result in between, which nearly halves the physics cost on slower PCs. Skinning/animation still updates every frame, so it is barely visible." },
+                { "Toggle_HalfRateLerp", "HALF-RATE + SMOOTH: like half-rate physics, but held frames show a blend between the last two physics ticks instead of a repeat, for smoother motion at the same cost, with half a tick of extra latency. Mutually exclusive with the other rate options." },
+                { "Toggle_AsyncSim", "ASYNC physics: run the whole simulation on a background worker thread. The main thread only captures inputs and applies last frame's result, so almost the entire physics cost disappears from the frame. Costs 1 frame of physics latency. Mutually exclusive with the half-rate options; disabled while F10 debug is on." },
                 { "Toggle_NativeScoped", "Only disable native physics on bones that drive painted regions (instead of everywhere)." },
                 { "Button_Reload", "Re-read the saved config from disk and re-bind." },
                 { "Button_Save", "Write everything to " + CONFIG_FILE + "." },
@@ -1318,7 +1318,7 @@ namespace SoftBodySuite
                 if (suppress || config.settings == null) return;
                 config.settings.cloth.guard.enabled = v;
                 for (int i = 0; i < proxies.Count; i++) proxies[i].ClipGuardInvalidate();
-                SetStatus(v ? "clip guard ON — flesh will be held inside the clothes covering it"
+                SetStatus(v ? "clip guard ON: flesh will be held inside the clothes covering it"
                             : "clip guard off");
             });
             HookSlider("clipclear", 0f, 0.03f, v =>
@@ -1407,7 +1407,7 @@ namespace SoftBodySuite
             RefreshPresetList();
 
             // Every stage keeps its own copy of the shared numbers, so the same region can
-            // wobble hard, jiggle gently and barely squish at once — exactly as the three
+            // wobble hard, jiggle gently and barely squish at once: exactly as the three
             // separate plugins allowed.
             // ----- Wobble -----
             HookRegionSlider("wob_jiggle", 0f, 2f, (r, v) => r.wobble.jiggle = v, r => r.wobble.jiggle);
@@ -1543,8 +1543,8 @@ namespace SoftBodySuite
         // ==================== stage 4: the field UI ====================
         // Every field control is DECLARED by the source that owns it and CLONED from a
         // template row at runtime, so there is no prefab to keep in step. SelfCheck is the
-        // whole point: the shipped build hooks 142 slider keys against 78 prefab rows and
-        // says nothing about the 64 that are invisible. If `missing` is ever non-zero that
+        // whole point: the classic suite hooked 142 slider keys against 78 prefab rows and
+        // said nothing about the 64 that were invisible. If `missing` is ever non-zero that
         // is a bug to fix, not a line to filter.
         SoftBodySuite.Field.UiSchema fieldSchema;
         readonly Dictionary<string, SoftBodySuite.Field.UiRow> fieldToggles =
@@ -1559,13 +1559,13 @@ namespace SoftBodySuite
             DescribeFieldPresetButtons(fieldSchema);
 
             // sectionContent is normally assigned inside BuildSections, which has not run
-            // yet — Materialise has to go first so BuildSections picks the clones up when
+            // yet: Materialise has to go first so BuildSections picks the clones up when
             // it rescans child names. So find the scroll content once, here.
             Transform content = FindDeep(window.transform, "Content");
             sectionContent = content as RectTransform;
             if (sectionContent == null)
             {
-                Debug.LogWarning("[SfxField] no 'Content' transform in the window — no field rows built");
+                Debug.LogWarning("[SfxField] no 'Content' transform in the window: no field rows built");
                 return;
             }
 
@@ -1779,7 +1779,7 @@ namespace SoftBodySuite
                 if (!canAsync)
                 {
                     // The jell-o solver reads collider transforms while it steps, which a
-                    // worker thread is not allowed to do — so this one stays off.
+                    // worker thread is not allowed to do, so this one stays off.
                     st.asyncSim = false;
                     tAS.isOn = false;
                     tAS.interactable = false;
@@ -1882,7 +1882,7 @@ namespace SoftBodySuite
         }
 
         // Unity dropdowns sometimes leave the closed caption blank after options rebuild
-        // wire the caption Text permanently so Unity itself refreshes it on USER selection —
+        // wire the caption Text permanently so Unity itself refreshes it on USER selection:
         // the prefab dropdowns ship with captionText unassigned, which is why the closed box
         // showed blank even though the value was set (ForceCaption only covered rebuilds)
         static void FixDropdown(Dropdown dd)
@@ -1967,7 +1967,7 @@ namespace SoftBodySuite
             rt.pivot = new Vector2(0.5f, 0f);
             rt.sizeDelta = new Vector2(w, h);
             tipBubble.GetComponent<Image>().color = new Color(0.16f, 0.15f, 0.24f, 0.99f);
-            rt.position = near.position;              // same canvas — world snap, then nudge up
+            rt.position = near.position;              // same canvas: world snap, then nudge up
             rt.anchoredPosition += new Vector2(0f, 14f);
             // keep the bubble inside the window horizontally
             float half = ((RectTransform)window.transform).sizeDelta.x * 0.5f;
@@ -2050,7 +2050,7 @@ namespace SoftBodySuite
         RectTransform sectionContent;
         float sectionContentH;
 
-        // sections that mean "off" when their sliders sit at zero — these get a tick box
+        // sections that mean "off" when their sliders sit at zero: these get a tick box
         // "" for a normal section; otherwise which stage this section switches on and off.
         // The three plugin sections and Clothes get a real on/off tick rather than the
         // slider-zeroing kind, so turning one off actually stops that stage running.
@@ -2359,7 +2359,7 @@ namespace SoftBodySuite
             }
             if (colBoneDropdown != null)
             {
-                // every bone that skins any mesh, deduped + sorted — an actual picker
+                // every bone that skins any mesh, deduped + sorted: an actual picker
                 // instead of typing bone names by hand
                 HashSet<string> bset = new HashSet<string>();
                 for (int i = 0; i < rends.Length; i++)
@@ -2411,7 +2411,7 @@ namespace SoftBodySuite
             if (sm.regions.Count == 0) { SuiteRegion r = new SuiteRegion(); r.name = "region 1"; sm.regions.Add(r); }
             selMesh = sm; selRegion = sm.regions[0];
             Rebind(); RefreshMeshList(); PushRegionToUI();
-            SetStatus("squish enabled on '" + nm + "' — paint a region, then Save");
+            SetStatus("squish enabled on '" + nm + "': paint a region, then Save");
         }
 
         void OnDisableMesh()
@@ -2453,7 +2453,7 @@ namespace SoftBodySuite
             SuiteRegion r = new SuiteRegion(); r.name = "region " + (selMesh.regions.Count + 1);
             selMesh.regions.Add(r); selRegion = r;
             Rebind(); RefreshRegionList();
-            SetStatus("added '" + r.name + "' — paint weights or select from a bone group");
+            SetStatus("added '" + r.name + "': paint weights or select from a bone group");
         }
 
         void OnRemoveRegion()
@@ -2559,13 +2559,13 @@ namespace SoftBodySuite
             float y = pad;
             RtText("Title", "Pick vertex groups for '" + selRegion.name + "'", pad, y, w - 2 * pad, 20f, 13, FontStyle.Bold); y += 24f;
             RtText("Sub", "Union of ticked groups" + (groupChildren ? " + their child bones" : "")
-                + (bones.Count > visRows ? " — scroll for all " + bones.Count : ""), pad, y, w - 2 * pad, 16f, 10, FontStyle.Italic); y += 20f;
+                + (bones.Count > visRows ? ": scroll for all " + bones.Count : ""), pad, y, w - 2 * pad, 16f, 10, FontStyle.Italic); y += 20f;
 
             float half = (w - 2 * pad - 6f) / 2f;
             RtButton("All", "All", pad, y, half, rowH, () => { groupSel.Clear(); for (int i = 0; i < bones.Count; i++) groupSel.Add(bones[i]); SaveGroupScroll(); RebuildGroupPanel(); });
             RtButton("None", "None", pad + half + 6f, y, half, rowH, () => { groupSel.Clear(); SaveGroupScroll(); RebuildGroupPanel(); }); y += rowH + 4f;
 
-            // scrollable bone list (mouse wheel / drag) — EVERY skinned bone, no cap
+            // scrollable bone list (mouse wheel / drag): EVERY skinned bone, no cap
             GameObject vp = new GameObject("VP", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(RectMask2D));
             RectTransform vprt = vp.GetComponent<RectTransform>();
             vprt.SetParent(groupPanel.transform, false);
@@ -2929,7 +2929,7 @@ namespace SoftBodySuite
             PushUndo(selRegion);
             selProxy.BlurRegion(selRegion, 0.6f);
             AfterWeightEdit(selRegion);
-            SetStatus("blurred (" + selRegion.vertIndex.Count + " verts) — click again for more");
+            SetStatus("blurred (" + selRegion.vertIndex.Count + " verts): click again for more");
         }
 
         // ---------- colliders ----------
@@ -2964,7 +2964,7 @@ namespace SoftBodySuite
             SquishCollider c = new SquishCollider(); c.bone = bone; c.radius = Mathf.Max(0.005f, rad);
             selRegion.colliders.Add(c);
             RebindSel(); RefreshColliderList();
-            SetStatus("collider '" + bone + "' added — Save to keep");
+            SetStatus("collider '" + bone + "' added: Save to keep");
         }
 
         // Add the mesh currently shown in the Mesh dropdown as a WHOLE-MESH collider for
@@ -2985,7 +2985,7 @@ namespace SoftBodySuite
             c.mesh = nm; c.radius = Mathf.Clamp(rad, 0.004f, 0.1f);
             selRegion.colliders.Add(c);
             Rebind(); RefreshColliderList();
-            SetStatus("mesh collider '" + nm + "' added (r=" + c.radius.ToString("0.000") + ") — Save to keep");
+            SetStatus("mesh collider '" + nm + "' added (r=" + c.radius.ToString("0.000") + "): Save to keep");
         }
 
         void OnRemoveCollider()
@@ -2998,7 +2998,7 @@ namespace SoftBodySuite
 
         // ==================== native bone physics override ====================
         // Disables VRM SpringBone / DynamicBone / MagicaCloth / SPCR solvers that fight
-        // the mesh squish — either globally or only where their bones skin painted
+        // the mesh squish, either globally or only where their bones skin painted
         // regions. Everything is restored when toggled off, rebound, or destroyed.
         readonly List<Behaviour> nativeDisabled = new List<Behaviour>();
 
@@ -3037,7 +3037,7 @@ namespace SoftBodySuite
         // pulled in neighbouring chains too (breast paint carries residual weights to
         // belly/spine bones, so the belly's spring bones died when only breast bones
         // were selected). A bone now qualifies only when the PAINTED share of its total
-        // skin influence is significant — its own flesh is mostly inside the region.
+        // skin influence is significant: its own flesh is mostly inside the region.
         HashSet<Transform> CollectRegionBones()
         {
             HashSet<Transform> set = new HashSet<Transform>();
@@ -3111,7 +3111,7 @@ namespace SoftBodySuite
                 if (many != null)
                     foreach (object o in many) { Transform tr = o as Transform; if (tr != null) roots.Add(tr); }
             }
-            if (roots.Count == 0) return false;   // undeterminable — leave it running
+            if (roots.Count == 0) return false;   // undeterminable: leave it running
             foreach (Transform rb in regionBones)
                 for (int r = 0; r < roots.Count; r++)
                     if (roots[r] != null && (rb == roots[r] || rb.IsChildOf(roots[r]))) return true;
@@ -3140,9 +3140,9 @@ namespace SoftBodySuite
         {
             if (window == null) return;
             // selection can die while the panel is open (mesh switch, region delete, reload)
-            // and every option click rebuilds — bail safely instead of NRE-ing mid-build
+            // and every option click rebuilds: bail safely instead of NRE-ing mid-build
             if (selMesh == null || selRegion == null)
-            { CloseApplyPanel(); SetStatus("apply panel closed — select a mesh + region first"); return; }
+            { CloseApplyPanel(); SetStatus("apply panel closed: select a mesh + region first"); return; }
             SkinnedMeshRenderer[] rends = boundAvatar != null
                 ? boundAvatar.GetComponentsInChildren<SkinnedMeshRenderer>(true) : new SkinnedMeshRenderer[0];
 
@@ -3150,7 +3150,7 @@ namespace SoftBodySuite
             for (int i = 0; i < rends.Length; i++)
                 if (rends[i] != null && rends[i].name != selMesh.mesh) targets.Add(rends[i].name);
             // ticks remembered from another source mesh may no longer be valid targets
-            // (the SOURCE itself must never be in here — src==dst would wipe its paint)
+            // (the SOURCE itself must never be in here: src==dst would wipe its paint)
             applySel.RemoveWhere(delegate(string n) { return !targets.Contains(n); });
 
             float w = 340f, rowH = 24f, pad = 10f;
@@ -3181,12 +3181,12 @@ namespace SoftBodySuite
                 () => { applyMethod = 1; RebuildApply(); }); y += rowH + 8f;
 
             RtButton("AllReg", applyMethod == 0
-                ? "[ ] Copy ALL regions — n/a for the group-pick method"
+                ? "[ ] Copy ALL regions: n/a for the group-pick method"
                 : (applyAllRegions ? "[x] " : "[ ] ") + "Copy ALL regions of this mesh (" + selMesh.regions.Count + ")",
                 pad, y, w - 2 * pad, rowH,
                 () =>
                 {
-                    if (applyMethod == 0) { SetStatus("one group pick can't fill several regions — use Auto or surface transfer"); return; }
+                    if (applyMethod == 0) { SetStatus("one group pick can't fill several regions: use Auto or surface transfer"); return; }
                     applyAllRegions = !applyAllRegions; RebuildApply();
                 }); y += rowH + 2f;
 
@@ -3231,7 +3231,7 @@ namespace SoftBodySuite
         PresetRule pendingRuleDelete;
         InputField autoNameInput;
 
-        // Auto-load for any model whose name INCLUDES what was typed — for when the file
+        // Auto-load for any model whose name INCLUDES what was typed, for when the file
         // name alone is not what should be matched on.
         void OnPresetBindName()
         {
@@ -3325,7 +3325,7 @@ namespace SoftBodySuite
             f.text = text ?? "";
             // Only Enter commits. onEndEdit also fires when the box merely loses focus, and
             // committing then rebuilt the window in the middle of the very click that moved
-            // the focus — so that click was lost. Clicking away now just puts the text back.
+            // the focus, so that click was lost. Clicking away now just puts the text back.
             string start = f.text;
             InputField self = f;
             if (onCommit != null) f.onEndEdit.AddListener(delegate (string v)
@@ -3541,7 +3541,7 @@ namespace SoftBodySuite
             RebuildRuleMgr();
         }
 
-        // editing the text always makes it a "name includes" rule — that is what it means
+        // editing the text always makes it a "name includes" rule: that is what it means
         bool RuleLive(PresetRule r)
         {
             if (presets != null && presets.rules.Contains(r)) return true;
@@ -3701,7 +3701,7 @@ namespace SoftBodySuite
                 for (int r = 0; r < rends.Length; r++) if (rends[r] != null && rends[r].name == nm) { target = rends[r]; break; }
                 if (target == null) continue;
 
-                // existing config entry only — created lazily on the first real commit so a
+                // existing config entry only: created lazily on the first real commit so a
                 // fully-failed apply doesn't enable a do-nothing proxy on this mesh
                 SquishMesh sm = null;
                 for (int m = 0; m < config.meshes.Count; m++) if (config.meshes[m].mesh == nm) sm = config.meshes[m];
@@ -3747,7 +3747,7 @@ namespace SoftBodySuite
 
             Destroy(applyPanel); applyPanel = null;
             Rebind(); RefreshMeshList();
-            // auto-save like every other weight edit — this is what triggers the
+            // auto-save like every other weight edit: this is what triggers the
             // Wobble/Jello region mirror (2 s mtime watch) and their cage rebuilds
             if (anyApplied) SaveConfig();
             string msg = "applied " + (applyAllRegions ? srcs.Count + " region(s)" : "'" + selRegion.name + "'")
@@ -3760,7 +3760,7 @@ namespace SoftBodySuite
                 if (bonesPer[0].Count > 4) bl += " +" + (bonesPer[0].Count - 4);
                 msg += " [bones: " + bl + "]";
             }
-            SetStatus(msg + (anyApplied ? " — saved (mirrors to Wobble/Jello in ~2 s)" : ""));
+            SetStatus(msg + (anyApplied ? ": saved (mirrors to Wobble/Jello in ~2 s)" : ""));
         }
 
         // ==================== config IO ====================
@@ -3780,7 +3780,7 @@ namespace SoftBodySuite
                 if (config.meshes == null) config.meshes = new List<SquishMesh>();
                 config.Sync();
                 if (migrated)
-                    Debug.Log("[SoftBody] imported settings from an older config — see "
+                    Debug.Log("[SoftBody] imported settings from an older config: see "
                               + MIGRATE_LOG);
 
                 // settings.version has been written since v2 and read by nobody. Two log
@@ -3805,7 +3805,7 @@ namespace SoftBodySuite
                 Debug.LogWarning("[SoftBody] config load failed: " + e.Message);
                 config = new SquishConfig();
             }
-            // reloading replaces every region object — snapshots referencing the old ones are dead
+            // reloading replaces every region object: snapshots referencing the old ones are dead
             undoStack.Clear(); redoStack.Clear();
             selMesh = null; selRegion = null;
         }

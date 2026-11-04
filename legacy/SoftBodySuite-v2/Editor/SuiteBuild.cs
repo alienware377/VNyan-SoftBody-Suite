@@ -134,7 +134,7 @@ public static class SuiteBuild
         float y = 6f;
 
         // ---------- mesh & region ----------
-        Header(c, "— Mesh & Region —", cX, cW, ref y);
+        Header(c, "Mesh & Region", cX, cW, ref y);
         MakeText(c, "Lbl_Mesh", "Mesh", cX, y, 70f, 30f, 12, TextAnchor.MiddleLeft, FontStyle.Normal);
         MakeDropdown(c, "Dropdown_Mesh", cX + 76f, y, cW - 76f, 30f); y += 34f;
         float b2 = (cW - gap) / 2f;
@@ -150,7 +150,7 @@ public static class SuiteBuild
         MakeInput(c, "Input_RegionName", "region name", cX + 76f, y, cW - 76f, 26f); y += 32f;
 
         // ---------- painting ----------
-        Header(c, "— Weight painting —", cX, cW, ref y);
+        Header(c, "Weight painting", cX, cW, ref y);
         MakeToggle(c, "Toggle_Paint", "Paint mode (LMB on the model)", cX, y, cW * 0.6f, 24f);
         MakeToggle(c, "Toggle_Overlay", "Show overlay", cX + cW * 0.62f, y, cW * 0.38f, 24f); y += 28f;
         MakeButton(c, "Button_PaintAdd", "Brush: Add", cX, y, b2, 24f);
@@ -171,7 +171,7 @@ public static class SuiteBuild
         MakeDropdown(c, "Dropdown_RefBone", cX + 76f, y, cW - 76f, 28f); y += 34f;
 
         // ---------- colliders (shared by all three stages) ----------
-        Header(c, "— Colliders —", cX, cW, ref y);
+        Header(c, "Colliders", cX, cW, ref y);
         MakeText(c, "Lbl_ColMesh", "Mesh", cX, y, 70f, 28f, 12, TextAnchor.MiddleLeft, FontStyle.Normal);
         MakeDropdown(c, "Dropdown_ColMesh", cX + 76f, y, cW - 76f - b3 - gap, 28f);
         MakeButton(c, "Button_AddMeshCol", "+ Add", cX + cW - b3, y, b3, 26f); y += 32f;
@@ -184,7 +184,7 @@ public static class SuiteBuild
         MakeButton(c, "Button_ShowCol", "Show / hide colliders (F10)", cX, y, cW, 26f); y += 32f;
 
         // ---------- WOBBLE ----------
-        Header(c, "— Wobble —", cX, cW, ref y);
+        Header(c, "Wobble", cX, cW, ref y);
         SubHeader(c, "Motion", cX, cW, ref y);
         SliderRow(c, "wob_jiggle", "Jiggle level", cX, cW, ref y);
         SliderRow(c, "wob_stiffness", "Stiffness", cX, cW, ref y);
@@ -223,7 +223,7 @@ public static class SuiteBuild
         SliderRow(c, "wob_cellsize", "Cellulite size", cX, cW, ref y);
 
         // ---------- JELL-O ----------
-        Header(c, "— Jell-o —", cX, cW, ref y);
+        Header(c, "Jell-o", cX, cW, ref y);
         SubHeader(c, "Sim cage", cX, cW, ref y);
         MakeToggle(c, "Toggle_useremesh", "Simulate on a remeshed cage (smoother)", cX, y, cW, 22f); y += 26f;
         SliderRow(c, "remeshsize", "Cage edge length (m)", cX, cW, ref y);
@@ -252,7 +252,7 @@ public static class SuiteBuild
         SliderRow(c, "jel_xpressure", "Volume pressure", cX, cW, ref y);
 
         // ---------- SQUISH ----------
-        Header(c, "— Squish —", cX, cW, ref y);
+        Header(c, "Squish", cX, cW, ref y);
         SubHeader(c, "Contact squish", cX, cW, ref y);
         SliderRow(c, "sq_squish", "Squish level", cX, cW, ref y);
         SliderRow(c, "sq_squishdepth", "Squish depth (m, 0=auto)", cX, cW, ref y);
@@ -265,7 +265,7 @@ public static class SuiteBuild
         SliderRow(c, "sq_evacblob", "Evacuate: shift blob", cX, cW, ref y);
 
         // ---------- CLOTHES ----------
-        Header(c, "— Clothes —", cX, cW, ref y);
+        Header(c, "Clothes", cX, cW, ref y);
         MakeText(c, "Note_Cloth", "Runs once, after all three stages: the clothes are fitted to the finished body, then anything poking through is tucked back in.", cX, y, cW, 30f, 10, TextAnchor.UpperLeft, FontStyle.Italic); y += 34f;
         SubHeader(c, "Move the clothes", cX, cW, ref y);
         MakeToggle(c, "Toggle_cagedrive", "Move the clothes onto the body", cX, y, cW, 22f); y += 26f;
@@ -289,7 +289,7 @@ public static class SuiteBuild
         SliderRow(c, "cliprimfade", "Tuck: fade at hems (m)", cX, cW, ref y);
 
         // ---------- PERFORMANCE ----------
-        Header(c, "— Performance and native bones —", cX, cW, ref y);
+        Header(c, "Performance and native bones", cX, cW, ref y);
         SubHeader(c, "Substeps per stage", cX, cW, ref y);
         SliderRow(c, "wob_substeps", "Wobble substeps", cX, cW, ref y);
         SliderRow(c, "jel_substeps", "Jell-o substeps", cX, cW, ref y);
@@ -310,7 +310,7 @@ public static class SuiteBuild
         MakeButton(c, "Button_HideMeshes", "Hide meshes...", cX + b2 + gap, y, b2, 26f); y += 32f;
 
         // ---------- PRESETS (last: one preset covers all three stages) ----------
-        Header(c, "— Presets —", cX, cW, ref y);
+        Header(c, "Presets", cX, cW, ref y);
         MakeDropdown(c, "Dropdown_Preset", cX, y, cW, 28f); y += 32f;
         MakeInput(c, "Input_presetname", "preset name", cX, y, cW, 24f); y += 28f;
         float pb = (cW - 8f) / 2f;

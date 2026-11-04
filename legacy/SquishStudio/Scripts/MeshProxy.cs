@@ -28,7 +28,7 @@ namespace SquishStudio
         readonly List<Vector3> scratch = new List<Vector3>();
 
         // Chaining with Wobble Studio: if that plugin already deforms this mesh, read ITS
-        // output (jiggled vertices) as our base instead of re-baking the raw skin — the two
+        // output (jiggled vertices) as our base instead of re-baking the raw skin: the two
         // plugins stack (Wobble at execution order 19000, Squish at 20000) instead of
         // rendering two fighting copies. Its renderer is hidden; ours is the final image.
         MeshFilter wobbleSrc;
@@ -193,8 +193,8 @@ namespace SquishStudio
         }
 
         // Reduce every referenced collider mesh ONCE to auto-fitted bone capsules (see
-        // MeshColliderCloud) — no per-frame baking. When the collider is the region's OWN
-        // mesh, painted vertices are excluded so the region doesn't collide with itself —
+        // MeshColliderCloud): no per-frame baking. When the collider is the region's OWN
+        // mesh, painted vertices are excluded so the region doesn't collide with itself:
         // hands (same mesh) still squish the chest.
         void UpdateColliderClouds()
         {
@@ -202,7 +202,7 @@ namespace SquishStudio
             if (colBakeScratch == null) { colBakeScratch = new Mesh(); colBakeScratch.MarkDynamic(); }
             Transform tr = go.transform;
 
-            // bounding spheres of the painted regions (proxy-local) — only discs near these
+            // bounding spheres of the painted regions (proxy-local): only discs near these
             // stay active, so far-away body parts cost nothing
             List<Vector4> regBounds = new List<Vector4>();
             for (int r = 0; r < cfg.regions.Count; r++)
@@ -511,14 +511,14 @@ namespace SquishStudio
             if (!asyncDone.Wait(100))
             {
                 asyncBroken = true;
-                Debug.LogWarning("[Squish] async physics worker timed out — reverting to synchronous");
+                Debug.LogWarning("[Squish] async physics worker timed out: reverting to synchronous");
             }
             asyncKicked = false;
             for (int r = 0; r < sims.Count; r++)
                 if (sims[r].pendingBlewUp)
                 {
                     sims[r].pendingBlewUp = false;
-                    Debug.LogWarning("[Squish] region '" + sims[r].cfg.name + "' destabilised (NaN/huge offset) — state reset");
+                    Debug.LogWarning("[Squish] region '" + sims[r].cfg.name + "' destabilised (NaN/huge offset): state reset");
                 }
         }
 
@@ -548,7 +548,7 @@ namespace SquishStudio
         // ---------- evacuation driver bones ----------
         // Bones dedicated to a region (breast bones etc.) get TRANSLATED away when a press
         // exceeds the dent limiter. Messy-rig rules: pick only bones whose influence is
-        // mostly inside the region (>60%), then drive only the TOPMOST bone of each chain —
+        // mostly inside the region (>60%), then drive only the TOPMOST bone of each chain:
         // nested/overlapping children just ride along, so bones can never fight each other.
         // No scaling is applied to bones at all (squash lives in the mesh blob layer).
         void BuildEvacClusters(SquishSim sim, SquishRegion region)
@@ -611,7 +611,7 @@ namespace SquishStudio
             for (int i = 0; i < roots.Count; i++) names[i] = roots[i].name;
             Debug.Log("[Squish] evac driver bones for '" + region.name + "': " + string.Join(", ", names));
             // "evacuate ALL bones": every candidate that is NOT a chain root becomes a
-            // second-set driver (nested breast bones etc.). Always built — the slider
+            // second-set driver (nested breast bones etc.). Always built: the slider
             // gates the gain live, so 0 keeps today's exact behaviour with no rebuild.
             List<Transform> kids = new List<Transform>();
             for (int ci = 0; ci < cand.Count; ci++)
@@ -648,7 +648,7 @@ namespace SquishStudio
                     Transform b = sim.evacBones[k];
                     if (b == null) continue;
                     // undo in PARENT-LOCAL space. A world-space undo leaks (R−I)·offset into
-                    // localPosition every frame an ancestor ROTATES (dance anims) — offsets
+                    // localPosition every frame an ancestor ROTATES (dance anims): offsets
                     // ratcheted up over loops and the breasts slowly extended. Local
                     // add/subtract is exact under any ancestor motion.
                     b.localPosition -= sim.evacAppliedW[k];
@@ -714,7 +714,7 @@ namespace SquishStudio
             CollectAsync();   // join last frame's worker before touching sim state
             if (simEnabled) ApplyEvacBones(dt);   // move driver bones BEFORE baking
 
-            // FINAL stage: we own the rendered image — assert it EVERY frame (an upstream
+            // FINAL stage: we own the rendered image, so assert it EVERY frame (an upstream
             // detach re-shows the original for its own fallback; that must never win)
             smr.forceRenderingOff = true;
             // re-chain INSTANTLY while unchained/lost; 1x/second only for upgrade checks
@@ -749,7 +749,7 @@ namespace SquishStudio
             {
                 // the renderer's mesh was swapped out from under us (outfit systems etc.)
                 Debug.LogWarning("[Squish] '" + smr.name + "' vertex count changed ("
-                    + bakedVerts.Length + " -> " + scratch.Count + ") — detaching, will rebind");
+                    + bakedVerts.Length + " -> " + scratch.Count + "): detaching, will rebind");
                 Detach();
                 return;
             }
@@ -816,7 +816,7 @@ namespace SquishStudio
             else if (simEnabled && hrAny && !frameFlip && heldValid && heldDisp != null && heldDisp.Length == disp.Length)
             {
                 // HELD frame: reuse last computed displacement (fresh skinning still flows
-                // through — only the offset field is one frame old)
+                // through: only the offset field is one frame old)
                 System.Array.Copy(heldDisp, disp, disp.Length);
             }
             else if (simEnabled)
@@ -827,7 +827,7 @@ namespace SquishStudio
                 float sdt = pdt / Mathf.Max(1, substeps);
                 // dynamics substepped; collision field + output written ONCE per frame.
                 // SLEEP GATE: the expensive field pipeline only runs while a collider is
-                // near (12cm pre-wake margin) or residual dent/evac energy exists —
+                // near (12cm pre-wake margin) or residual dent/evac energy exists:
                 // measured 17-19ms/frame ALWAYS without it, ~0 idle with it.
                 for (int r = 0; r < sims.Count; r++)
                 {
@@ -844,14 +844,14 @@ namespace SquishStudio
                     if (sim.pendingBlewUp)
                     {
                         sim.pendingBlewUp = false;
-                        Debug.LogWarning("[Squish] region '" + sim.cfg.name + "' destabilised (NaN/huge offset) — state reset");
+                        Debug.LogWarning("[Squish] region '" + sim.cfg.name + "' destabilised (NaN/huge offset): state reset");
                     }
                 }
                 if (heldDisp == null || heldDisp.Length != disp.Length) { heldDisp = new Vector3[disp.Length]; heldPrev = new Vector3[disp.Length]; }
                 if (heldPrev == null || heldPrev.Length != disp.Length) heldPrev = new Vector3[disp.Length];
                 if (halfRateLerp && heldValid)
                 {
-                    // LERP mode: show the midpoint between the previous and the new tick —
+                    // LERP mode: show the midpoint between the previous and the new tick:
                     // smoother than holding, at half a physics tick of extra latency
                     System.Array.Copy(heldDisp, heldPrev, disp.Length);
                     System.Array.Copy(disp, heldDisp, disp.Length);
@@ -868,7 +868,7 @@ namespace SquishStudio
             EnforceClipGuard();
             display.SetVertices(bakedVerts);
             display.SetNormals(bakedNormals);
-            // fixed expanded bounds once — per-frame RecalculateBounds is a full-mesh scan
+            // fixed expanded bounds once: per-frame RecalculateBounds is a full-mesh scan
             if (!dispBoundsSet) { display.bounds = new Bounds(display.bounds.center, display.bounds.size + Vector3.one * 2f); dispBoundsSet = true; }
 
             msSim = Mathf.Lerp(msSim, (float)swDbg.Elapsed.TotalMilliseconds, 0.08f);
@@ -880,7 +880,7 @@ namespace SquishStudio
                 Debug.Log("[Squish] perf '" + (smr != null ? smr.name : "?") + "': bake+chain=" + msBake.ToString("0.00")
                     + "ms sim+write=" + msSim.ToString("0.00") + "ms activeCapsules=" + act);
                 // clip guard telemetry: the SYMPTOM itself (how often and how deep the flesh
-                // reached the cloth before correction) — the only number that says "it worked"
+                // reached the cloth before correction): the only number that says "it worked"
                 for (int ci = 0; ci < clipTargets.Count; ci++)
                 {
                     ClipTarget ct = clipTargets[ci];
@@ -1082,14 +1082,14 @@ namespace SquishStudio
 
         // Set a region's weights from a bone's skin weights (>= threshold). With
         // includeChildren, every bone further down that branch of the rig (all
-        // descendants that skin this mesh) contributes too — e.g. picking a breast
+        // descendants that skin this mesh) contributes too, e.g. picking a breast
         // root also grabs its tip/secondary bones.
         public void SelectFromBone(SquishRegion region, string boneName, float threshold, bool includeChildren)
         {
             SelectFromBoneOn(smr, region, boneName, threshold, includeChildren);
         }
 
-        // Static variant usable on ANY SkinnedMeshRenderer (no proxy needed) — lets the
+        // Static variant usable on ANY SkinnedMeshRenderer (no proxy needed): lets the
         // same vertex-group selection be applied across multiple meshes.
         public static void SelectFromBoneOn(SkinnedMeshRenderer smr, SquishRegion region,
                                             string boneName, float threshold, bool includeChildren)
@@ -1127,7 +1127,7 @@ namespace SquishStudio
         // Collect this proxy's painted region as WORLD-space (position, weight) samples.
         // Fresh-bakes the source SMR rather than reading bakedVerts: by this point in the
         // frame bakedVerts holds the SIM-DISPLACED surface (jiggle/sag/chained wobble),
-        // while TransferWeights raw-bakes the target — sampling the same raw skinned pose
+        // while TransferWeights raw-bakes the target: sampling the same raw skinned pose
         // on both sides keeps overlapping surfaces aligned within the search radius.
         public List<Vector4> RegionWorldSamples(SquishRegion region)
         {
@@ -1354,7 +1354,7 @@ namespace SquishStudio
                         if (configRef.meshes[m] != null && configRef.meshes[m].enabled &&
                             configRef.meshes[m].mesh == r.name) { isBody = true; break; }
                 if (isBody) continue;
-                // any studio's body proxy lives on the mesh it deforms — that's a body, not cloth
+                // any studio's body proxy lives on the mesh it deforms: that's a body, not cloth
                 if (r.transform.Find(r.name + "_SquishProxy") != null ||
                     r.transform.Find(r.name + "_JelloProxy") != null ||
                     r.transform.Find(r.name + "_WobbleProxy") != null ||
@@ -1471,7 +1471,7 @@ namespace SquishStudio
                 nRest /= nrm2;
                 // ORIENTATION: a garment's stored normals may point at the body (modelled
                 // thickness, inner shells, flipped/mirrored normals). Canonicalize against the
-                // BODY's own outward normal so "+N" always means "out of the flesh" — without
+                // BODY's own outward normal so "+N" always means "out of the flesh", without
                 // this the constraint inverts and drags flesh INTO the cloth.
                 if (Vector3.Dot(nRest, bakedNormals[vi]) < 0f) nRest = -nRest;
                 float restSd = Vector3.Dot(p - bcp, nRest);

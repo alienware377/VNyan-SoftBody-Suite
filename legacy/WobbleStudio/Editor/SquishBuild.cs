@@ -83,7 +83,7 @@ public static class SquishBuild
         root.AddComponent<WobbleStudio.SquishWindowDrag>();
 
         float hy = 10f;
-        MakeText(root.transform, "Title", "Wobble Studio — Soft-Body Mesh Deformation",
+        MakeText(root.transform, "Title", "Wobble Studio: Soft-Body Mesh Deformation",
             outerX, hy, outerW, 22f, 15, TextAnchor.MiddleCenter, FontStyle.Bold);
         hy += 26f;
         MakeText(root.transform, "Label_Status", "load an avatar, enable a mesh, paint a region",
@@ -134,9 +134,9 @@ public static class SquishBuild
         float y = 6f;
 
         // ---------- mesh & region (regions are OWNED by Squish Studio and mirrored here) ----------
-        Header(c, "— Mesh & Region —", cX, cW, ref y);
+        Header(c, "Mesh & Region", cX, cW, ref y);
         MakeText(c, "Note_NeedsSquish",
-            "Regions are created && painted in SQUISH STUDIO (required —\ninstall it too). This plugin mirrors its regions automatically.",
+            "Regions are created && painted in SQUISH STUDIO (required:\ninstall it too). This plugin mirrors its regions automatically.",
             cX, y, cW, 30f, 10, TextAnchor.UpperLeft, FontStyle.Italic); y += 36f;
         MakeText(c, "Lbl_Mesh", "Mesh", cX, y, 70f, 30f, 12, TextAnchor.MiddleLeft, FontStyle.Normal);
         MakeDropdown(c, "Dropdown_Mesh", cX + 76f, y, cW - 76f, 30f); y += 34f;
@@ -149,7 +149,7 @@ public static class SquishBuild
         MakeToggle(c, "Toggle_RegionEnabled", "Enabled", cX + cW - b3, y, b3, 24f); y += 36f;
 
         // ---------- motion ----------
-        Header(c, "— Motion —", cX, cW, ref y);
+        Header(c, "Motion", cX, cW, ref y);
         SliderRow(c, "jiggle", "Jiggle level", cX, cW, ref y);
         SliderRow(c, "stiffness", "Stiffness", cX, cW, ref y);
         SliderRow(c, "damping", "Damping", cX, cW, ref y);
@@ -157,14 +157,14 @@ public static class SquishBuild
         SliderRow(c, "maxoff", "Max deform (m)", cX, cW, ref y);
 
         // ---------- gravity ----------
-        Header(c, "— Gravity —", cX, cW, ref y);
+        Header(c, "Gravity", cX, cW, ref y);
         SliderRow(c, "gravity", "Gravity level", cX, cW, ref y);
         MakeToggle(c, "Toggle_GravityPose", "Only when the parent bone leaves its rest pose", cX, y, cW, 24f); y += 28f;
         MakeText(c, "Lbl_RefBone", "Ref bone", cX, y, 70f, 28f, 12, TextAnchor.MiddleLeft, FontStyle.Normal);
         MakeDropdown(c, "Dropdown_RefBone", cX + 76f, y, cW - 76f, 28f); y += 34f;
 
         // ---------- waves ----------
-        Header(c, "— Waves & ripples —", cX, cW, ref y);
+        Header(c, "Waves & ripples", cX, cW, ref y);
         SliderRow(c, "cloth", "Cloth ripple", cX, cW, ref y);
         SliderRow(c, "clothsize", "Cloth ripple size", cX, cW, ref y);
         SliderRow(c, "jello", "Jell-o wobble", cX, cW, ref y);
@@ -175,7 +175,7 @@ public static class SquishBuild
         SliderRow(c, "wavespeed", "Wave speed", cX, cW, ref y);
 
         // ---------- extra jiggle modes ----------
-        Header(c, "— Extra jiggle modes —", cX, cW, ref y);
+        Header(c, "Extra jiggle modes", cX, cW, ref y);
         SliderRow(c, "sway", "Sway (pendulum)", cX, cW, ref y);
         SliderRow(c, "twistj", "Twist wobble", cX, cW, ref y);
         SliderRow(c, "pulse", "Pulse (breathe)", cX, cW, ref y);
@@ -185,12 +185,12 @@ public static class SquishBuild
         SliderRow(c, "turbsize", "Turbulence size", cX, cW, ref y);
 
         // ---------- surface ----------
-        Header(c, "— Surface —", cX, cW, ref y);
+        Header(c, "Surface", cX, cW, ref y);
         SliderRow(c, "cellulite", "Cellulite level", cX, cW, ref y);
         SliderRow(c, "cellsize", "Cellulite size", cX, cW, ref y);
 
         // ---------- native bone physics ----------
-        Header(c, "— Native bone physics —", cX, cW, ref y);
+        Header(c, "Native bone physics", cX, cW, ref y);
         MakeToggle(c, "Toggle_HalfRate", "Half-rate physics (lighter on slow PCs)", cX, y, cW, 24f); y += 26f;
         MakeToggle(c, "Toggle_HalfRateLerp", "Half-rate + smooth blend (lerp)", cX, y, cW, 24f); y += 26f;
         MakeToggle(c, "Toggle_NativeOff", "Disable spring/dynamic bones (they fight the squish)", cX, y, cW, 24f); y += 26f;

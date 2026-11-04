@@ -68,7 +68,7 @@ namespace SoftBodySuite.Field
         {
             if (count < 0) count = 0;
             // GROW-ONLY. `nc` is the live count, so a shorter frame just uses less of the
-            // buffer — reallocating on every count change put four arrays a frame on the heap
+            // buffer: reallocating on every count change put four arrays a frame on the heap
             // the moment a collider was toggled or a mesh cloud resized.
             if (ca == null || ca.Length < count)
             { ca = new Vector3[count]; cb = new Vector3[count]; cr = new float[count]; cv = new bool[count]; climb = new bool[count];

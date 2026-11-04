@@ -30,7 +30,7 @@ public static class SquishBuild
             AssetDatabase.CreateAsset(ovMat, "Assets/JelloOverlayMat.mat");
             plugin.overlayMaterial = ovMat;
         }
-        else Debug.LogWarning("[SquishBuild] JelloOverlay.shader not found — overlay falls back to Sprites/Default");
+        else Debug.LogWarning("[SquishBuild] JelloOverlay.shader not found: overlay falls back to Sprites/Default");
         PrefabUtility.SaveAsPrefabAsset(go, starterPrefabPath);
         Object.DestroyImmediate(go);
         AssetDatabase.SaveAssets();
@@ -92,7 +92,7 @@ public static class SquishBuild
         root.AddComponent<JelloStudio.SquishWindowDrag>();
 
         float hy = 10f;
-        MakeText(root.transform, "Title", "Jello Studio — DETACHED Soft Body (experimental)",
+        MakeText(root.transform, "Title", "Jello Studio: DETACHED Soft Body (experimental)",
             outerX, hy, outerW, 22f, 15, TextAnchor.MiddleCenter, FontStyle.Bold);
         hy += 26f;
         MakeText(root.transform, "Label_Status", "load an avatar, enable a mesh, paint a region",
@@ -143,9 +143,9 @@ public static class SquishBuild
         float y = 6f;
 
         // ---------- mesh & region (regions OWNED by Squish Studio, mirrored here) ----------
-        Header(c, "— Mesh & Region —", cX, cW, ref y);
+        Header(c, "Mesh & Region", cX, cW, ref y);
         MakeText(c, "Note_NeedsSquish",
-            "Regions are created && painted in SQUISH STUDIO (required —\ninstall it too). This plugin mirrors its regions automatically.",
+            "Regions are created && painted in SQUISH STUDIO (required:\ninstall it too). This plugin mirrors its regions automatically.",
             cX, y, cW, 30f, 10, TextAnchor.UpperLeft, FontStyle.Italic); y += 36f;
         MakeText(c, "Lbl_Mesh", "Mesh", cX, y, 70f, 30f, 12, TextAnchor.MiddleLeft, FontStyle.Normal);
         MakeDropdown(c, "Dropdown_Mesh", cX + 76f, y, cW - 76f, 30f); y += 34f;
@@ -158,7 +158,7 @@ public static class SquishBuild
         MakeToggle(c, "Toggle_RegionEnabled", "Enabled", cX + cW - b3, y, b3, 24f); y += 36f;
 
         // ---------- solver ----------
-        Header(c, "— XPBD solver —", cX, cW, ref y);
+        Header(c, "XPBD solver", cX, cW, ref y);
         MakeText(c, "Note_SolverTarget",
             "When the remeshed proxy (below) is ON, these tune the PROXY sim; otherwise they tune the mesh directly.",
             cX, y, cW, 26f, 10, TextAnchor.UpperLeft, FontStyle.Italic); y += 30f;
@@ -181,12 +181,12 @@ public static class SquishBuild
         SliderRow(c, "gravity", "Gravity sag", cX, cW, ref y);
 
         // ---------- colliders (mirrored from Squish Studio) ----------
-        Header(c, "— Edge seam (painted <-> unpainted) —", cX, cW, ref y);
+        Header(c, "Edge seam (painted <-> unpainted)", cX, cW, ref y);
         SliderRow(c, "seamlevel", "Seam smoothing level", cX, cW, ref y);
         SliderRow(c, "seamrange", "Seam smoothing range (m)", cX, cW, ref y);
         SliderRow(c, "seammax", "Seam max stretch (m)", cX, cW, ref y);
 
-        Header(c, "— Remeshed sim cage —", cX, cW, ref y);
+        Header(c, "Remeshed sim cage", cX, cW, ref y);
         MakeToggle(c, "Toggle_remesh", "Sim on remeshed proxy mesh (all regions)", cX, y, cW, 22f); y += 26f;
         SliderRow(c, "remeshsize", "Cage edge length (m)", cX, cW, ref y);
         SliderRow(c, "remeshpasses", "Remesh passes", cX, cW, ref y);
@@ -194,7 +194,7 @@ public static class SquishBuild
         SliderRow(c, "proxysmooth", "Proxy peak/edge smoothing", cX, cW, ref y);
         SliderRow(c, "projavg", "Projection averaging range", cX, cW, ref y);
 
-        Header(c, "— Contact boost + slap (2nd-level squish) —", cX, cW, ref y);
+        Header(c, "Contact boost + slap (2nd-level squish)", cX, cW, ref y);
         MakeText(c, "Note_Boost", "Applied AFTER the smoothers so they can't blur the dent. Cage mode only.",
             cX, y, cW, 18f, 10, TextAnchor.UpperLeft, FontStyle.Italic); y += 22f;
         SliderRow(c, "boost", "Boost strength (x pen)", cX, cW, ref y);
@@ -204,18 +204,18 @@ public static class SquishBuild
         SliderRow(c, "slappower", "Slap power", cX, cW, ref y);
         MakeButton(c, "Button_ShowRemesh", "Show / hide remeshed mesh", cX, y, cW, 26f); y += 32f;
 
-        Header(c, "— Colliders —", cX, cW, ref y);
+        Header(c, "Colliders", cX, cW, ref y);
         MakeText(c, "Note_Colliders", "Colliders are created in Squish Studio and mirror here automatically.",
             cX, y, cW, 18f, 10, TextAnchor.MiddleLeft, FontStyle.Italic); y += 24f;
         MakeButton(c, "Button_ShowCol", "Show / hide colliders (F10)", cX, y, cW, 26f); y += 32f;
 
         // ---------- view & debug ----------
-        Header(c, "— View & debug —", cX, cW, ref y);
+        Header(c, "View & debug", cX, cW, ref y);
         MakeButton(c, "Button_SharpOverlay", "Sharpness overlay (red = jagged)", cX, y, b2, 26f);
         MakeButton(c, "Button_HideMeshes", "Hide meshes…", cX + b2 + gap, y, b2, 26f); y += 32f;
 
         // ---------- native bone physics ----------
-        Header(c, "— Native bone physics —", cX, cW, ref y);
+        Header(c, "Native bone physics", cX, cW, ref y);
         MakeToggle(c, "Toggle_HalfRate", "Half-rate physics (lighter on slow PCs)", cX, y, cW, 24f); y += 26f;
         MakeToggle(c, "Toggle_HalfRateLerp", "Half-rate + smooth blend (lerp)", cX, y, cW, 24f); y += 26f;
         MakeToggle(c, "Toggle_NativeOff", "Disable spring/dynamic bones (they fight the squish)", cX, y, cW, 24f); y += 26f;

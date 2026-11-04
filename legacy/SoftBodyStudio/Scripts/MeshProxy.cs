@@ -28,7 +28,7 @@ namespace SoftBodyStudio
         readonly List<Vector3> scratch = new List<Vector3>();
 
         // Chaining with Wobble Studio: if that plugin already deforms this mesh, read ITS
-        // output (jiggled vertices) as our base instead of re-baking the raw skin — the two
+        // output (jiggled vertices) as our base instead of re-baking the raw skin: the two
         // plugins stack (Wobble at execution order 19000, Squish at 20000) instead of
         // rendering two fighting copies. Its renderer is hidden; ours is the final image.
         MeshFilter wobbleSrc;
@@ -154,8 +154,8 @@ namespace SoftBodyStudio
         }
 
         // Reduce every referenced collider mesh ONCE to auto-fitted bone capsules (see
-        // MeshColliderCloud) — no per-frame baking. When the collider is the region's OWN
-        // mesh, painted vertices are excluded so the region doesn't collide with itself —
+        // MeshColliderCloud): no per-frame baking. When the collider is the region's OWN
+        // mesh, painted vertices are excluded so the region doesn't collide with itself:
         // hands (same mesh) still squish the chest.
         void UpdateColliderClouds()
         {
@@ -163,7 +163,7 @@ namespace SoftBodyStudio
             if (colBakeScratch == null) { colBakeScratch = new Mesh(); colBakeScratch.MarkDynamic(); }
             Transform tr = go.transform;
 
-            // bounding spheres of the painted regions (proxy-local) — only discs near these
+            // bounding spheres of the painted regions (proxy-local): only discs near these
             // stay active, so far-away body parts cost nothing
             List<Vector4> regBounds = new List<Vector4>();
             for (int r = 0; r < cfg.regions.Count; r++)
@@ -368,7 +368,7 @@ namespace SoftBodyStudio
         }
 
         // upstream source: Wobble only (order 19000). Jello (20600) and Squish (20700)
-        // run AFTER us — never chain onto their proxies (cycle).
+        // run AFTER us: never chain onto their proxies (cycle).
         Transform FindChainSource()
         {
             if (smr == null) return null;
@@ -410,7 +410,7 @@ namespace SoftBodyStudio
 
             // upstream appearing/disappearing: cheap re-check 1x/second for UPGRADES, but
             // re-chain INSTANTLY while unchained or the source died (fake-null after a
-            // rebind destroys it) — waiting a whole second flashed two bodies per tweak
+            // rebind destroys it): waiting a whole second flashed two bodies per tweak
             if (wobbleSrc == null) FindWobbleProxy();
             if (++chainCheck >= 60)
             {
@@ -443,7 +443,7 @@ namespace SoftBodyStudio
             {
                 // the renderer's mesh was swapped out from under us (outfit systems etc.)
                 Debug.LogWarning("[SoftBody] '" + smr.name + "' vertex count changed ("
-                    + bakedVerts.Length + " -> " + scratch.Count + ") — detaching, will rebind");
+                    + bakedVerts.Length + " -> " + scratch.Count + "): detaching, will rebind");
                 Detach();
                 return;
             }
@@ -466,7 +466,7 @@ namespace SoftBodyStudio
             if (simEnabled && hrAny && !frameFlip && heldValid && heldDisp != null && heldDisp.Length == disp.Length)
             {
                 // HELD frame: reuse last computed displacement (fresh skinning still flows
-                // through — only the offset field is one frame old)
+                // through: only the offset field is one frame old)
                 System.Array.Copy(heldDisp, disp, disp.Length);
             }
             else if (simEnabled)
@@ -512,7 +512,7 @@ namespace SoftBodyStudio
                             sims[r].FieldAndWrite(bakedVerts, bakedNormals, disp, pdt, SimsAsList(), go.transform);
                 }
 
-                // boundary seam smoothing — final polish on the painted<->unpainted edge
+                // boundary seam smoothing: final polish on the painted<->unpainted edge
                 if (settingsRef != null)
                 {
                     int slv = Mathf.Clamp(Mathf.RoundToInt(settingsRef.seamLevel), 0, 200);
@@ -523,7 +523,7 @@ namespace SoftBodyStudio
                 if (heldPrev == null || heldPrev.Length != disp.Length) heldPrev = new Vector3[disp.Length];
                 if (halfRateLerp && heldValid)
                 {
-                    // LERP mode: show the midpoint between the previous and the new tick —
+                    // LERP mode: show the midpoint between the previous and the new tick:
                     // smoother than holding, at half a physics tick of extra latency
                     System.Array.Copy(heldDisp, heldPrev, disp.Length);
                     System.Array.Copy(disp, heldDisp, disp.Length);
@@ -536,7 +536,7 @@ namespace SoftBodyStudio
             for (int i = 0; i < bakedVerts.Length; i++) bakedVerts[i] += disp[i];
             display.SetVertices(bakedVerts);
             display.SetNormals(bakedNormals);
-            // fixed expanded bounds once — per-frame RecalculateBounds is a full-mesh scan
+            // fixed expanded bounds once: per-frame RecalculateBounds is a full-mesh scan
             if (!dispBoundsSet) { display.bounds = new Bounds(display.bounds.center, display.bounds.size + Vector3.one * 2f); dispBoundsSet = true; }
             if (overlayOn && overlayMode == 1) RefreshSharpColors();   // live jaggedness view
 
@@ -810,14 +810,14 @@ namespace SoftBodyStudio
 
         // Set a region's weights from a bone's skin weights (>= threshold). With
         // includeChildren, every bone further down that branch of the rig (all
-        // descendants that skin this mesh) contributes too — e.g. picking a breast
+        // descendants that skin this mesh) contributes too, e.g. picking a breast
         // root also grabs its tip/secondary bones.
         public void SelectFromBone(SquishRegion region, string boneName, float threshold, bool includeChildren)
         {
             SelectFromBoneOn(smr, region, boneName, threshold, includeChildren);
         }
 
-        // Static variant usable on ANY SkinnedMeshRenderer (no proxy needed) — lets the
+        // Static variant usable on ANY SkinnedMeshRenderer (no proxy needed): lets the
         // same vertex-group selection be applied across multiple meshes.
         public static void SelectFromBoneOn(SkinnedMeshRenderer smr, SquishRegion region,
                                             string boneName, float threshold, bool includeChildren)
@@ -950,7 +950,7 @@ namespace SoftBodyStudio
                 regionValueFields[i].SetValue(dst, regionValueFields[i].GetValue(src));
         }
 
-        // one sim per region — or, in cage mode, ONE sim on a uniform remeshed
+        // one sim per region, or, in cage mode, ONE sim on a uniform remeshed
         // duplicate of all regions (bad topology never reaches the solver)
         void BuildSims(GameObject avatar, Animator anim)
         {
@@ -996,11 +996,11 @@ namespace SoftBodyStudio
             cageBuilding = c;
             cageSw = System.Diagnostics.Stopwatch.StartNew();
             Debug.Log(c.logTag + " cage build started (edge " + L.ToString("0.0000") + " m, " + passes
-                + " passes) — running in background");
+                + " passes): running in background");
             System.Threading.Thread th = new System.Threading.Thread(() =>
             {
                 // NO Debug.Log in here: logging from a worker thread can deadlock
-                // against the host's log handler — progress goes via c.stage instead
+                // against the host's log handler: progress goes via c.stage instead
                 try { c.buildOk = c.Build(mvp, tris, wo, wm, wRep, mnrm, L, passes); }
                 catch (System.Exception e) { c.note = "exception: " + e.Message; }
                 finally { c.buildDone = true; }
@@ -1024,7 +1024,7 @@ namespace SoftBodyStudio
             {
                 if (cageSw != null && cageSw.ElapsedMilliseconds > 30000)
                 {
-                    Debug.LogWarning("[SoftBody] cage build timed out — falling back to per-region sims");
+                    Debug.LogWarning("[SoftBody] cage build timed out: falling back to per-region sims");
                     cageToken++; cageBuilding = null;
                     BuildRegionSims(); ResolveColliderMeshes(avatarRef);
                 }
@@ -1034,7 +1034,7 @@ namespace SoftBodyStudio
             if (c.note.Length > 0) Debug.LogWarning(c.logTag + " cage note: " + c.note);
             if (!c.buildOk)
             {
-                Debug.LogWarning("[SoftBody] cage remesh failed (stage: " + c.stage + ") — falling back to per-region sims");
+                Debug.LogWarning("[SoftBody] cage remesh failed (stage: " + c.stage + "): falling back to per-region sims");
                 BuildRegionSims(); ResolveColliderMeshes(avatarRef);
                 return;
             }
@@ -1236,7 +1236,7 @@ namespace SoftBodyStudio
             for (int i = 0; i < g; i++) if (seamDist[i] <= SEAM_MAXR) band.Add(i);
             seamBand = band.ToArray();
             // sort by distance-to-seam so the ACTIVE band (verts within `range`, the only
-            // ones the smoothing touches) is a prefix — ApplySeamSmoothing then iterates
+            // ones the smoothing touches) is a prefix: ApplySeamSmoothing then iterates
             // only that prefix instead of the whole 0.25 m cache every frame (the lag).
             System.Array.Sort(seamBand, delegate(int x, int y) { return seamDist[x].CompareTo(seamDist[y]); });
         }
@@ -1285,9 +1285,9 @@ namespace SoftBodyStudio
                 Vector3 d = grpDisp[gg];
                 for (int m = 0; m < mem.Count; m++) disp[mem[m]] = d;
             }
-            // SEAM MAX STRETCH — displacement RAMP limit ("cone clamp"). F11 evidence: the
+            // SEAM MAX STRETCH: displacement RAMP limit ("cone clamp"). F11 evidence: the
             // whole 0→full transition packs into the smoothing band (avg +214% edge stretch),
-            // pinned between the still body and the moving interior — edge clamps inside the
+            // pinned between the still body and the moving interior: edge clamps inside the
             // band can only shuffle that, never remove it. Instead cap the displacement
             // MAGNITUDE by surface distance to the boundary: |disp| <= seamDist * slope with
             // slope = maxStretch / range ("one range out, at most maxStretch of motion"),

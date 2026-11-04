@@ -3,7 +3,7 @@ using System.Collections.Generic;
 namespace SoftBodyStudio
 {
     // ---------------------------------------------------------------------------
-    // SoftBody Studio — mesh-level soft-body deformation for VNyan avatars.
+    // SoftBody Studio: mesh-level soft-body deformation for VNyan avatars.
     //
     // Instead of bending bones, the plugin bakes the skinned mesh every frame,
     // simulates the PAINTED vertices as point masses on top of the baked pose, and
@@ -16,7 +16,7 @@ namespace SoftBodyStudio
     {
         public bool enabled = true;
         public int substeps = 2;          // physics substeps per frame
-        public bool halfRate = false;     // compute physics every 2nd frame (held between) — lighter on slow PCs
+        public bool halfRate = false;     // compute physics every 2nd frame (held between): lighter on slow PCs
         public bool halfRateLerp = false; // half-rate, but held frames BLEND between ticks (smoother)
         public float maxDeltaTime = 0.033f;
 
@@ -37,9 +37,9 @@ namespace SoftBodyStudio
         // matter what the interior does. These smooth the FINAL displacement in a
         // metric band straddling that boundary (works with or without the cage).
         public float seamLevel = 0f;        // smoothing strength (Laplacian passes in the band)
-        public float seamRange = 0f;        // band half-width (m) — how far the smoothing reaches either side
+        public float seamRange = 0f;        // band half-width (m): how far the smoothing reaches either side
         public float seamMaxStretch = 0f;   // cap (m) on how far seam smoothing may drag a vert from its
-                                            // pre-smoothing spot (0 = no limit) — stops over-stretched seam tris
+                                            // pre-smoothing spot (0 = no limit): stops over-stretched seam tris
 
         // ----- contact boost / slap (2nd-level squish, cage mode) -----
         // The projection smoothers that make everything buttery also dilute the sharp
@@ -60,7 +60,7 @@ namespace SoftBodyStudio
     }
 
     // A sphere/capsule collider attached to any bone/transform (by name). Regions
-    // squish against these — add hand bones to poke, or another mesh's root to let
+    // squish against these: add hand bones to poke, or another mesh's root to let
     // that mesh squeeze the region.
     public class SquishCollider
     {
@@ -131,7 +131,7 @@ namespace SoftBodyStudio
         public float xAttach = 0.25f;     // soft pull back to the skinned shape
         public float xMaxStretch = 0.1f;  // hard leash from the skinned position (m at weight 1)
         public float xPressure = 0.5f;    // displaced volume re-inflates the rest of the region
-        public float xGrid = 0.006f;      // solver grid size (m) — node coarsening cell
+        public float xGrid = 0.006f;      // solver grid size (m): node coarsening cell
         public float xGridMin = 0.002f;   // adaptive grid: cell size where edges are SMALLEST
         public float xGridMax = 0.02f;    // adaptive grid: cell size where edges are LARGEST
         public float xGridAuto = 1f;      // 1 = sync min/max to the region's measured edge range on rebuild
@@ -141,7 +141,7 @@ namespace SoftBodyStudio
         public float xCompress = 0.12f;   // compression softness (0 = free squash, 1 = cloth)
         public float xBend = 0.5f;        // bending stiffness multiplier
         public float xTension = 0.3f;     // skin tension: smooths the DEFORMATION field (anti-crinkle)
-        public float xSmoothPasses = 8f;  // Taubin (shrink-free) smoothing passes on the output — kills peaks, keeps shape
+        public float xSmoothPasses = 8f;  // Taubin (shrink-free) smoothing passes on the output: kills peaks, keeps shape
         public List<SquishCollider> colliders = new List<SquishCollider>();
     }
 

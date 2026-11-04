@@ -28,7 +28,7 @@ namespace SoftBodySuite.Field
 
         // The painted region's own size, in metres: the distance from the paint-weighted
         // centroid of the cage to its furthest painted node, measured ONCE per cage build
-        // in the rest pose. This is the fork's feature-size measure, and it is what turns
+        // in the rest pose. This is the field's feature-size measure, and it is what turns
         // FieldRegion.rippleAmplitude / wobbleAmplitude from a fraction into metres - see
         // the note on FieldRegion.amplitudeRelative. Rest pose, not the posed cage, so the
         // wave height does not breathe with the animation.
@@ -51,7 +51,7 @@ namespace SoftBodySuite.Field
         // clamp01(mask * dentDepth); false means clamp01(mask) alone (Penetration).
         public bool contactFootprintDent;
 
-        // main-thread capture — no UnityEngine.Object may ever be stored here
+        // main-thread capture: no UnityEngine.Object may ever be stored here
         public Vector3 fleshVel;
         public Vector3 fleshAcc;
         public Vector3 fleshJerk;
@@ -90,8 +90,8 @@ namespace SoftBodySuite.Field
         public float[] ovMask;     // softness field replacing mask inside the core
     }
 
-    // One effect = one file that ships its own maths AND its own UI rows. The whole
-    // bet of this fork is that adding the seventh effect costs one file and nothing
+    // One effect = one file that ships its own maths AND its own UI rows. Adding a
+    // new effect should cost one file and nothing
     // else, so nothing here may ever need editing to add a source.
     public abstract class FieldSource
     {
@@ -105,14 +105,14 @@ namespace SoftBodySuite.Field
         //   MotionExciter     500
         //   RippleSource      600
         //   NoiseJiggleSource 700
-        // MotionExciter is at 500 ON PURPOSE — after every contact-writing source,
+        // MotionExciter is at 500 ON PURPOSE, after every contact-writing source,
         // because CONTACT OWNS THE ORIGIN: the exciter has to see whether a contact
         // fired this frame before it decides whether to push a motion event of its own.
         public abstract int Order { get; }
 
         public abstract bool IsActive(FieldContext ctx);
 
-        // Global reductions only (contact centroid, push axis, pressure mean) — the
+        // Global reductions only (contact centroid, push axis, pressure mean): the
         // things a LATER source might need to read. Never touches disp.
         public abstract void Prepare(FieldContext ctx);
 
@@ -126,10 +126,10 @@ namespace SoftBodySuite.Field
     }
 
     // The ordered list of live sources. Deliberately knows NOTHING about the concrete
-    // effect classes — all wiring lives in FieldPresets.RegisterAll(FieldRegistry),
+    // effect classes: all wiring lives in FieldPresets.RegisterAll(FieldRegistry),
     // which FieldProxy calls. With an empty registry every method below is a no-op
-    // that costs nothing, and that is exactly what makes Milestone 1 (the empty field
-    // rendering bit-identical to shipped v2.0.0) testable before any source exists.
+    // that costs nothing, and that is exactly what makes the pass-through check (the empty field
+    // rendering bit-identical to v2.0.0) testable before any source exists.
     public class FieldRegistry
     {
         readonly List<FieldSource> sources = new List<FieldSource>();

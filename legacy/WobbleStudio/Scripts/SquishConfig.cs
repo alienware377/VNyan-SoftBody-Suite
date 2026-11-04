@@ -3,7 +3,7 @@ using System.Collections.Generic;
 namespace WobbleStudio
 {
     // ---------------------------------------------------------------------------
-    // Wobble Studio — mesh-level soft-body deformation for VNyan avatars.
+    // Wobble Studio: mesh-level soft-body deformation for VNyan avatars.
     //
     // Instead of bending bones, the plugin bakes the skinned mesh every frame,
     // simulates the PAINTED vertices as point masses on top of the baked pose, and
@@ -16,7 +16,7 @@ namespace WobbleStudio
     {
         public bool enabled = true;
         public int substeps = 2;          // physics substeps per frame
-        public bool halfRate = false;     // compute physics every 2nd frame (held between) — lighter on slow PCs
+        public bool halfRate = false;     // compute physics every 2nd frame (held between): lighter on slow PCs
         public bool halfRateLerp = false;
         public bool asyncSim = false;    // run the physics on a worker thread (1 frame latency) // half-rate, but held frames BLEND between ticks (smoother)
         public float maxDeltaTime = 0.033f;
@@ -29,7 +29,7 @@ namespace WobbleStudio
     }
 
     // A sphere/capsule collider attached to any bone/transform (by name). Regions
-    // squish against these — add hand bones to poke, or another mesh's root to let
+    // squish against these: add hand bones to poke, or another mesh's root to let
     // that mesh squeeze the region.
     public class SquishCollider
     {

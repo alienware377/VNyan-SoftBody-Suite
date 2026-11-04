@@ -9,13 +9,13 @@ using UnityEngine.UI;
 
 namespace JelloStudio
 {
-    // Jello Studio — mesh-level soft-body deformation with live weight painting.
+    // Jello Studio: mesh-level soft-body deformation with live weight painting.
     // Runs LAST in LateUpdate (order 20000) so the bake sees the final pose of the
-    // frame: tracking, Pose Studio, bone physics — everything.
+    // frame: tracking, Pose Studio, bone physics and everything else.
 
     // Drives the cloth followers after EVERY body deformer has written this frame.
     // Jello sims at 20600 and Squish renders the final body at 20700, so the garments
-    // are updated at 20800 — that is what lets them follow contact dents, not just the
+    // are updated at 20800: that is what lets them follow contact dents, not just the
     // mid-chain jiggle. Spawned and owned by SquishPlugin.
     [DefaultExecutionOrder(20800)]
     public class JelloLateFollow : MonoBehaviour
@@ -227,7 +227,7 @@ namespace JelloStudio
                 selProxy.RebuildSims(boundAvatar, boundAnimator);
                 if (selProxy.overlayOn) selProxy.RefreshOverlayColors(selRegion);
             }
-            SaveConfig();   // regions are the source of truth for Wobble Studio's mirror — keep the file fresh
+            SaveConfig();   // regions are the source of truth for Wobble Studio's mirror: keep the file fresh
         }
 
         void Update()
@@ -472,7 +472,7 @@ namespace JelloStudio
         void Rebind()
         {
             DetachAll();
-            // the remeshed cage is no longer optional — the direct-mesh path survives only as
+            // the remeshed cage is no longer optional: the direct-mesh path survives only as
             // an internal fallback for when a cage genuinely cannot be built
             if (config.settings != null) config.settings.useRemesh = 1f;
             MeshProxy.settingsRef = config.settings;
@@ -541,7 +541,7 @@ namespace JelloStudio
                 proxies[i].Frame(dt, Mathf.Clamp(config.settings.substeps, 1, 8), Vector3.down, true);
                 if (!proxies[i].Alive) anyDead = true;
             }
-            if (anyDead) { Rebind(); return; }   // a proxy self-detached (mesh swap) — reattach cleanly
+            if (anyDead) { Rebind(); return; }   // a proxy self-detached (mesh swap): reattach cleanly
 
             HandlePainting();
         }
@@ -565,7 +565,7 @@ namespace JelloStudio
         {
             if (!stroking) return;
             stroking = false;
-            // stroke finished — apply the new weights to the live sim
+            // stroke finished: apply the new weights to the live sim
             if (selProxy != null) selProxy.RebuildSims(boundAvatar, boundAnimator);
         }
 
@@ -623,8 +623,8 @@ namespace JelloStudio
                 { "Toggle_RegionEnabled", "Temporarily turn this region's simulation on/off without deleting it." },
                 { "Note_NeedsSquish", "SQUISH STUDIO is required: regions are created & painted there and mirrored here automatically (checked every 2 s). This plugin only simulates them with the XPBD solver." },
                 { "Slider_iter", "Constraint solver iterations per substep. More = stiffer, more accurate collision, more CPU." },
-                { "Slider_stretchk", "BOSS 2 — keep your distance from your neighbors: how strongly neighbouring points hold their spacing. High = rubber sheet, low = loose flesh." },
-                { "Slider_attach", "BOSS 1 — stay near your skeleton spot: how hard each point is pulled back toward where the animated body says it belongs. 0 = points ignore the skeleton." },
+                { "Slider_stretchk", "BOSS 2 (keep your distance from your neighbors): how strongly neighbouring points hold their spacing. High = rubber sheet, low = loose flesh." },
+                { "Slider_attach", "BOSS 1 (stay near your skeleton spot): how hard each point is pulled back toward where the animated body says it belongs. 0 = points ignore the skeleton." },
                 { "Slider_maxstretch", "Hard leash (m): a fully painted vertex can never move further than this from its skinned position." },
                 { "Slider_pressure", "Volume feel: what a collider pushes in gets re-inflated across the untouched surface (water balloon)." },
                 { "Slider_gridmin", "Adaptive grid: solver cell size (m) used where the mesh edges are SMALLEST (densest detail). Cell size varies smoothly across the region between this and the max. With auto-sync on it follows the region's actual smallest edge length." },
@@ -633,44 +633,44 @@ namespace JelloStudio
                 { "Toggle_remesh", "Bypass the original mesh's messy topology: duplicate ALL enabled regions, REMESH the copy to uniform triangles, run the physics on that cage, and project the deformation back onto the original mesh. Rendered detail is untouched." },
                 { "Slider_remeshsize", "Cage vertex density: target edge length (m) of the remeshed cage. Smaller = more detail but slower. Rebuilds after you stop dragging." },
                 { "Slider_remeshpasses", "Remeshing quality passes (split / collapse / flip / smooth). More = more uniform triangles, slower rebuild." },
-                { "Slider_projavg", "PROXY→mesh projection averaging RANGE: spreads each cage node's motion across a wider neighbourhood before it lands on the mesh (diffusion passes). Higher = softer, blurrier deformation. Live — no rebuild." },
+                { "Slider_projavg", "PROXY→mesh projection averaging RANGE: spreads each cage node's motion across a wider neighbourhood before it lands on the mesh (diffusion passes). Higher = softer, blurrier deformation. Live: no rebuild." },
                 { "Toggle_cagedrive", "ONE SHARED SIM for everything covering the region: other meshes (clothing etc.) bind to this mesh's remesh cage and replay the SAME deformation, so they cannot clip against the body. Meshes with their own enabled sim and hidden meshes are skipped. Needs the remesh cage ON." },
                 { "Slider_cagefollow", "How far (m) from the cage surface another mesh's vert may sit and still be driven. Full influence within half this range, fading to zero at the range. Changing it re-binds automatically." },
-                { "Toggle_cagewhole", "Bind clothes to the WHOLE body surface instead of just the painted-region cage. Tracks Jello's complete output (sim + seam smoothing) anywhere on the body — use when garments extend past the painted area or a mesh (skirt, bottom) sits outside the region. Re-binds on toggle." },
-                { "Toggle_bonefilter", "Garments only bind on verts weighted to the REGION'S BONES — the ones picked in Squish Studio's vertex-group selector for this region (mirrored automatically). Cleanly excludes waistbands, side panels and anything skinned to other bones. If the region was painted by brush with no bone pick, this does nothing." },
-                { "Slider_fillmax", "Gap infill: the LARGEST unbound patch (approx. vertex count) that may inherit motion from the tracked cloth around it — e.g. the bridge over a cleavage valley. 0 disables infill." },
+                { "Toggle_cagewhole", "Bind clothes to the WHOLE body surface instead of just the painted-region cage. Tracks Jello's complete output (sim + seam smoothing) anywhere on the body: use when garments extend past the painted area or a mesh (skirt, bottom) sits outside the region. Re-binds on toggle." },
+                { "Toggle_bonefilter", "Garments only bind on verts weighted to the REGION'S BONES: the ones picked in Squish Studio's vertex-group selector for this region (mirrored automatically). Cleanly excludes waistbands, side panels and anything skinned to other bones. If the region was painted by brush with no bone pick, this does nothing." },
+                { "Slider_fillmax", "Gap infill: the LARGEST unbound patch (approx. vertex count) that may inherit motion from the tracked cloth around it, e.g. the bridge over a cleavage valley. 0 disables infill." },
                 { "Slider_anchormin", "Gap infill: how big a tracked area must be (approx. vertex count) to count as an ANCHOR around a gap. Raising it stops tiny stray tracked specks from legitimising infill next to them." },
                 { "Toggle_clothout", "Anti-clip that only ever moves the CLOTHES. Each driven garment vertex remembers how far it sat off the skin and is never allowed nearer than the minimum gap below, so flesh cannot emerge through it. The body mesh is never modified by this." },
                 { "Slider_cageminclear", "The smallest gap (m) a driven garment may keep from the skin. A couple of millimetres suits skin-tight items; raise it if the surface still grazes through." },
-                { "Slider_cagefolsm","Smoothing passes on the CLOTH's copy of the deformation field. The body's 'projection averaging' used to blur the cloth's copy too, cutting garment motion to a fraction — this is now independent. Low = clothes follow the real amplitude; raise it only if garments look jittery." },
+                { "Slider_cagefolsm","Smoothing passes on the CLOTH's copy of the deformation field. The body's 'projection averaging' used to blur the cloth's copy too, cutting garment motion to a fraction: this is now independent. Low = clothes follow the real amplitude; raise it only if garments look jittery." },
                 { "Slider_cagefit", "FIT: multiplier on the motion driven clothes replay. 1 = exactly the body's deformation; above 1 the cloth moves slightly MORE (helps it stay ahead of the flesh); below 1 it follows more loosely. Close-fitting verts always receive the full OUTWARD push regardless (anti-clip floor)." },
                 { "Slider_cageinflate", "Static outward clearance (m): puffs the DRIVEN part of the cloth out along its normals so it hovers above the flesh instead of coinciding with it. The seam sliders blend the puffed edge back down." },
                 { "Slider_cageinflatedyn", "Dynamic inflate: adds extra outward push proportional to how far the body is currently pushing OUT at that spot. Inward motion is never amplified, so the cloth can't dig in." },
-                { "Slider_proxysmooth", "PROXY peak / sharp-edge smoothing (Taubin, shrink-free) applied to the cage BEFORE projecting: knocks down spikes and creases while keeping the overall squished shape. Very high values are safe. Live — no rebuild." },
+                { "Slider_proxysmooth", "PROXY peak / sharp-edge smoothing (Taubin, shrink-free) applied to the cage BEFORE projecting: knocks down spikes and creases while keeping the overall squished shape. Very high values are safe. Live: no rebuild." },
                 { "Slider_seamlevel", "SEAM smoothing level: how hard to smooth the displacement right where the painted area meets the untouched body. Strongest exactly on the boundary, fading out across the range. Fixes the sharp edge that persists no matter what the interior does." },
                 { "Slider_seamrange", "SEAM smoothing range (m): how far the seam smoothing reaches on either side of the painted<->unpainted boundary. Wider = a longer, gentler blend into the still body." },
-                { "Slider_seammax", "SEAM max stretch: limits how fast movement RAMPS UP away from the boundary — at one seam-range from the edge the surface may move at most this many meters, growing linearly with distance (measured along the surface, out to 25 cm). Small = skin near the seam stays put and the transition spreads deeper into the region; 0 = off. Works even with smoothing level 0." },
+                { "Slider_seammax", "SEAM max stretch: limits how fast movement RAMPS UP away from the boundary. At one seam-range from the edge the surface may move at most this many meters, growing linearly with distance (measured along the surface, out to 25 cm). Small = skin near the seam stays put and the transition spreads deeper into the region; 0 = off. Works even with smoothing level 0." },
                 { "Slider_boost", "CONTACT BOOST strength: the smoothers that make everything buttery also blur the dent a collider should make. This re-measures the smoothed surface against the colliders and pushes the remaining penetration back out, multiplied by this value (1 = exact contact, >1 = exaggerated cartoon squish). Cage mode only. 0 = off." },
                 { "Slider_boostspread", "Boost spread: diffusion passes that widen the boost dent into a soft shoulder on the surrounding flesh. Higher = broader, softer dent; 0 = sharp local dent only." },
                 { "Slider_boostmax", "Max boost depth (m): hard cap on how much extra push-out the boost/slap may add, whatever the sliders say." },
                 { "Slider_slapsens", "SLAP sensitivity (m/s): how fast a collider must be pressing IN before it counts as a slap. Lower = easier to trigger." },
                 { "Slider_slappower", "SLAP power: fast hits inject a decaying outward impulse (fades ~0.2 s) that the spread and the jiggle turn into a visible smack ripple. 0 = off." },
-                { "Toggle_HalfRate", "HALF-RATE physics: compute the simulation every 2nd frame (with doubled timestep) and hold the result between — near-halves the physics cost on slower PCs. Skinning/animation still updates every frame, so it is barely visible." },
-                { "Toggle_HalfRateLerp", "HALF-RATE + SMOOTH: like half-rate physics, but held frames show a blend between the last two physics ticks instead of a repeat — smoother motion at the same cost, with half a tick of extra latency. Mutually exclusive with the other rate options." },
+                { "Toggle_HalfRate", "HALF-RATE physics: compute the simulation every 2nd frame (with doubled timestep) and hold the result in between, which nearly halves the physics cost on slower PCs. Skinning/animation still updates every frame, so it is barely visible." },
+                { "Toggle_HalfRateLerp", "HALF-RATE + SMOOTH: like half-rate physics, but held frames show a blend between the last two physics ticks instead of a repeat, for smoother motion at the same cost, with half a tick of extra latency. Mutually exclusive with the other rate options." },
                 { "Button_ShowRemesh", "Show or hide the remeshed cage (colored by paint weight, floats 1.5 mm above the skin) so you can inspect exactly what the solver simulates." },
                 { "Slider_blend", "Write-back blend width (m): how far each rendered vertex blends nearby node motion. Bigger = silkier, softer detail. Rebuilds automatically." },
                 { "Slider_corrclamp", "Max correction per constraint per iteration (m). Lower = calmer but slower to converge; higher = snappier but can fling on dense geometry." },
-                { "Slider_colrelax", "BOSS 3 — get out of the collider: how strongly points are shoved out of colliders per iteration (final iteration is always 100%). Lower = gentler contact." },
+                { "Slider_colrelax", "BOSS 3 (get out of the collider): how strongly points are shoved out of colliders per iteration (final iteration is always 100%). Lower = gentler contact." },
                 { "Slider_compress", "Compression resistance. 0 = flesh squashes freely under a press; 1 = cloth-like (buckles into folds)." },
                 { "Slider_bendmul", "Fold resistance (2-ring bending constraints) relative to surface stiffness." },
                 { "Slider_tension", "Skin tension (ANTI-CRINKLE): smooths the deformation field each iteration so slack, compressed skin settles taut instead of wandering into wrinkles. The most important troubleshooting slider." },
-                { "Slider_smoothp", "Peak smoothing passes (Taubin, shrink-free): removes spikes/peaks from the deformation while keeping the overall squished shape. Very high values are safe — it cannot shrink the shape, only soften it." },
+                { "Slider_smoothp", "Peak smoothing passes (Taubin, shrink-free): removes spikes/peaks from the deformation while keeping the overall squished shape. Very high values are safe: it cannot shrink the shape, only soften it." },
                 { "Slider_damping", "Velocity damping. Low = bouncy jello, high = heavy clay." },
                 { "Slider_gravity", "Constant downward sag." },
                 { "Button_ShowCol", "Toggle translucent capsules showing every ACTIVE collider (same as F10). Colliders are created in Squish Studio and mirror here." },
                 { "Button_SharpOverlay", "Live SHARPNESS heatmap on the simulated mesh: red = acute points/edges (jaggedness), blue = smooth curves. Recomputed every frame while on." },
                 { "Button_HideMeshes", "Show/hide any mesh on the avatar (clothing etc.). Choices persist across restarts." },
-                { "Toggle_NativeOff", "Disable VNyan/native spring & dynamic bones while squishing — they fight the mesh simulation." },
+                { "Toggle_NativeOff", "Disable VNyan/native spring & dynamic bones while squishing: they fight the mesh simulation." },
                 { "Toggle_NativeScoped", "Only disable native physics on bones that drive painted regions (instead of everywhere)." },
                 { "Button_Reload", "Re-read the saved config from disk and re-bind." },
                 { "Button_Save", "Write everything to jellostudio.json (also syncs regions to Wobble Studio)." },
@@ -809,8 +809,8 @@ namespace JelloStudio
                 SetStatus(v
                     ? (config.settings.useRemesh > 0.5f
                         ? "cage now drives other meshes covering the region (binding… see log)"
-                        : "needs the remesh cage — turn on 'Sim on remeshed proxy' too")
-                    : "cage followers off — other meshes released");
+                        : "needs the remesh cage: turn on 'Sim on remeshed proxy' too")
+                    : "cage followers off: other meshes released");
             });
             HookSlider("cagefollow", 0.005f, 0.5f, v => { if (config.settings != null) config.settings.cageFollowRange = v; });
             Toggle cw = FindControl<Toggle>("Toggle_cagewhole");
@@ -866,7 +866,7 @@ namespace JelloStudio
             {
                 bool any = false;
                 for (int i = 0; i < proxies.Count; i++) if (proxies[i].cage != null) { proxies[i].ToggleCageViz(); any = true; }
-                SetStatus(any ? "cage view toggled" : "no cage — turn on 'Sim on remeshed proxy' first");
+                SetStatus(any ? "cage view toggled" : "no cage: turn on 'Sim on remeshed proxy' first");
             });
 
             BuildSections();
@@ -896,7 +896,7 @@ namespace JelloStudio
         }
         void HookSlider(string key, float min, float max, Action<float> set) { HookSlider(key, min, max, max, set); }
         // boxMax lets the MANUAL entry box exceed the slider's visual max (slider pins at max,
-        // the typed value is still applied) — e.g. max-stretch: slider 0..0.2 but type up to 2
+        // the typed value is still applied), e.g. max-stretch: slider 0..0.2 but type up to 2
         void HookSlider(string key, float min, float max, float boxMax, Action<float> set)
         {
             Slider s = FindControl<Slider>("Slider_" + key);
@@ -939,7 +939,7 @@ namespace JelloStudio
         }
 
         // Unity dropdowns sometimes leave the closed caption blank after options rebuild
-        // wire the caption Text permanently so Unity itself refreshes it on USER selection —
+        // wire the caption Text permanently so Unity itself refreshes it on USER selection:
         // the prefab dropdowns ship with captionText unassigned, which is why the closed box
         // showed blank even though the value was set (ForceCaption only covered rebuilds)
         static void FixDropdown(Dropdown dd)
@@ -1024,7 +1024,7 @@ namespace JelloStudio
             rt.pivot = new Vector2(0.5f, 0f);
             rt.sizeDelta = new Vector2(w, h);
             tipBubble.GetComponent<Image>().color = new Color(0.16f, 0.15f, 0.24f, 0.99f);
-            rt.position = near.position;              // same canvas — world snap, then nudge up
+            rt.position = near.position;              // same canvas: world snap, then nudge up
             rt.anchoredPosition += new Vector2(0f, 14f);
             // keep the bubble inside the window horizontally
             float half = ((RectTransform)window.transform).sizeDelta.x * 0.5f;
@@ -1104,7 +1104,7 @@ namespace JelloStudio
         RectTransform sectionContent;
         float sectionContentH;
 
-        // sections that mean "off" when their sliders sit at zero — these get a tick box
+        // sections that mean "off" when their sliders sit at zero: these get a tick box
         static bool SectionCanMute(string label)
         {
             string l = label.ToLowerInvariant();
@@ -1368,7 +1368,7 @@ namespace JelloStudio
             if (sm.regions.Count == 0) { SquishRegion r = new SquishRegion(); r.name = "region 1"; sm.regions.Add(r); }
             selMesh = sm; selRegion = sm.regions[0];
             Rebind(); RefreshMeshList(); PushRegionToUI();
-            SetStatus("squish enabled on '" + nm + "' — paint a region, then Save");
+            SetStatus("squish enabled on '" + nm + "': paint a region, then Save");
         }
 
         void OnDisableMesh()
@@ -1408,7 +1408,7 @@ namespace JelloStudio
             SquishRegion r = new SquishRegion(); r.name = "region " + (selMesh.regions.Count + 1);
             selMesh.regions.Add(r); selRegion = r;
             Rebind(); RefreshRegionList();
-            SetStatus("added '" + r.name + "' — paint weights or select from a bone group");
+            SetStatus("added '" + r.name + "': paint weights or select from a bone group");
         }
 
         void OnRemoveRegion()
@@ -1605,7 +1605,7 @@ namespace JelloStudio
             PushUndo(selRegion);
             selProxy.BlurRegion(selRegion, 0.6f);
             AfterWeightEdit(selRegion);
-            SetStatus("blurred (" + selRegion.vertIndex.Count + " verts) — click again for more");
+            SetStatus("blurred (" + selRegion.vertIndex.Count + " verts): click again for more");
         }
 
         // ---------- colliders ----------
@@ -1637,7 +1637,7 @@ namespace JelloStudio
             SquishCollider c = new SquishCollider(); c.bone = bone; c.radius = Mathf.Max(0.005f, rad);
             selRegion.colliders.Add(c);
             RebindSel(); RefreshColliderList();
-            SetStatus("collider '" + bone + "' added — Save to keep");
+            SetStatus("collider '" + bone + "' added: Save to keep");
         }
 
         // Add the mesh currently shown in the Mesh dropdown as a WHOLE-MESH collider for
@@ -1658,7 +1658,7 @@ namespace JelloStudio
             c.mesh = nm; c.radius = Mathf.Clamp(rad, 0.004f, 0.1f);
             selRegion.colliders.Add(c);
             Rebind(); RefreshColliderList();
-            SetStatus("mesh collider '" + nm + "' added (r=" + c.radius.ToString("0.000") + ") — Save to keep");
+            SetStatus("mesh collider '" + nm + "' added (r=" + c.radius.ToString("0.000") + "): Save to keep");
         }
 
         void OnRemoveCollider()
@@ -1671,7 +1671,7 @@ namespace JelloStudio
 
         // ==================== native bone physics override ====================
         // Disables VRM SpringBone / DynamicBone / MagicaCloth / SPCR solvers that fight
-        // the mesh squish — either globally or only where their bones skin painted
+        // the mesh squish, either globally or only where their bones skin painted
         // regions. Everything is restored when toggled off, rebound, or destroyed.
         readonly List<Behaviour> nativeDisabled = new List<Behaviour>();
 
@@ -1710,7 +1710,7 @@ namespace JelloStudio
         // pulled in neighbouring chains too (breast paint carries residual weights to
         // belly/spine bones, so the belly's spring bones died when only breast bones
         // were selected). A bone now qualifies only when the PAINTED share of its total
-        // skin influence is significant — its own flesh is mostly inside the region.
+        // skin influence is significant: its own flesh is mostly inside the region.
         HashSet<Transform> CollectRegionBones()
         {
             HashSet<Transform> set = new HashSet<Transform>();
@@ -1784,7 +1784,7 @@ namespace JelloStudio
                 if (many != null)
                     foreach (object o in many) { Transform tr = o as Transform; if (tr != null) roots.Add(tr); }
             }
-            if (roots.Count == 0) return false;   // undeterminable — leave it running
+            if (roots.Count == 0) return false;   // undeterminable: leave it running
             foreach (Transform rb in regionBones)
                 for (int r = 0; r < roots.Count; r++)
                     if (roots[r] != null && (rb == roots[r] || rb.IsChildOf(roots[r]))) return true;
@@ -1963,7 +1963,7 @@ namespace JelloStudio
                             r.colliders = JsonConvert.DeserializeObject<List<SquishCollider>>(sig);
                             changed = true;
                         }
-                        // colliders are owned by Squish Studio too — mirror them
+                        // colliders are owned by Squish Studio too: mirror them
                         int cc = src.colliders != null ? src.colliders.Count : 0;
                         bool colDiff = (r.colliders != null ? r.colliders.Count : 0) != cc;
                         if (!colDiff && r.colliders != null)
@@ -2161,7 +2161,7 @@ namespace JelloStudio
 
             Destroy(applyPanel); applyPanel = null;
             Rebind(); RefreshMeshList();
-            SetStatus("applied '" + selRegion.name + "' → " + report + " verts — Save to keep");
+            SetStatus("applied '" + selRegion.name + "' → " + report + " verts: Save to keep");
         }
 
         // ==================== config IO ====================
@@ -2184,7 +2184,7 @@ namespace JelloStudio
                 if (config.meshes == null) config.meshes = new List<SquishMesh>();
             }
             catch (Exception e) { Debug.LogWarning("[Jello] config load failed: " + e.Message); config = new SquishConfig(); }
-            // reloading replaces every region object — snapshots referencing the old ones are dead
+            // reloading replaces every region object: snapshots referencing the old ones are dead
             undoStack.Clear(); redoStack.Clear();
             selMesh = null; selRegion = null;
         }

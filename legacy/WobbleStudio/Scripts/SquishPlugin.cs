@@ -9,9 +9,9 @@ using UnityEngine.UI;
 
 namespace WobbleStudio
 {
-    // Wobble Studio — mesh-level soft-body deformation with live weight painting.
+    // Wobble Studio: mesh-level soft-body deformation with live weight painting.
     // Runs LAST in LateUpdate (order 20000) so the bake sees the final pose of the
-    // frame: tracking, Pose Studio, bone physics — everything.
+    // frame: tracking, Pose Studio, bone physics and everything else.
     [DefaultExecutionOrder(19000)]
     public class SquishPlugin : MonoBehaviour, VNyanInterface.IButtonClickedHandler
     {
@@ -338,7 +338,7 @@ namespace WobbleStudio
                 proxies[i].Frame(dt, Mathf.Clamp(config.settings.substeps, 1, 8), Vector3.down, true);
                 if (!proxies[i].Alive) anyDead = true;
             }
-            if (anyDead) { Rebind(); return; }   // a proxy self-detached (mesh swap) — reattach cleanly
+            if (anyDead) { Rebind(); return; }   // a proxy self-detached (mesh swap): reattach cleanly
 
             HandlePainting();
         }
@@ -362,7 +362,7 @@ namespace WobbleStudio
         {
             if (!stroking) return;
             stroking = false;
-            // stroke finished — apply the new weights to the live sim
+            // stroke finished: apply the new weights to the live sim
             if (selProxy != null) selProxy.RebuildSims(boundAvatar, boundAnimator);
         }
 
@@ -438,8 +438,8 @@ namespace WobbleStudio
                 { "Slider_cellulite", "Static dimpled surface relief." },
                 { "Slider_cellsize", "Dimple size." },
                 { "Toggle_NativeOff", "Disable VNyan/native spring & dynamic bones while wobbling - they fight the mesh simulation." },
-                { "Toggle_HalfRate", "HALF-RATE physics: compute the simulation every 2nd frame (with doubled timestep) and hold the result between — near-halves the physics cost on slower PCs. Skinning/animation still updates every frame, so it is barely visible." },
-                { "Toggle_HalfRateLerp", "HALF-RATE + SMOOTH: like half-rate physics, but held frames show a blend between the last two physics ticks instead of a repeat — smoother motion at the same cost, with half a tick of extra latency. Mutually exclusive with the other rate options." },
+                { "Toggle_HalfRate", "HALF-RATE physics: compute the simulation every 2nd frame (with doubled timestep) and hold the result in between, which nearly halves the physics cost on slower PCs. Skinning/animation still updates every frame, so it is barely visible." },
+                { "Toggle_HalfRateLerp", "HALF-RATE + SMOOTH: like half-rate physics, but held frames show a blend between the last two physics ticks instead of a repeat, for smoother motion at the same cost, with half a tick of extra latency. Mutually exclusive with the other rate options." },
                 { "Slider_jellorand", "Jell-o RANDOMIZER: slowly wanders the wobble's centre around the region (smooth noise, mostly horizontal) so the jell-o motion looks organic instead of a fixed standing wave. Higher = wider, faster wandering." },
                 { "Toggle_NativeScoped", "Only disable native physics on bones driving mirrored regions." },
                 { "Button_Reload", "Re-read the saved config from disk and re-bind." },
@@ -603,7 +603,7 @@ namespace WobbleStudio
         }
 
         // Unity dropdowns sometimes leave the closed caption blank after options rebuild
-        // wire the caption Text permanently so Unity itself refreshes it on USER selection —
+        // wire the caption Text permanently so Unity itself refreshes it on USER selection:
         // the prefab dropdowns ship with captionText unassigned, which is why the closed box
         // showed blank even though the value was set (ForceCaption only covered rebuilds)
         static void FixDropdown(Dropdown dd)
@@ -688,7 +688,7 @@ namespace WobbleStudio
             rt.pivot = new Vector2(0.5f, 0f);
             rt.sizeDelta = new Vector2(w, h);
             tipBubble.GetComponent<Image>().color = new Color(0.16f, 0.15f, 0.24f, 0.99f);
-            rt.position = near.position;              // same canvas — world snap, then nudge up
+            rt.position = near.position;              // same canvas: world snap, then nudge up
             rt.anchoredPosition += new Vector2(0f, 14f);
             // keep the bubble inside the window horizontally
             float half = ((RectTransform)window.transform).sizeDelta.x * 0.5f;
@@ -768,7 +768,7 @@ namespace WobbleStudio
         RectTransform sectionContent;
         float sectionContentH;
 
-        // sections that mean "off" when their sliders sit at zero — these get a tick box
+        // sections that mean "off" when their sliders sit at zero: these get a tick box
         static bool SectionCanMute(string label)
         {
             string l = label.ToLowerInvariant();
@@ -1032,7 +1032,7 @@ namespace WobbleStudio
             if (sm.regions.Count == 0) { SquishRegion r = new SquishRegion(); r.name = "region 1"; sm.regions.Add(r); }
             selMesh = sm; selRegion = sm.regions[0];
             Rebind(); RefreshMeshList(); PushRegionToUI();
-            SetStatus("squish enabled on '" + nm + "' — paint a region, then Save");
+            SetStatus("squish enabled on '" + nm + "': paint a region, then Save");
         }
 
         void OnDisableMesh()
@@ -1072,7 +1072,7 @@ namespace WobbleStudio
             SquishRegion r = new SquishRegion(); r.name = "region " + (selMesh.regions.Count + 1);
             selMesh.regions.Add(r); selRegion = r;
             Rebind(); RefreshRegionList();
-            SetStatus("added '" + r.name + "' — paint weights or select from a bone group");
+            SetStatus("added '" + r.name + "': paint weights or select from a bone group");
         }
 
         void OnRemoveRegion()
@@ -1219,7 +1219,7 @@ namespace WobbleStudio
             PushUndo(selRegion);
             selProxy.BlurRegion(selRegion, 0.6f);
             AfterWeightEdit(selRegion);
-            SetStatus("blurred (" + selRegion.vertIndex.Count + " verts) — click again for more");
+            SetStatus("blurred (" + selRegion.vertIndex.Count + " verts): click again for more");
         }
 
         // ---------- colliders ----------
@@ -1251,7 +1251,7 @@ namespace WobbleStudio
             SquishCollider c = new SquishCollider(); c.bone = bone; c.radius = Mathf.Max(0.005f, rad);
             selRegion.colliders.Add(c);
             RebindSel(); RefreshColliderList();
-            SetStatus("collider '" + bone + "' added — Save to keep");
+            SetStatus("collider '" + bone + "' added: Save to keep");
         }
 
         // Add the mesh currently shown in the Mesh dropdown as a WHOLE-MESH collider for
@@ -1271,7 +1271,7 @@ namespace WobbleStudio
             c.mesh = nm; c.radius = Mathf.Clamp(rad, 0.004f, 0.1f);
             selRegion.colliders.Add(c);
             Rebind(); RefreshColliderList();
-            SetStatus("mesh collider '" + nm + "' added (r=" + c.radius.ToString("0.000") + ") — Save to keep");
+            SetStatus("mesh collider '" + nm + "' added (r=" + c.radius.ToString("0.000") + "): Save to keep");
         }
 
         void OnRemoveCollider()
@@ -1284,7 +1284,7 @@ namespace WobbleStudio
 
         // ==================== native bone physics override ====================
         // Disables VRM SpringBone / DynamicBone / MagicaCloth / SPCR solvers that fight
-        // the mesh squish — either globally or only where their bones skin painted
+        // the mesh squish, either globally or only where their bones skin painted
         // regions. Everything is restored when toggled off, rebound, or destroyed.
         readonly List<Behaviour> nativeDisabled = new List<Behaviour>();
 
@@ -1323,7 +1323,7 @@ namespace WobbleStudio
         // pulled in neighbouring chains too (breast paint carries residual weights to
         // belly/spine bones, so the belly's spring bones died when only breast bones
         // were selected). A bone now qualifies only when the PAINTED share of its total
-        // skin influence is significant — its own flesh is mostly inside the region.
+        // skin influence is significant: its own flesh is mostly inside the region.
         HashSet<Transform> CollectRegionBones()
         {
             HashSet<Transform> set = new HashSet<Transform>();
@@ -1397,7 +1397,7 @@ namespace WobbleStudio
                 if (many != null)
                     foreach (object o in many) { Transform tr = o as Transform; if (tr != null) roots.Add(tr); }
             }
-            if (roots.Count == 0) return false;   // undeterminable — leave it running
+            if (roots.Count == 0) return false;   // undeterminable: leave it running
             foreach (Transform rb in regionBones)
                 for (int r = 0; r < roots.Count; r++)
                     if (roots[r] != null && (rb == roots[r] || rb.IsChildOf(roots[r]))) return true;
@@ -1575,7 +1575,7 @@ namespace WobbleStudio
                             r.colliders = JsonConvert.DeserializeObject<List<SquishCollider>>(sig);
                             changed = true;
                         }
-                        // colliders are owned by Squish Studio too — mirror them
+                        // colliders are owned by Squish Studio too: mirror them
                         int cc = src.colliders != null ? src.colliders.Count : 0;
                         bool colDiff = (r.colliders != null ? r.colliders.Count : 0) != cc;
                         if (!colDiff && r.colliders != null)
@@ -1677,7 +1677,7 @@ namespace WobbleStudio
 
             Destroy(applyPanel); applyPanel = null;
             Rebind(); RefreshMeshList();
-            SetStatus("applied '" + selRegion.name + "' → " + report + " verts — Save to keep");
+            SetStatus("applied '" + selRegion.name + "' → " + report + " verts: Save to keep");
         }
 
         // ==================== config IO ====================
@@ -1701,7 +1701,7 @@ namespace WobbleStudio
                 if (config.meshes == null) config.meshes = new List<SquishMesh>();
             }
             catch (Exception e) { Debug.LogWarning("[Wobble] config load failed: " + e.Message); config = new SquishConfig(); }
-            // reloading replaces every region object — snapshots referencing the old ones are dead
+            // reloading replaces every region object: snapshots referencing the old ones are dead
             undoStack.Clear(); redoStack.Clear();
             selMesh = null; selRegion = null;
         }

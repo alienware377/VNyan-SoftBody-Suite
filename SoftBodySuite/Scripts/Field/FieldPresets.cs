@@ -10,10 +10,10 @@ namespace SoftBodySuite.Field
     // Registration lives here rather than in the core on purpose: DeformField,
     // FieldSource, FieldPost and FieldProxy have NO compile dependency on which
     // effects exist. Adding a seventh effect is one new file and one new line in
-    // RegisterAll - which is the bet this whole fork is making.
+    // RegisterAll.
     //
-    // The presets are transcribed literally. Nothing is
-    // rounded and nothing is tidied: 0.291667 and 0.518519 are deliberately
+    // The preset values are exact. Nothing is
+    // rounded: 0.291667 and 0.518519 are deliberately
     // dialled-in numbers and they stay as they are. There is no JSON and no disk
     // access here - these are compiled-in built-ins. User presets go through the
     // existing PresetStore.
@@ -39,10 +39,10 @@ namespace SoftBodySuite.Field
         public static void DescribeAll(UiSchema s)
         {
             if (s == null) return;
-            // fx_mix belongs to no source: it is the crossfade between the shipped look
+            // fx_mix belongs to no source: it is the crossfade between the classic look
             // and the whole field, and it defaults to 0 so a config that has never seen
             // this build renders exactly as v2.0.0 did.
-            // Its OWN header. Without one, Field Mix was built straight after the shipped
+            // Its OWN header. Without one, Field Mix was built straight after the classic
             // suite's last section and got filed under "Presets": collapsed, at the bottom,
             // where nobody could find the one control that switches the whole field on.
             s.AddSection("Field \u00b7 Master");
@@ -183,7 +183,7 @@ namespace SoftBodySuite.Field
 
         // A preset button overwrites the region's tuning and picks its own effect
         // family. sfxMix is deliberately NOT touched: that is the user's
-        // crossfade against the shipped look, not part of the tuning.
+        // crossfade against the classic look, not part of the tuning.
         public static bool Apply(string name, SoftBodySuite.FieldRegion dst)
         {
             Build();

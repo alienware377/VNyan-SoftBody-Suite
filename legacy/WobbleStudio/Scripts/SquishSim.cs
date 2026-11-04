@@ -68,7 +68,7 @@ namespace WobbleStudio
     }
 
     // Per-region soft-body solver on WELDED position nodes (duplicate vertices along UV
-    // seams move as one — simulating them independently tears the surface).
+    // seams move as one: simulating them independently tears the surface).
     //
     // Two-part update each frame:
     //   StepDynamics (substepped): springs, inertia, gravity, waves, oscillators.
@@ -93,7 +93,7 @@ namespace WobbleStudio
         float simT;
 
         // collision: separate smooth non-accumulating layer (UNITLESS field 0..~1,
-        // scaled to metres only at output — so dent depth is independent of collider
+        // scaled to metres only at output, so dent depth is independent of collider
         // radius AND of the jiggle maxOffset clamp)
         Vector3[] colCur, colTarget;
         Vector3[] colBase;           // per-node adaptive baseline (pose/breathing absorbed)
@@ -115,7 +115,7 @@ namespace WobbleStudio
         Vector3 lastLocalDown, lastCentroid, lastCentroidVel;
 
         // coarse RBF clusters for collision smoothing: the contact field is projected onto
-        // ~dozens of control points spread over the region and interpolated back — giving
+        // ~dozens of control points spread over the region and interpolated back, giving
         // big smooth blobby dents REGARDLESS of mesh density (graph diffusion smoothed only
         // a few millimetres on dense meshes, which read as facet-level "jello destruction").
         int K;
@@ -362,7 +362,7 @@ namespace WobbleStudio
                 // RANDOMIZER: slowly wander the wobble centre horizontally (smooth Perlin
                 // drift) so the jell-o mode stops looking like a fixed standing wave.
                 // Refreshing the falloff field once per frame (simT throttle: StepDynamics
-                // is substepped) — n cosines, cheap.
+                // is substepped): n cosines, cheap.
                 float jrAmt = Mathf.Clamp01(Mathf.Max(cfg.jelloRandomSize, cfg.jelloRandom));
                 if (jrAmt > 0.001f && jelloRMax > 1e-4f && simT - jelloFT > 0.014f)
                 {
@@ -378,7 +378,7 @@ namespace WobbleStudio
                         jelloF[i] = Mathf.Lerp(1f, 0.55f + 0.45f * Mathf.Cos(Mathf.PI * rr), 0.35f);
                     }
                 }
-                // sampled surface motion — catches rotation, which the centroid does not
+                // sampled surface motion: catches rotation, which the centroid does not
                 Vector3 surf = Vector3.zero;
                 {
                     int step = Mathf.Max(1, n / 48);
@@ -425,7 +425,7 @@ namespace WobbleStudio
             }
             else { jelloPos = Vector3.zero; jelloVel = Vector3.zero; }
 
-            // ROPE PULL — the same trailing swing the jell-o spring gives while you move, but
+            // ROPE PULL: the same trailing swing the jell-o spring gives while you move, but
             // damped right at the edge of wobbling, so it follows the body and then simply
             // settles instead of ringing once the motion stops.
             if (cfg.ropePull > 0.001f)
@@ -539,7 +539,7 @@ namespace WobbleStudio
             float r2max = 0f;
 
             // JIGGLE AT ZERO = NO DYNAMICS. The spring/inertia integration below feeds
-            // offset[], which the output stage multiplies by cfg.jiggle — so with the
+            // offset[], which the output stage multiplies by cfg.jiggle, so with the
             // amplitude at 0 (contact-only setups) every bit of it is discarded. Track
             // the skinned pose so nothing snaps when it is turned back up, and skip.
             bool jiggleIdle = cfg.jiggle <= 0.0001f;
@@ -618,7 +618,7 @@ namespace WobbleStudio
 
             // ---- raw UNITLESS penetration field (0..1 per collider, dir * pen/radius) ----
             System.Array.Clear(colTarget, 0, colTarget.Length);
-            int ncol = 0; // collision lives in Squish Studio — this plugin is jiggle-only
+            int ncol = 0; // collision lives in Squish Studio: this plugin is jiggle-only
             for (int c = 0; c < ncol; c++)
             {
                 if (!colCfg[c].enabled) continue;
@@ -706,7 +706,7 @@ namespace WobbleStudio
             for (int i = 0; i < n; i++) { float m2 = colTarget[i].sqrMagnitude; if (m2 > dbgEff) dbgEff = m2; }
 
             // ---- cluster RBF smoothing: project the contact field onto coarse control
-            // points and interpolate back — a big soft blobby dent at ANY mesh density,
+            // points and interpolate back: a big soft blobby dent at ANY mesh density,
             // peak-preserved so smoothing widens the dent without flattening it.
             if (K > 0 && ncIdx != null)
             {
@@ -714,7 +714,7 @@ namespace WobbleStudio
                 for (int i = 0; i < n; i++) { float m2 = colTarget[i].sqrMagnitude; if (m2 > peakBefore) peakBefore = m2; }
 
                 // MAX-projection: each cluster takes its strongest contact (an averaging
-                // projection diluted sparse contact ~15x — measured raw 0.96 -> rbf 0.05)
+                // projection diluted sparse contact ~15x: measured raw 0.96 -> rbf 0.05)
                 System.Array.Clear(cVec, 0, K);
                 for (int i = 0; i < n; i++)
                 {
@@ -930,7 +930,7 @@ namespace WobbleStudio
             }
             if (blewUp)
             {
-                Debug.LogWarning("[Wobble] region '" + cfg.name + "' destabilised (NaN/huge offset) — state reset");
+                Debug.LogWarning("[Wobble] region '" + cfg.name + "' destabilised (NaN/huge offset): state reset");
                 ResetState();
             }
         }

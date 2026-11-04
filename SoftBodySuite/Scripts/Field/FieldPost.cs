@@ -38,10 +38,10 @@ namespace SoftBodySuite.Field
         // radius ~= edge * sqrt(iters * dens^2): the Blur Attribute is DIFFUSION, so a
         // pass's world-space radius grows with the SQUARE ROOT of the iteration count.
         // Holding the radius constant on a mesh k times finer therefore costs k^2
-        // iterations, not k — scaling linearly measured 28.3 mm -> 13.7 mm at Subsurf 2
+        // iterations, not k: scaling linearly measured 28.3 mm -> 13.7 mm at Subsurf 2
         // and that under-smoothing is what sharpened the contact seam and doubled the
         // peaks. Capped at 400. On our cage dens is 1.0 by
-        // construction, so this hands the raw slider straight back — which is the whole
+        // construction, so this hands the raw slider straight back, which is the whole
         // reason for keeping the cage.
         public static int ScaledIters(float iterations, float dens)
         {
@@ -66,7 +66,7 @@ namespace SoftBodySuite.Field
                 sw.Reset(); sw.Start();
                 Vector3 centroid = f.contactCentroid;
                 float volP = p.volumePreservation;
-                // The ring bulge and the lateral flow ARE part of the contact core — the only
+                // The ring bulge and the lateral flow ARE part of the contact core: the only
                 // reason they live here and not in ContactSource is that they have to run once
                 // for every source. So the core override has to reach them too: OrganicSource
                 // publishes a calibrated Lateral Flow of 0.5
@@ -96,7 +96,7 @@ namespace SoftBodySuite.Field
 
             // ---- b) self-contact: deformable-vs-deformable mutual separation ----
             // The main conform runs against the INPUT
-            // geometry, so it cannot see overlaps the deformation itself created —
+            // geometry, so it cannot see overlaps the deformation itself created:
             // two masses pushed together interpenetrate and the intersection seam
             // shows. This pass runs on the CAGE, after the sources, and resolves it.
             if ((flags & FieldPostFlags.SelfContact) != 0 && ctx.col != null && ctx.blur != null)
@@ -122,14 +122,14 @@ namespace SoftBodySuite.Field
                         // DETECTOR: +N ray from 2 mm above the surface. Leaving through a
                         // near BACK face means this node sits inside other flesh; a fold
                         // of its own does not trigger (its opposite face is seen from the
-                        // front, dot < 0). The 2*SELF_RANGE bound throws away far exits —
+                        // front, dot < 0). The 2*SELF_RANGE bound throws away far exits,
                         // without it a node under the chin "exited" through the crown.
                         float tA; Vector3 hpA, hnA;
                         if (!ctx.col.RayCage(pI + nn * 0.002f, nn, SelfRange * 2f, out tA, out hpA, out hnA)) continue;
                         if (Vector3.Dot(hnA, nn) <= 0f) continue;
                         if (tA >= SelfRange * 2f) continue;
                         // RESOLUTION: -N ray back to the surface it entered through. The
-                        // 0.5*SELF_RANGE bound keeps this to real contact penetrations —
+                        // 0.5*SELF_RANGE bound keeps this to real contact penetrations:
                         // the exit through the far side of the SAME mass is further away
                         // and must not count, or the thin periphery self-attracts.
                         Vector3 dB = -nn;
@@ -158,7 +158,7 @@ namespace SoftBodySuite.Field
             // ---- d) corrective smooth ----
             // Blurs the POSITIONS, not the displacement, then mixes back only inside the
             // halo. THE HALO GATE APPLIES TO dispContact
-            // ONLY. dispWave is not touched by this pass at all — that is the entire
+            // ONLY. dispWave is not touched by this pass at all: that is the entire
             // reason the third accumulator exists. Gating dispWave by min(halo*12,1)
             // would eat the ripple crests exactly where a hand is touching, which is
             // the flagship Squish+Ripple case.
@@ -223,7 +223,7 @@ namespace SoftBodySuite.Field
             // TENSION, stated rather than hidden: Ripple, Fat Jiggle and Penetration all
             // land in dispWave and each was tuned with a SEPARATE Smoothing slider.
             // One shared pass can only have one iteration count, so the largest enabled
-            // one wins — under-smoothing spikes, over-smoothing only softens.
+            // one wins: under-smoothing spikes, over-smoothing only softens.
             if ((flags & FieldPostFlags.WaveSmooth) != 0 && ctx.blur != null)
             {
                 // Only channels that actually WRITE dispWave get a vote. Penetration used to be
@@ -236,8 +236,8 @@ namespace SoftBodySuite.Field
                 // Squish Organic's secondary wobble is the third dispWave writer and has no
                 // smoothing slider of its own, because it is meant to be finished by the effect's
                 // shared corrective smooth at 3 iterations. Ours
-                // cannot use that pass — it is halo-gated and the gate is exactly what must not
-                // touch a wave — so the 3 is carried here. Without it, Organic on its own flagged
+                // cannot use that pass: it is halo-gated and the gate is exactly what must not
+                // touch a wave, so the 3 is carried here. Without it, Organic on its own flagged
                 // WaveSmooth, left sm at 0, and the pass silently did nothing.
                 if (p.organicEnable > 0.5f && p.organicJiggle > 0f && 3f > sm) sm = 3f;
                 int wi = ScaledIters(sm, ctx.dens);
@@ -271,7 +271,7 @@ namespace SoftBodySuite.Field
 
         // f.RecomputeNormals reads f.pos by contract, and f.pos is the UNDEFORMED cage.
         // Rather than duplicate the normal maths, swap the deformed buffer in for the
-        // length of the call and put the original array reference straight back — every
+        // length of the call and put the original array reference straight back: every
         // alias (ctx.pos) is the same object again before anything else can look. No
         // allocation, and only one implementation of the normal accumulation exists.
         static void RecomputeDeformedNormals(FieldContext ctx, DeformField f, int n)

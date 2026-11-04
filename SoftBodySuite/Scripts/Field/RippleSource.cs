@@ -99,7 +99,7 @@ namespace SoftBodySuite.Field
             {
                 // Mode 0 measures from the contact.
                 // With nothing touching, a sine train has no
-                // origin to travel from — mode 1's per-event fields are what carries the
+                // origin to travel from: mode 1's per-event fields are what carries the
                 // motion-only impulse.
                 if (!warnedNoField)
                 {

@@ -2,11 +2,11 @@ using UnityEngine;
 
 namespace SoftBodySuite.Field
 {
-    // INSTRUMENTATION FIRST — this file exists before any source does, on purpose.
+    // INSTRUMENTATION FIRST: this file exists before any source does, on purpose.
     // There is no play-mode preview here: a round trip is 4-8 minutes (build, copy the
     // DLL, restart VNyan, re-pose the avatar) and a worker thread swallows exceptions,
     // so a bug arrives as a frozen dent with no log line at all. The only way anyone
-    // can argue with the cost estimate, or prove Milestone 1, is numbers on screen.
+    // can argue with the cost estimate, or prove the pass-through holds, is numbers on screen.
     //
     // Nothing here allocates per frame: Mark() walks a fixed table of interned pass
     // names, VerifyIdentity reinterprets floats through a preallocated scratch pair,
@@ -20,8 +20,8 @@ namespace SoftBodySuite.Field
 
         // ---------------- identity ----------------
 
-        // Milestone 1's acceptance criterion: maxDelta == 0.0f EXACTLY — not "< 1e-6",
-        // EXACTLY — for 600 consecutive frames with the registry empty, at sfxMix 0
+        // The pass-through check passes only on maxDelta == 0.0f EXACTLY, not "< 1e-6",
+        // EXACTLY: for 600 consecutive frames with the registry empty, at sfxMix 0
         // AND at sfxMix 1. That is only reachable if the publish path is a memcpy:
         // adding 0.0f to -0.0f is not the identity (it yields +0.0f, a different bit
         // pattern) and Vector3.Lerp(v, w, 0f) is not either (it is v + (w-v)*0, which
@@ -48,7 +48,7 @@ namespace SoftBodySuite.Field
         }
 
         // Fletcher-32 over the RAW FLOAT BITS, so +0.0f and -0.0f give different
-        // checksums — a value-space hash would hide exactly the drift being hunted.
+        // checksums: a value-space hash would hide exactly the drift being hunted.
         static readonly float[] fScratch = new float[3];
         static readonly uint[] uScratch = new uint[3];
 
@@ -73,7 +73,7 @@ namespace SoftBodySuite.Field
         }
 
         // Called by FieldProxy once per frame while identityWatch is on. Logs once and
-        // then shuts up — a per-frame log at 90 fps is how you lose the log window.
+        // then shuts up: a per-frame log at 90 fps is how you lose the log window.
         public static void WatchFrame(string who, Vector3[] input, Vector3[] published)
         {
             if (!identityWatch || identityBroken) return;
@@ -83,7 +83,7 @@ namespace SoftBodySuite.Field
             identityBroken = true;
             Debug.LogWarning("[SfxField] IDENTITY BROKEN on '" + who + "': maxDelta="
                 + d.ToString("0.#########") + " checksum=" + ck.ToString("X8")
-                + " — the publish path is no longer a straight copy");
+                + ": the publish path is no longer a straight copy");
         }
 
         public static void ResetIdentityWatch()
@@ -169,7 +169,7 @@ namespace SoftBodySuite.Field
 
         // One row per cage node, plus a header block of everything that would change
         // the reading of those rows. Modelled on SquishSim.DumpCsv (SquishSim.cs:1382)
-        // — same idea, more channels, because six effects share these columns.
+        // with the same idea and more channels, because six effects share these columns.
         public static void DumpCsv(FieldContext ctx, DeformField f, System.Text.StringBuilder sb)
         {
             if (f == null || sb == null) return;

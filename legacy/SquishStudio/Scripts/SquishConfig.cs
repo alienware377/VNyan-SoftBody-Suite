@@ -3,7 +3,7 @@ using System.Collections.Generic;
 namespace SquishStudio
 {
     // ---------------------------------------------------------------------------
-    // Squish Studio — mesh-level soft-body deformation for VNyan avatars.
+    // Squish Studio: mesh-level soft-body deformation for VNyan avatars.
     //
     // Instead of bending bones, the plugin bakes the skinned mesh every frame,
     // simulates the PAINTED vertices as point masses on top of the baked pose, and
@@ -16,15 +16,15 @@ namespace SquishStudio
     {
         public bool enabled = true;
         public int substeps = 2;          // physics substeps per frame
-        public bool halfRate = false;     // compute physics every 2nd frame (held between) — lighter on slow PCs
+        public bool halfRate = false;     // compute physics every 2nd frame (held between): lighter on slow PCs
         public bool halfRateLerp = false; // half-rate, but held frames BLEND between ticks (smoother)
         public bool asyncSim = false;     // run the physics on a worker thread (1 frame latency)
         public float maxDeltaTime = 0.033f;
 
         // ----- clip guard (clothes can't be poked through) -----
         // The opposite of chasing the clothes with the flesh: bind the painted body surface
-        // to the garment surfaces that cover it, and every frame — at the FINAL write, after
-        // every sim stage — keep the body at least `clipClearance` INSIDE the garment shell.
+        // to the garment surfaces that cover it, and every frame (at the FINAL write, after
+        // every sim stage) keep the body at least `clipClearance` INSIDE the garment shell.
         // Tracking quality becomes irrelevant: the body cannot cross the cloth by construction.
         public bool clipGuard = false;
         public float clipClearance = 0.001f;  // EXTRA metres beyond the rest fit (0 = preserve the
@@ -41,7 +41,7 @@ namespace SquishStudio
     }
 
     // A sphere/capsule collider attached to any bone/transform (by name). Regions
-    // squish against these — add hand bones to poke, or another mesh's root to let
+    // squish against these: add hand bones to poke, or another mesh's root to let
     // that mesh squeeze the region.
     public class SquishCollider
     {

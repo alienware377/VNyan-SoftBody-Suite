@@ -83,7 +83,7 @@ public static class SquishBuild
         root.AddComponent<SquishStudio.SquishWindowDrag>();
 
         float hy = 10f;
-        MakeText(root.transform, "Title", "Squish Studio — Collision Squish && Bulge",
+        MakeText(root.transform, "Title", "Squish Studio: Collision Squish && Bulge",
             outerX, hy, outerW, 22f, 15, TextAnchor.MiddleCenter, FontStyle.Bold);
         hy += 26f;
         MakeText(root.transform, "Label_Status", "load an avatar, enable a mesh, paint a region",
@@ -134,7 +134,7 @@ public static class SquishBuild
         float y = 6f;
 
         // ---------- mesh & region ----------
-        Header(c, "— Mesh & Region —", cX, cW, ref y);
+        Header(c, "Mesh & Region", cX, cW, ref y);
         MakeText(c, "Lbl_Mesh", "Mesh", cX, y, 70f, 30f, 12, TextAnchor.MiddleLeft, FontStyle.Normal);
         MakeDropdown(c, "Dropdown_Mesh", cX + 76f, y, cW - 76f, 30f); y += 34f;
         float b2 = (cW - gap) / 2f;
@@ -150,7 +150,7 @@ public static class SquishBuild
         MakeInput(c, "Input_RegionName", "region name", cX + 76f, y, cW - 76f, 26f); y += 32f;
 
         // ---------- painting ----------
-        Header(c, "— Weight painting —", cX, cW, ref y);
+        Header(c, "Weight painting", cX, cW, ref y);
         MakeToggle(c, "Toggle_Paint", "Paint mode (LMB on the model)", cX, y, cW * 0.6f, 24f);
         MakeToggle(c, "Toggle_Overlay", "Show overlay", cX + cW * 0.62f, y, cW * 0.38f, 24f); y += 28f;
         MakeButton(c, "Button_PaintAdd", "Brush: Add", cX, y, b2, 24f);
@@ -168,7 +168,7 @@ public static class SquishBuild
         MakeButton(c, "Button_ApplyMulti", "Apply region to other meshes…", cX, y, cW, 26f); y += 32f;
 
         // ---------- squish ----------
-        Header(c, "— Squish —", cX, cW, ref y);
+        Header(c, "Squish", cX, cW, ref y);
         SliderRow(c, "squish", "Squish level", cX, cW, ref y);
         SliderRow(c, "squishdepth", "Squish depth (m, 0=auto)", cX, cW, ref y);
         SliderRow(c, "bulge", "Bulge level", cX, cW, ref y);
@@ -179,7 +179,7 @@ public static class SquishBuild
         SliderRow(c, "evacblob", "Evacuate: shift blob", cX, cW, ref y);
 
         // ---------- colliders ----------
-        Header(c, "— Colliders —", cX, cW, ref y);
+        Header(c, "Colliders", cX, cW, ref y);
         MakeText(c, "Lbl_ColMesh", "Mesh", cX, y, 70f, 28f, 12, TextAnchor.MiddleLeft, FontStyle.Normal);
         MakeDropdown(c, "Dropdown_ColMesh", cX + 76f, y, cW - 76f - b3 - gap, 28f);
         MakeButton(c, "Button_AddMeshCol", "+ Add", cX + cW - b3, y, b3, 26f); y += 32f;
@@ -192,7 +192,7 @@ public static class SquishBuild
         MakeButton(c, "Button_ShowCol", "Show / hide colliders (F10)", cX, y, cW, 26f); y += 32f;
 
         // ---------- native bone physics ----------
-        Header(c, "— Native bone physics —", cX, cW, ref y);
+        Header(c, "Native bone physics", cX, cW, ref y);
         MakeToggle(c, "Toggle_HalfRate", "Half-rate physics (lighter on slow PCs)", cX, y, cW, 24f); y += 26f;
         MakeToggle(c, "Toggle_HalfRateLerp", "Half-rate + smooth blend (lerp)", cX, y, cW, 24f); y += 26f;
         MakeToggle(c, "Toggle_AsyncSim", "Async physics (worker thread)", cX, y, cW, 24f); y += 26f;

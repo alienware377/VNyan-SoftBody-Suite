@@ -12,7 +12,7 @@ namespace SoftBodySuite
     // One-shot import of the three old plugins' settings into the merged file.
     //
     // Runs only when softbodysuite.json does not exist yet. The three old files are
-    // never written to and never deleted — they are the way back if this goes wrong.
+    // never written to and never deleted: they are the way back if this goes wrong.
     //
     // Region SHAPE (which verts, which bones, which colliders) is taken from
     // squishstudio.json, because Squish Studio owned the paint tools and the other
@@ -43,8 +43,8 @@ namespace SoftBodySuite
             // The owner is Squish; if it is missing fall back to whichever we have, so a
             // user who only ever installed one plugin still gets their regions.
             JObject owner = sq != null ? sq : (je != null ? je : wo);
-            if (owner == null) { rep.Note("no old config found — starting fresh"); return cfg; }
-            if (sq == null) rep.Note("squishstudio.json missing — region shapes taken from " +
+            if (owner == null) { rep.Note("no old config found: starting fresh"); return cfg; }
+            if (sq == null) rep.Note("squishstudio.json missing: region shapes taken from " +
                                      (je != null ? "jellostudio.json" : "wobblestudio.json"));
 
             MigrateSettings(cfg.settings, sq, je, wo, rep);
@@ -131,7 +131,7 @@ namespace SoftBodySuite
                 f.folSharp = Num(js, "cageFolSharp", f.folSharp);
                 f.folSmooth = Num(js, "cageFolSmooth", f.folSmooth);
                 // The follower reused the BODY's seam smoother verbatim, so seed it from
-                // there — splitting them silently would change how the clothes look.
+                // there: splitting them silently would change how the clothes look.
                 f.seamLevel = Num(js, "seamLevel", f.seamLevel);
                 f.seamRange = Num(js, "seamRange", f.seamRange);
                 f.seamMaxStretch = Num(js, "seamMaxStretch", f.seamMaxStretch);
@@ -239,7 +239,7 @@ namespace SoftBodySuite
                 }
             }
             rep.mismatches++;
-            rep.Note("no " + stage + " values for " + meshName + " / " + name + " — using defaults");
+            rep.Note("no " + stage + " values for " + meshName + " / " + name + ": using defaults");
             return null;
         }
 
@@ -369,7 +369,7 @@ namespace SoftBodySuite
                     // with nothing at the path they expect.
                     string bak = target + ".corrupt-" + System.DateTime.Now.ToString("yyyyMMdd-HHmmss");
                     try { File.Copy(target, bak, true); } catch { }
-                    UnityEngine.Debug.LogError("[SfxField] config unreadable (" + e.Message + ") — kept a copy at "
+                    UnityEngine.Debug.LogError("[SfxField] config unreadable (" + e.Message + "): kept a copy at "
                                    + bak + ", starting from defaults");
                     return new SuiteConfig();
                 }
@@ -377,8 +377,8 @@ namespace SoftBodySuite
 
             Report rep = new Report();
 
-            // This fork writes its own file. If it has never run but the shipped plugin's
-            // config is sitting there, take a copy of it once - before the three-old-studios
+            // Suite 3 writes its own file. If it has never run but the classic suite's
+            // config is sitting there, take a copy of it once, before the three-old-studios
             // path, which would otherwise import from files this user stopped using long ago.
             string upstream = Path.Combine(dir, upstreamName);
             if (!string.IsNullOrEmpty(upstreamName) && File.Exists(upstream))
@@ -409,7 +409,7 @@ namespace SoftBodySuite
         }
 
         // One shot, read-only. NEVER opens upstreamName for writing and never deletes
-        // it: going back to the shipped plugin has to stay possible forever.
+        // it: going back to the classic suite has to stay possible.
         // Returns null if the file could not be used, so the caller falls through to the
         // three-old-studios path instead of starting the user from nothing.
         static SuiteConfig ImportUpstream(string dir, string upstreamName, string targetName,
@@ -424,7 +424,7 @@ namespace SoftBodySuite
             catch (System.Exception e)
             {
                 UnityEngine.Debug.LogWarning("[SfxField] could not read " + upstreamName + " (" + e.Message
-                                 + ") — falling back to the older configs");
+                                 + "): falling back to the older configs");
                 return null;
             }
             if (cfg == null) return null;

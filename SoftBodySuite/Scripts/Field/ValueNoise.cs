@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace SoftBodySuite.Field
 {
-    // 4D value noise, evaluated LIVE — there is deliberately no precomputed
+    // 4D value noise, evaluated LIVE: there is deliberately no precomputed
     // slice table. At the default Wobble Speed of 2.0-2.5 the field decorrelates
     // in roughly 0.2 s, so eight slices spread over 4 s would crossfade between
     // completely unrelated fields and read as a slow morph instead of a jiggle.
@@ -21,7 +21,7 @@ namespace SoftBodySuite.Field
     //   2. Take the RMS of one channel over every vertex of the painted region.
     //   3. Set RmsScale so this generator's RMS over a comparable sample equals
     //      that number.
-    // The shipped default targets 0.28868 = the RMS of a uniform [-0.5, 0.5],
+    // The default targets 0.28868 = the RMS of a uniform [-0.5, 0.5],
     // which is what Blender's centred Color output measures to within a few
     // percent. It is measured, not normalised: a textbook fBm normalised to full
     // range swings 2-4x wider, and Glute Jiggle at Amplitude 0.06 would read as
@@ -58,7 +58,7 @@ namespace SoftBodySuite.Field
             return sum * RmsScale;
         }
 
-        // three decorrelated channels of the same field — the Color output
+        // three decorrelated channels of the same field: the Color output
         public static Vector3 Value4DVec(Vector3 p, float w, float scale)
         {
             float x = p.x * scale, y = p.y * scale, z = p.z * scale, ww = w * scale;

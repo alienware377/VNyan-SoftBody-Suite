@@ -145,8 +145,8 @@ namespace SoftBodySuite.Field
                     return family != Squish && family != SquishInflate;
             }
             // An effect family that has never heard of a source lets it through:
-            // adding the eighth source must not need this file edited, which is
-            // the whole bet of the fork. Add a case here only to RESTRICT one.
+            // adding the eighth source must not need this file edited.
+            // Add a case here only to RESTRICT one.
             return true;
         }
     }

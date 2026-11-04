@@ -195,7 +195,7 @@ namespace SoftBodySuite.Field
 
         // Whether the LAST SolveMulti had anything to seed from. `dist` is allocated by
         // SetGraph and is therefore non-null and all-ZERO before the first solve, which reads
-        // as "every node is exactly at the contact" — the difference between "no contact" and
+        // as "every node is exactly at the contact": the difference between "no contact" and
         // "contact everywhere" is not visible in the array itself, so it is published here.
         public bool ContactSeeded { get { return contactValid && lastSeedCount > 0; } }
 

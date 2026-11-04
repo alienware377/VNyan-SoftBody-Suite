@@ -12,7 +12,7 @@ namespace SoftBodySuite
     // One-shot import of the three old plugins' settings into the merged file.
     //
     // Runs only when softbodysuite.json does not exist yet. The three old files are
-    // never written to and never deleted — they are the way back if this goes wrong.
+    // never written to and never deleted: they are the way back if this goes wrong.
     //
     // Region SHAPE (which verts, which bones, which colliders) is taken from
     // squishstudio.json, because Squish Studio owned the paint tools and the other
@@ -43,8 +43,8 @@ namespace SoftBodySuite
             // The owner is Squish; if it is missing fall back to whichever we have, so a
             // user who only ever installed one plugin still gets their regions.
             JObject owner = sq != null ? sq : (je != null ? je : wo);
-            if (owner == null) { rep.Note("no old config found — starting fresh"); return cfg; }
-            if (sq == null) rep.Note("squishstudio.json missing — region shapes taken from " +
+            if (owner == null) { rep.Note("no old config found: starting fresh"); return cfg; }
+            if (sq == null) rep.Note("squishstudio.json missing: region shapes taken from " +
                                      (je != null ? "jellostudio.json" : "wobblestudio.json"));
 
             MigrateSettings(cfg.settings, sq, je, wo, rep);
@@ -131,7 +131,7 @@ namespace SoftBodySuite
                 f.folSharp = Num(js, "cageFolSharp", f.folSharp);
                 f.folSmooth = Num(js, "cageFolSmooth", f.folSmooth);
                 // The follower reused the BODY's seam smoother verbatim, so seed it from
-                // there — splitting them silently would change how the clothes look.
+                // there: splitting them silently would change how the clothes look.
                 f.seamLevel = Num(js, "seamLevel", f.seamLevel);
                 f.seamRange = Num(js, "seamRange", f.seamRange);
                 f.seamMaxStretch = Num(js, "seamMaxStretch", f.seamMaxStretch);
@@ -239,7 +239,7 @@ namespace SoftBodySuite
                 }
             }
             rep.mismatches++;
-            rep.Note("no " + stage + " values for " + meshName + " / " + name + " — using defaults");
+            rep.Note("no " + stage + " values for " + meshName + " / " + name + ": using defaults");
             return null;
         }
 
@@ -370,7 +370,7 @@ namespace SoftBodySuite
             if (!rep.ran) return cfg;
 
             StringBuilder sb = new StringBuilder();
-            sb.AppendLine("Soft Body Suite — imported the three old configs.");
+            sb.AppendLine("Soft Body Suite: imported the three old configs.");
             sb.AppendLine("meshes=" + rep.meshes + " regions=" + rep.regions +
                           " values=" + rep.valuesCopied + " gaps=" + rep.mismatches);
             for (int i = 0; i < rep.lines.Count; i++) sb.AppendLine("  " + rep.lines[i]);

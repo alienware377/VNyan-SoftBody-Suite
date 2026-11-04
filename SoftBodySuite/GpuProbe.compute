@@ -1,4 +1,4 @@
-// M0 go/no-go: can a plugin loaded from a .vnobj run a compute shader inside VNyan?
+// GPU probe: checks that a plugin loaded from a .vnobj can run a compute shader inside VNyan.
 // One kernel, one buffer: out[i] = in[i] * 2 + i. The C# side checks every value.
 #pragma kernel Probe
 

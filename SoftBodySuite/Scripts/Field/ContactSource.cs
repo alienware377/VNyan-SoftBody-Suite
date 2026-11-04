@@ -194,9 +194,9 @@ namespace SoftBodySuite.Field
                 seedVec[i] = footprint ? conform * yieldF[i] : conform * (yieldF[i] * dent);
                 // ---- penetration limiter ----
                 // Clamp the DENT, not the whole pipeline: past maxDent the flesh "gives
-                // way" rather than following the collider in arbitrarily deep. The shipped
+                // way" rather than following the collider in arbitrarily deep. The older
                 // stages spend the excess on evacuation; the field stage has no evacuation
-                // layer, so here it is simply dropped - which is still strictly better than
+                // layer, so here it is simply dropped, which is still strictly better than
                 // a 139 mm dent, and leaves the anti-clip with a few mm to fix instead of
                 // seventy.
                 if (maxDent > 0f)

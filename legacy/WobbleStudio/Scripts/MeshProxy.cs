@@ -142,7 +142,7 @@ namespace WobbleStudio
 
         // Bake every referenced collider mesh into a proxy-local point cloud (stride-sampled
         // so even a 60k-vert body stays ~2k samples). When the collider is the region's OWN
-        // mesh, painted vertices are excluded so the region doesn't collide with itself —
+        // mesh, painted vertices are excluded so the region doesn't collide with itself:
         // hands (same mesh) still squish the chest.
         void UpdateColliderClouds()
         {
@@ -314,7 +314,7 @@ namespace WobbleStudio
             {
                 // the renderer's mesh was swapped out from under us (outfit systems etc.)
                 Debug.LogWarning("[Wobble] '" + smr.name + "' vertex count changed ("
-                    + bakedVerts.Length + " -> " + scratch.Count + ") — detaching, will rebind");
+                    + bakedVerts.Length + " -> " + scratch.Count + "): detaching, will rebind");
                 Detach();
                 return;
             }
@@ -362,13 +362,13 @@ namespace WobbleStudio
             else if (simEnabled && hrAny && !frameFlip && heldValid && heldDisp != null && heldDisp.Length == disp.Length)
             {
                 // HELD frame: reuse last computed jiggle offsets (fresh skinning still
-                // flows through — only the offset field is one frame old)
+                // flows through: only the offset field is one frame old)
                 System.Array.Copy(heldDisp, disp, disp.Length);
             }
             else if (simEnabled)
             {
                 float pdt = hrAny ? Mathf.Min(dt * 2f, 0.05f) : dt;   // physics dt spans the held frame
-                // collision lives in Squish Studio — no collider clouds here (was baking the
+                // collision lives in Squish Studio: no collider clouds here (was baking the
                 // whole collider mesh every frame for nothing)
                 Vector3 localDown = go.transform.InverseTransformDirection(worldDown);
                 float sdt = pdt / Mathf.Max(1, substeps);
@@ -384,7 +384,7 @@ namespace WobbleStudio
                 if (heldPrev == null || heldPrev.Length != disp.Length) heldPrev = new Vector3[disp.Length];
                 if (halfRateLerp && heldValid)
                 {
-                    // LERP mode: show the midpoint between the previous and the new tick —
+                    // LERP mode: show the midpoint between the previous and the new tick:
                     // smoother than holding, at half a physics tick of extra latency
                     System.Array.Copy(heldDisp, heldPrev, disp.Length);
                     System.Array.Copy(disp, heldDisp, disp.Length);
@@ -397,7 +397,7 @@ namespace WobbleStudio
             for (int i = 0; i < bakedVerts.Length; i++) bakedVerts[i] += disp[i];
             display.SetVertices(bakedVerts);
             display.SetNormals(bakedNormals);
-            // fixed expanded bounds once — per-frame RecalculateBounds is a full-mesh scan
+            // fixed expanded bounds once: per-frame RecalculateBounds is a full-mesh scan
             if (!dispBoundsSet) { display.bounds = new Bounds(display.bounds.center, display.bounds.size + Vector3.one * 2f); dispBoundsSet = true; }
         }
 
@@ -416,7 +416,7 @@ namespace WobbleStudio
             if (!asyncDone.Wait(100))
             {
                 asyncBroken = true;
-                Debug.LogWarning("[Wobble] async physics worker timed out — reverting to synchronous");
+                Debug.LogWarning("[Wobble] async physics worker timed out: reverting to synchronous");
             }
             asyncKicked = false;
         }
@@ -520,14 +520,14 @@ namespace WobbleStudio
 
         // Set a region's weights from a bone's skin weights (>= threshold). With
         // includeChildren, every bone further down that branch of the rig (all
-        // descendants that skin this mesh) contributes too — e.g. picking a breast
+        // descendants that skin this mesh) contributes too, e.g. picking a breast
         // root also grabs its tip/secondary bones.
         public void SelectFromBone(SquishRegion region, string boneName, float threshold, bool includeChildren)
         {
             SelectFromBoneOn(smr, region, boneName, threshold, includeChildren);
         }
 
-        // Static variant usable on ANY SkinnedMeshRenderer (no proxy needed) — lets the
+        // Static variant usable on ANY SkinnedMeshRenderer (no proxy needed): lets the
         // same vertex-group selection be applied across multiple meshes.
         public static void SelectFromBoneOn(SkinnedMeshRenderer smr, SquishRegion region,
                                             string boneName, float threshold, bool includeChildren)

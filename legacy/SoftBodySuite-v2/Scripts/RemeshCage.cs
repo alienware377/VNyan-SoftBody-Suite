@@ -92,7 +92,7 @@ namespace SoftBodySuite.Jello
             if (est > 12000f) L = Mathf.Sqrt(1.16f * area / 12000f);
             usedEdge = L;
 
-            // grid cell ~ the ORIGINAL submesh's typical edge (equilateral estimate) —
+            // grid cell ~ the ORIGINAL submesh's typical edge (equilateral estimate):
             // sizing it from the target L made every query a near-full scan at coarse L
             float typEdge = Mathf.Sqrt(area * 2.3094f / Mathf.Max(1, oT.Length / 3));
             TriGrid grid = new TriGrid(oP, oT, Mathf.Clamp(typEdge * 2f, 0.002f, 0.05f));
@@ -102,7 +102,7 @@ namespace SoftBodySuite.Jello
             System.Diagnostics.Stopwatch sw = System.Diagnostics.Stopwatch.StartNew();
             const long BUDGET = 9000;
             // hard ceiling on cage size: a correct build lands near `est` verts, so this
-            // only trips on a genuine runaway — it guarantees the loop can never hang
+            // only trips on a genuine runaway: it guarantees the loop can never hang
             int vertCeiling = Mathf.Clamp((int)(est * 2f) + 4000, 16000, 120000);
             bool budgetHit = false;
             for (int pass = 0; pass < passes && !budgetHit; pass++)
@@ -110,11 +110,11 @@ namespace SoftBodySuite.Jello
                 stage = "remesh pass " + (pass + 1) + "/" + passes;
                 // splits and collapses each need several sweeps to converge when the
                 // target is far from the source edge lengths (one sweep only touches
-                // each triangle once) — iterate until nothing changes
+                // each triangle once): iterate until nothing changes
                 for (int i = 0; i < 8; i++)
                 {
                     if (sw.ElapsedMilliseconds > BUDGET) { budgetHit = true; break; }
-                    if (P.Count > vertCeiling) { budgetHit = true; note = "vert ceiling " + vertCeiling + " hit — geometry likely degenerate"; break; }
+                    if (P.Count > vertCeiling) { budgetHit = true; note = "vert ceiling " + vertCeiling + " hit: geometry likely degenerate"; break; }
                     if (SplitLong(P, W, T, L * 1.334f, sw, BUDGET) == 0) break;
                 }
                 for (int i = 0; i < 24 && !budgetHit; i++)
@@ -127,7 +127,7 @@ namespace SoftBodySuite.Jello
                 SmoothProject(P, T, grid);
             }
             if (budgetHit)
-                note = "remesh time budget hit — using partially remeshed cage";
+                note = "remesh time budget hit: using partially remeshed cage";
             CompactUnused(P, W, T);
             if (P.Count < 4 || T.Count < 3) return false;
             stage = "binding (" + P.Count + " verts)";
@@ -168,7 +168,7 @@ namespace SoftBodySuite.Jello
             // that FACES THE SAME WAY (dot >= 0.35). Across a valley/crack the two walls
             // face opposite directions, so Euclidean-nearest-but-wrong-wall triangles are
             // rejected and each wall rides its OWN side. Falls back to plain nearest when
-            // nothing passes (valley floor, degenerate normals) — never worse than before.
+            // nothing passes (valley floor, degenerate normals): never worse than before.
             TriGrid sgrid = new TriGrid(simRest, simTris, Mathf.Max(L * 2f, 0.01f));
             sgrid.triNormals = mNrm != null ? triN : null;
             projGrid = sgrid;   // kept alive: follower meshes bind against the same gated grid
@@ -228,7 +228,7 @@ namespace SoftBodySuite.Jello
         // Bind an arbitrary point (source-local space, e.g. a clothing vert) to the cage:
         // same normal-gated nearest-triangle query the source mesh's projection uses.
         // Returns the tri's three CAGE VERT indices + barycentric weights + surface point.
-        // Plain math on retained arrays — safe to call from a worker thread.
+        // Plain math on retained arrays: safe to call from a worker thread.
         public bool BindPoint(Vector3 q, Vector3 nq, float maxDist, out int a, out int b, out int c,
                               out Vector3 bar, out Vector3 cp)
         {
@@ -270,7 +270,7 @@ namespace SoftBodySuite.Jello
 
         // Smooth the CAGE displacement field before it is projected onto the mesh.
         // taubinPasses: shrink-free peak/sharp-edge removal (keeps overall shape).
-        // avgPasses: plain diffusion — widens each cage node's influence = the
+        // avgPasses: plain diffusion, which widens each cage node's influence = the
         // "projection averaging range". Both run on the uniform cage graph, so they
         // are stable and live-adjustable with no rebuild.
         // Diffusion passes on an ARBITRARY cage-indexed field (the follower field gets its
@@ -334,7 +334,7 @@ namespace SoftBodySuite.Jello
         // Runs on the MAIN thread each frame, after SmoothDisp and before Project, so the
         // smoothers cannot dilute it. Boost: residual penetration of the SMOOTHED cage is
         // pushed back out by depth*strength (the smoothing is exactly what re-sinks the
-        // skin into the collider — this restores the sharp local dent). Slap: a fast rise
+        // skin into the collider: this restores the sharp local dent). Slap: a fast rise
         // in penetration (approach speed) injects a decaying outward impulse, which the
         // spread + the jello's own wobble turn into a visible smack. Both fields are
         // diffused over the cage graph (shard law: no raw per-vertex steps).
@@ -409,7 +409,7 @@ namespace SoftBodySuite.Jello
         // ==================== remesh operators ====================
         // rep is a WELD-GROUP ORDINAL, not a render vertex index. mvp/baked are
         // render-indexed, so we must resolve the group's representative RENDER vertex
-        // (weldMembers[rep][0]) before sampling position — using the ordinal directly
+        // (weldMembers[rep][0]) before sampling position: using the ordinal directly
         // scrambles positions the moment welding shifts ordinals below render indices,
         // which manufactures giant fake edges and makes the remesher run away.
         static int Local(int rep, int[] repLocal, List<Vector3> P, List<float> W, List<int> repOf, Vector3[] mvp, float[] wRep, List<int>[] weldMembers)
@@ -677,7 +677,7 @@ namespace SoftBodySuite.Jello
             static long CKey(int x, int y, int z)
             { return ((long)(x & 0x1FFFFF) << 42) | ((long)(y & 0x1FFFFF) << 21) | (long)(z & 0x1FFFFF); }
 
-            public Vector3[] triNormals;   // optional, indexed by tri/3 — enables the valley gate
+            public Vector3[] triNormals;   // optional, indexed by tri/3: enables the valley gate
 
             // Nearest with a FACING gate: only triangles with dot(nq, faceNormal) >= tau
             // are eligible; tracks the plain nearest as a fallback so a query never fails
@@ -711,7 +711,7 @@ namespace SoftBodySuite.Jello
                                     { best = d; tri = t; cp = c2; }
                                 }
                             }
-                    // stop only once the GATED best is provably nearest — stopping on the
+                    // stop only once the GATED best is provably nearest: stopping on the
                     // ungated best would end the scan before a same-side triangle is found
                     if (tri >= 0 && best <= (ring * cell) * (ring * cell)) break;
                 }
@@ -787,7 +787,7 @@ namespace SoftBodySuite.Jello
                             }
                     if (tri >= 0 && best <= (ring * cell) * (ring * cell)) break;
                 }
-                if (tri < 0) return false;   // nothing within 24 rings — caller handles it
+                if (tri < 0) return false;   // nothing within 24 rings: caller handles it
                 bar = Bary(cp, P[T[tri]], P[T[tri + 1]], P[T[tri + 2]]);
                 return true;
             }

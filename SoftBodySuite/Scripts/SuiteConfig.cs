@@ -4,7 +4,7 @@ using Newtonsoft.Json;
 namespace SoftBodySuite
 {
     // ---------------------------------------------------------------------------
-    // Soft Body Suite — the three studios (Wobble, Jell-o, Squish) in one plugin,
+    // Soft Body Suite: the three studios (Wobble, Jell-o, Squish) in one plugin,
     // with clothes handled once at the very end instead of twice in the middle.
     //
     // A region is painted ONCE and carries three parameter blocks, one per stage.
@@ -22,8 +22,8 @@ namespace SoftBodySuite
     //
     // The four [JsonIgnore] fields at the top are POINTERS to the one painted region
     // this block belongs to, wired up by SuiteRegion.Sync(). They exist so each sim
-    // can keep taking a single object that has both the paint and its own numbers —
-    // exactly the shape the three sims were written against — without the paint data
+    // can keep taking a single object that has both the paint and its own numbers
+    // (exactly the shape the three sims were written against) without the paint data
     // being written to disk three times.
     public class StageRegion
     {
@@ -77,7 +77,7 @@ namespace SoftBodySuite
         public float selfSquish = 0.5f;   // region-vs-region repulsion (e.g. cross-breast)
     }
 
-    // Stage 1 — Wobble: the springy jiggle, sway, twist and rope pull.
+    // Stage 1, Wobble: the springy jiggle, sway, twist and rope pull.
     public class WobbleRegion : StageRegion
     {
         public float ropePull = 0f;          // the area trails the body like a weight on a rope
@@ -92,7 +92,7 @@ namespace SoftBodySuite
         public float twistDamp = 0.35f;      // how quickly the twisting settles
     }
 
-    // Stage 2 — Jell-o: the XPBD solver on the remeshed cage.
+    // Stage 2, Jell-o: the XPBD solver on the remeshed cage.
     public class JelloRegion : StageRegion
     {
         public float maxDent = 0.05f;     // penetration limiter: dent depth where the flesh "gives way"
@@ -105,7 +105,7 @@ namespace SoftBodySuite
         public float xAttach = 0.25f;     // soft pull back to the skinned shape
         public float xMaxStretch = 0.1f;  // hard leash from the skinned position (m at weight 1)
         public float xPressure = 1.2f;    // displaced volume re-inflates the rest of the region
-        public float xGrid = 0.006f;      // solver grid size (m) — node coarsening cell
+        public float xGrid = 0.006f;      // solver grid size (m): node coarsening cell
         public float xGridMin = 0.002f;   // adaptive grid: cell size where edges are SMALLEST
         public float xGridMax = 0.02f;    // adaptive grid: cell size where edges are LARGEST
         public float xGridAuto = 1f;      // 1 = sync min/max to the region's measured edge range on rebuild
@@ -118,7 +118,7 @@ namespace SoftBodySuite
         public float xSmoothPasses = 8f;  // Taubin (shrink-free) smoothing passes on the output
     }
 
-    // Stage 3 — Squish: contact, marshmallow dent and bone evacuation.
+    // Stage 3, Squish: contact, marshmallow dent and bone evacuation.
     public class SquishRegion : StageRegion
     {
         public float maxDent = 0.05f;     // penetration limiter: dent depth where the flesh "gives way"
@@ -135,7 +135,7 @@ namespace SoftBodySuite
     // bulge, squish, stretch) are deliberately suffixed.
     public class FieldRegion : StageRegion
     {
-        public float sfxMix = 0f;                 // 0 = shipped look only, 1 = full field
+        public float sfxMix = 0f;                 // 0 = classic look only, 1 = full field
         public string effect = "Squish";          // preset family this region is tuned as
 
         // ----- contact core -----
@@ -173,10 +173,10 @@ namespace SoftBodySuite
 
         // Wave heights are a FRACTION OF THE REGION'S OWN SIZE, not metres.
         //
-        // rippleAmplitude and wobbleAmplitude came across as absolute metres, tuned by
-        // against demo blobs - objects far larger than any feature on a
+        // rippleAmplitude and wobbleAmplitude used to be absolute metres, sized for
+        // test objects far larger than any feature on a
         // VTuber. The built-in Ripple presets are 0.25 and 0.35 METRES (FieldPresets
-        // .cs), and this fork's own default is 0.23. Measured on a real avatar at 0.15,
+        // .cs), and the old default was 0.23. Measured on a real avatar at 0.15,
         // the same family of effect produced 7.45 cm of displacement on a chest region,
         // raised the 99th-percentile angle between adjacent face normals from 62.6 to
         // 73.7 deg, and took the count of edges over 90 deg from 449 to 664 - visible
@@ -210,9 +210,9 @@ namespace SoftBodySuite
         public float waveRange = 0.5f;            // furthest the wave is evaluated (m)
         public float dentDepth = 1f;              // multiplier on the contact dent itself
 
-        // PENETRATION LIMITER. The shipped Wobble and Squish stages have had one of these
+        // PENETRATION LIMITER. The Wobble and Squish stages have had one of these
         // since v1 (SuiteConfig.maxDent, 50 mm, with the excess handed to the evacuation
-        // layers); the field stage shipped with NONE, and it shows. Measured on this avatar:
+        // layers); the field stage shipped with NONE, and it shows. Measured on a test avatar:
         // the contact bucket alone reached 139 mm on a region 193 mm across, driving flesh
         // deep inside the avatar's own arm, whereupon the anti-clip guard shoved it 74 mm
         // back out in a single UNSMOOTHED step - which is what a shard actually is.
@@ -264,7 +264,7 @@ namespace SoftBodySuite
     // ===================== colliders / regions / meshes =====================
 
     // A sphere/capsule collider attached to any bone/transform (by name). Regions
-    // squish against these — add hand bones to poke, or another mesh's root to let
+    // squish against these: add hand bones to poke, or another mesh's root to let
     // that mesh squeeze the region.
     public class SquishCollider
     {
@@ -296,14 +296,14 @@ namespace SoftBodySuite
         public bool gravityPoseOnly = true; // gravity only once the reference bone leaves rest
         public string refBone = "";         // pose reference; empty = auto (highest skin weight)
 
-        // one tuned block per stage — see the header note on why these are not merged
+        // one tuned block per stage: see the header note on why these are not merged
         public WobbleRegion wobble = new WobbleRegion();
         public JelloRegion jello = new JelloRegion();
         public SquishRegion squish = new SquishRegion();
         public FieldRegion field = new FieldRegion();   // stage 4: the field effect family
 
         // Point every stage block at THIS region's paint. Call after loading, after
-        // painting, and after adding or removing a collider — the blocks hold
+        // painting, and after adding or removing a collider: the blocks hold
         // references, not copies, so a later edit to the lists is seen by all three.
         public void Sync()
         {
@@ -338,7 +338,7 @@ namespace SoftBodySuite
     public class StageSettings
     {
         public bool enabled = true;
-        public int substeps = 2;          // physics substeps per frame — kept per stage
+        public int substeps = 2;          // physics substeps per frame: kept per stage
                                           // because it changes the answer, not just the cost
         public float maxDeltaTime = 0.033f;
         public bool halfRate = false;     // compute physics every 2nd frame (held between)
@@ -420,7 +420,7 @@ namespace SoftBodySuite
         public float fitStrength = 1f;     // multiplier on the displacement the clothes replay
         public float inflate = 0f;         // static outward clearance (m) added to the driven area
         public float inflateDyn = 0f;      // extra outward push proportional to the OUTWARD part of
-                                           // the motion — cloth leads the body out, never digs in
+                                           // the motion: cloth leads the body out, never digs in
         public bool bindWhole = false;     // bind to the WHOLE body surface, not just painted regions
         public bool boneFilter = true;     // garments only bind on verts weighted to the region's
                                            // picked bones (srcBones)
@@ -514,7 +514,7 @@ namespace SoftBodySuite
         public SuiteSettings settings = new SuiteSettings();
         public List<SuiteMesh> meshes = new List<SuiteMesh>();
 
-        // Always call this straight after loading or editing — the stage blocks are
+        // Always call this straight after loading or editing: the stage blocks are
         // empty of paint until it runs.
         public void Sync()
         {

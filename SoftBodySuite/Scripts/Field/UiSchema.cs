@@ -39,9 +39,9 @@ namespace SoftBodySuite.Field
 
     // The declared UI surface of the field family.
     //
-    // Why this exists: the shipped build hooks 142 slider keys against 78 prefab
-    // rows - 64 invisible dead sliders and three listener-less buttons, and not
-    // one of them produces a warning. Adding ~70 more controls by hand would
+    // Why this exists: the classic suite hooked 142 slider keys against 78 prefab
+    // rows: 64 invisible dead sliders and three listener-less buttons, and not
+    // one of them produced a warning. Adding ~70 more controls by hand would
     // reproduce that with certainty. Here every control is DECLARED once, the
     // missing ones are CLONED from a template at runtime, and SelfCheck reports
     // both halves of the drift unconditionally at startup.
@@ -160,7 +160,7 @@ namespace SoftBodySuite.Field
             // own "?" tooltip button - whose "?" the label code then overwrote with the
             // row's name. That is the blue square with a word in it. Now each kind is
             // cloned from a real row of the same kind, parts and all, exactly as the
-            // shipped panel builds them.
+            // prefab panel builds them.
             RectTransform sTpl = null, lTpl = null, vTpl = null;
             for (int i = 0; i < sectionContent.childCount && sTpl == null; i++)
             {
@@ -288,7 +288,7 @@ namespace SoftBodySuite.Field
             return made;
         }
 
-        // Every control the shipped panel has, keyed by object name, with its tooltip. The
+        // Every control the prefab panel has, keyed by object name, with its tooltip. The
         // plugin's own AddTooltips does the drawing, so the field rows get the same "?".
         public Dictionary<string, string> Tooltips()
         {
@@ -325,7 +325,7 @@ namespace SoftBodySuite.Field
             return rt;
         }
 
-        // Same font and colour as the shipped labels; long names shrink to fit their
+        // Same font and colour as the prefab labels; long names shrink to fit their
         // column instead of running under the slider.
         static void FitLabel(Text t, string label)
         {
@@ -366,7 +366,7 @@ namespace SoftBodySuite.Field
             // END OF FRAME, so the Slider was still attached when AddComponent ran - and
             // Selectable is DisallowMultipleComponent, so AddComponent returned NULL and the
             // very next line threw. Sliders dressed fine; every Toggle and every Button in
-            // the fork failed, which is all six effect switches, the three performance
+            // the field UI failed, which is all six effect switches, the three performance
             // toggles and all twelve preset buttons. DestroyImmediate removes it now, so the
             // slot is free when the replacement is added.
                 if (s != null) { s.onValueChanged.RemoveAllListeners(); UnityEngine.Object.DestroyImmediate(s); }
@@ -636,7 +636,7 @@ namespace SoftBodySuite.Field
                     + " field control(s) exist in the window but NO schema row declares them (dead rows): " + mine.ToString());
             if (theirsN > 0)
                 Debug.LogWarning("[SfxField] UiSchema.SelfCheck: " + theirsN
-                    + " control(s) outside the field schema are undeclared here - expected for the shipped suite's own rows, listed once so drift stays visible: " + theirs.ToString());
+                    + " control(s) outside the field schema are undeclared here (expected for the suite's own prefab rows), listed once so drift stays visible: " + theirs.ToString());
         }
 
         void Walk(Transform t, ref int mineN, ref int theirsN, StringBuilder mine, StringBuilder theirs)

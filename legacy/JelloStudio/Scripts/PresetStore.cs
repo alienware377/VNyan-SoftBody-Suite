@@ -17,11 +17,11 @@ namespace JelloStudio
     // usually the file stem plus "(Clone)", and that stem drifts: version suffixes,
     // dates, descriptions appended anywhere. So a rule can match two ways:
     //
-    //   FUZZY  — normalise both sides (lowercase, strip punctuation/whitespace, strip
+    //   FUZZY: normalise both sides (lowercase, strip punctuation/whitespace, strip
     //            version and date fragments) and accept if either CONTAINS the other.
     //            "aliekatnya", "AlieKatNya v2.5f", "26-07-02 aliekatnya fixed" all match
     //            the key "aliekatnya".
-    //   EXACT  — the avatar's identity string must match verbatim. Used automatically
+    //   EXACT: the avatar's identity string must match verbatim. Used automatically
     //            when a name carries no usable words (e.g. "20260224"): fuzzy matching a
     //            bare number string would collide with every other numeric model, so the
     //            rule pins to that model alone.
@@ -94,7 +94,7 @@ namespace JelloStudio
         }
 
         // Does the normalised name carry anything worth fuzzy-matching? A model called
-        // "20260224" normalises to "" — fuzzy matching that would hit every other
+        // "20260224" normalises to "": fuzzy matching that would hit every other
         // number-named model, so such rules must pin exactly instead.
         public static bool NameIsUsable(string normalised)
         {
@@ -154,7 +154,7 @@ namespace JelloStudio
             string meta = Normalise(MetaIdentity(avatar));
             if (NameIsUsable(meta)) { fuzzyKey = meta; how = "model info"; return; }
 
-            fuzzyKey = "";            // nothing deterministic — caller must pin exactly
+            fuzzyKey = "";            // nothing deterministic: caller must pin exactly
             how = "exact name only";
         }
 

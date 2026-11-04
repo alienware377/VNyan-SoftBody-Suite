@@ -1,6 +1,6 @@
 // Opaque double-sided vertex-color shader for the weight/sharpness overlays.
 // Sprites/Default (transparent, ZWrite Off) let BACK faces render through FRONT faces,
-// interleaving into a checkerboard — an overlay must write depth and stay opaque.
+// interleaving into a checkerboard: an overlay must write depth and stay opaque.
 Shader "Hidden/SoftBodyOverlay"
 {
     SubShader

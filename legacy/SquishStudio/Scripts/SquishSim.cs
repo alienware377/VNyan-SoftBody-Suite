@@ -35,7 +35,7 @@ namespace SquishStudio
             EndBuild();
         }
 
-        // one cloud built from SEVERAL meshes ("(all meshes)" collider) — bones already
+        // one cloud built from SEVERAL meshes ("(all meshes)" collider): bones already
         // covered by an earlier mesh are skipped so body+clothing don't double up
         public void BuildFromSkinMulti(List<SkinnedMeshRenderer> smrs, SkinnedMeshRenderer self, HashSet<int> exclude, List<Vector3> regionWorld)
         {
@@ -60,7 +60,7 @@ namespace SquishStudio
         {
             ca = new Vector3[caps.Count]; cb = new Vector3[caps.Count]; cr = new float[caps.Count];
             cm = new Vector3[caps.Count]; re2 = new float[caps.Count];
-            buildInfo = caps.Count + " capsules — " + bsb;
+            buildInfo = caps.Count + " capsules: " + bsb;
             bsb = null; usedBones = null;
         }
 
@@ -156,7 +156,7 @@ namespace SquishStudio
                 }
                 if (isHand)
                 {
-                    // trim the mitt to palm length — fitting the merged fingers' full
+                    // trim the mitt to palm length: fitting the merged fingers' full
                     // extent produced an absurdly long capsule
                     Vector3 mid = (pa + pb) * 0.5f, ax2 = pb - pa;
                     float hl = ax2.magnitude * 0.5f;
@@ -186,7 +186,7 @@ namespace SquishStudio
                 // STRICT WHITELIST: only the arm chain ever gets capsules. Statistical
                 // filters (pre-clip overlap tests) let soft-tissue bones slip through
                 // depending on paint/pose at build time (breast bones once got r=0.12
-                // capsules) — the decided collider set must be identical for EVERY mesh.
+                // capsules): the decided collider set must be identical for EVERY mesh.
                 string bn = bones[b].name.ToLowerInvariant();
                 bool limb = bn.Contains("arm") || bn.Contains("elbow") || bn.Contains("wrist")
                     || bn.Contains("hand") || bn.Contains("finger") || bn.Contains("thumb") || bn.Contains("shoulder");
@@ -350,7 +350,7 @@ namespace SquishStudio
         public Vector3[] evacClusterPos;              // proxy-local root positions (fed per frame)
         public Vector3[] evacClusterDir; public float[] evacClusterExc;   // outputs per cluster
         // second, independent set: NESTED/child driver bones ("evacuate all bones" mode).
-        // Kept separate so root binning — the validated behaviour — is untouched.
+        // Kept separate so root binning (the validated behaviour) is untouched.
         public Transform[] evacBones2;
         public Vector3[] evacCluster2Pos;
         public Vector3[] evacCluster2Dir; public float[] evacCluster2Exc;
@@ -403,7 +403,7 @@ namespace SquishStudio
         public float sleepT; public float lastFieldEnergy; bool asleepZeroed;
         public bool pendingBlewUp;
         // MAIN-THREAD CAPTURE for the async worker: bone-capsule primitives (proxy-local)
-        // and the pose factor — the worker must never touch Transforms
+        // and the pose factor: the worker must never touch Transforms
         public Vector3[] capCp0, capCp1; public float[] capRad; public bool[] capValid;
         public float capturedPoseFactor = 1f;
         public void CaptureFrameInputs(Transform proxy)
@@ -434,13 +434,13 @@ namespace SquishStudio
         public bool CheckAwake(Vector3[] baked, Transform proxy, List<SquishSim> others, float dt)
         {
             if (!primed || n == 0) return true;              // prime on the normal path first
-            // asleep StepDynamics doesn't run, so refresh the bound centre sparsely —
+            // asleep StepDynamics doesn't run, so refresh the bound centre sparsely, as
             // the region rides the animation
             Vector3 cAcc = Vector3.zero; int cnt = 0;
             int stride = Mathf.Max(1, n / 128);
             for (int i = 0; i < n; i += stride) { if (idx[i] < baked.Length) { cAcc += baked[idx[i]]; cnt++; } }
             if (cnt > 0) boundCenter = cAcc / cnt;
-            // radius refresh (conservative: grows with the sample, never shrinks) — a
+            // radius refresh (conservative: grows with the sample, never shrinks): a
             // frozen radius under blendshape growth would erode the wake margin
             float rMaxS = 0f;
             for (int i = 0; i < n; i += stride)
@@ -751,7 +751,7 @@ namespace SquishStudio
             float r2max = 0f;
 
             // JIGGLE AT ZERO = NO DYNAMICS. The spring/inertia integration below feeds
-            // offset[], which the output stage multiplies by cfg.jiggle — so with the
+            // offset[], which the output stage multiplies by cfg.jiggle, so with the
             // amplitude at 0 (contact-only setups) every bit of it is discarded. Track
             // the skinned pose so nothing snaps when it is turned back up, and skip.
             bool jiggleIdle = cfg.jiggle <= 0.0001f;
@@ -1016,14 +1016,14 @@ namespace SquishStudio
                 Vector3 tgtC = colTarget[i] * (dentMax * squishS * 0.5f * w[i]) + meanPush * (dentMax * rigidS * 0.5f * w[i]);
                 float cm = tgtC.magnitude;
                 if (cm > colCap) tgtC *= colCap / cm;
-                // UNIFORM ease only — a per-vert sticky/slow-release switch made adjacent
+                // UNIFORM ease only: a per-vert sticky/slow-release switch made adjacent
                 // verts hold dents 4cm apart (11x edge stretch, THE shard source; measured
                 // via the F11 dump). Hold-persistence is the barrier layer's job now.
                 colCur[i] = Vector3.Lerp(colCur[i], tgtC, ease);
             }
 
             // ---- DEPTH-FIELD barrier: instead of per-vert positional projection (which
-            // always ends up fighting whatever smoothing follows it — the shard machine),
+            // always ends up fighting whatever smoothing follows it: the shard machine),
             // measure a SCALAR "how deep must this vert dent to clear the collider",
             // smooth that scalar over the RBF clusters (a scalar can't fight anything),
             // and displace along a smoothed direction field by the smoothed depth.
@@ -1056,7 +1056,7 @@ namespace SquishStudio
                         Vector3 push;
                         if (cl.TryPushPlanar(p, cl.radius, out push))
                         {
-                            // (no per-vert outward-drift strip — binary per-vert edits of the
+                            // (no per-vert outward-drift strip: binary per-vert edits of the
                             // soft layer create neighbour divergence, same class as the
                             // sticky-ease shard bug)
                             float pm = push.magnitude;
@@ -1064,9 +1064,9 @@ namespace SquishStudio
                             // OCCLUSION BIAS: target the skin slightly BELOW the collider
                             // surface. Skin exactly AT the surface renders grazing slivers
                             // (the torn edge); skin just under it is cleanly occluded by the
-                            // glove — the contact boundary becomes invisible by construction.
+                            // glove: the contact boundary becomes invisible by construction.
                             float depth = pm - cl.radius - 0.003f;
-                            // PENETRATION LIMITER: past maxDent the flesh "gives way" — the
+                            // PENETRATION LIMITER: past maxDent the flesh "gives way" and the
                             // excess feeds the evacuation layers instead of deepening the dent
                             float dentCap = cfg.maxDent > 0.005f ? cfg.maxDent : 0.07f;
                             if (depth > dentCap)
@@ -1125,7 +1125,7 @@ namespace SquishStudio
                 }
                 if (evacCluster2Count > 0)
                 {
-                    // child set binned independently (nearest child bone) — the residual
+                    // child set binned independently (nearest child bone): the residual
                     // excess a child sees already includes the parent's applied shift
                     int b2 = 0; float bd2 = float.MaxValue;
                     Vector3 bp2 = baked[idx[i]];
@@ -1153,7 +1153,7 @@ namespace SquishStudio
                     if (m3 > 1e-6f) evacCluster2Dir[k] /= m3;
                 }
 
-            // scalar depth: cluster MAX-projection + one smoothing pass + interpolation —
+            // scalar depth: cluster MAX-projection + one smoothing pass + interpolation:
             // smooth skirt around the contact with peaks preserved
             if (K > 0 && ncIdx != null)
             {
@@ -1182,7 +1182,7 @@ namespace SquishStudio
                 }
 
                 // marshmallow rounding as a MAX-ENVELOPE: take the larger of own depth and
-                // the cluster-average — rounds the outer slope smoothly but NEVER shaves
+                // the cluster-average. This rounds the outer slope smoothly but NEVER shaves
                 // clearance below the collider surface (averaging down left the skin exactly
                 // AT the arm surface, and grazing surface intersections render as the ragged
                 // torn edge no amount of smoothing could fix)
@@ -1252,13 +1252,13 @@ namespace SquishStudio
                     if (sm > 1e-6f) dirF[i] = s / sm;
                 }
 
-            // the barrier is an ABSOLUTE per-frame target kept in its own layer — never an
+            // the barrier is an ABSOLUTE per-frame target kept in its own layer: never an
             // increment onto persistent state. Skirt verts have no contact feedback, so an
             // increment integrates without bound (runaway sheets); a target cannot.
             // Paint-weight ramp: an unweighted barrier steps to zero at the ragged painted
-            // boundary — taper it so displacement fades smoothly into unpainted skin.
+            // boundary: taper it so displacement fades smoothly into unpainted skin.
             // (Full protection needs full paint over the contact area.)
-            // smoothed paint weights for the barrier ramp — raw hand-painted weights are
+            // smoothed paint weights for the barrier ramp: raw hand-painted weights are
             // vertex-noisy, and ramping by them re-injected that noise into the barrier
             // (measured: residual stretched verts sat at w~0.85 on the paint gradient)
             if (wSm == null || wSm.Length != n)
@@ -1294,7 +1294,7 @@ namespace SquishStudio
                 hardOff[i] = Vector3.Lerp(hardOff[i], tgtH, 0.6f);
                 totF[i] = colCur[i] + hardOff[i];
                 // blob evac ADDS ON TOP. (It used to be added BEFORE the assignment above
-                // and was silently overwritten — the evacBlob slider did nothing.)
+                // and was silently overwritten: the evacBlob slider did nothing.)
                 // Smoothed weights per the shard law: raw paint is vertex-noisy.
                 if (evM > 1e-5f)
                 {
@@ -1305,7 +1305,7 @@ namespace SquishStudio
                 }
                 float c2 = totF[i].sqrMagnitude; if (c2 > dbgCur) dbgCur = c2;
             }
-            // final cosmetic polish: light one-ring smoothing of the TOTAL offset — erases
+            // final cosmetic polish: light one-ring smoothing of the TOTAL offset, which erases
             // the last vertex-scale residue (0.1% of edges measured) without fighting the
             // barrier (its occlusion bias tolerates a few mm)
             for (int pass = 0; pass < 2; pass++)

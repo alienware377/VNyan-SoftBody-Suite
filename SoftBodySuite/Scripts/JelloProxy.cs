@@ -28,7 +28,7 @@ namespace SoftBodySuite.Jello
         // GetVertices, which cost a copy each way and put the stages a frame apart.
         public Vector3[] upVerts, upNormals;
         // What the stage before us ADDED this frame (wobble's jiggle). The clothes must be
-        // attached against the body WITHOUT it — see cageClean.
+        // attached against the body WITHOUT it: see cageClean.
         public Vector3[] upDisp;
         // The cage surface of the CLEAN, un-wobbled body. The clothes take their resting fit
         // from this, never from the wobbling surface, or whatever swing the body happened to
@@ -67,7 +67,7 @@ namespace SoftBodySuite.Jello
         readonly List<Vector3> scratch = new List<Vector3>();
 
         // Chaining with Wobble Studio: if that plugin already deforms this mesh, read ITS
-        // output (jiggled vertices) as our base instead of re-baking the raw skin — the two
+        // output (jiggled vertices) as our base instead of re-baking the raw skin: the two
         // plugins stack (Wobble at execution order 19000, Squish at 20000) instead of
         // rendering two fighting copies. Its renderer is hidden; ours is the final image.
         MeshFilter wobbleSrc;
@@ -96,7 +96,7 @@ namespace SoftBodySuite.Jello
             public Vector3[] verts;
             public bool boundsSet;
             public bool whole;                  // bound to the WHOLE body surface vs the region cage
-            // driven WELD GROUPS (UV-seam duplicates merged — per-render smoothing would tear)
+            // driven WELD GROUPS (UV-seam duplicates merged: per-render smoothing would tear)
             public int[] gRep;                  // group -> representative render vert
             public int[] gMemStart, gMem;       // CSR: members (render verts) per group
             public int[] gA, gB, gC;            // bound tri verts: CAGE indices, or SOURCE RENDER indices (whole)
@@ -195,7 +195,7 @@ namespace SoftBodySuite.Jello
             return true;
         }
 
-        // pending-destroy corpses are inactive — same hazard ProxyAlive guards against
+        // pending-destroy corpses are inactive: same hazard ProxyAlive guards against
         static bool FollowClaimAlive(SkinnedMeshRenderer r)
         {
             Transform t = r.transform.Find(r.name + "_JelloFollow");
@@ -326,8 +326,8 @@ namespace SoftBodySuite.Jello
         }
 
         // Reduce every referenced collider mesh ONCE to auto-fitted bone capsules (see
-        // MeshColliderCloud) — no per-frame baking. When the collider is the region's OWN
-        // mesh, painted vertices are excluded so the region doesn't collide with itself —
+        // MeshColliderCloud): no per-frame baking. When the collider is the region's OWN
+        // mesh, painted vertices are excluded so the region doesn't collide with itself:
         // hands (same mesh) still squish the chest.
         void UpdateColliderClouds()
         {
@@ -335,7 +335,7 @@ namespace SoftBodySuite.Jello
             if (colBakeScratch == null) { colBakeScratch = new Mesh(); colBakeScratch.MarkDynamic(); }
             Transform tr = go.transform;
 
-            // bounding spheres of the painted regions (proxy-local) — only discs near these
+            // bounding spheres of the painted regions (proxy-local): only discs near these
             // stay active, so far-away body parts cost nothing
             List<Vector4> regBounds = new List<Vector4>();
             for (int r = 0; r < cfg.regions.Count; r++)
@@ -517,7 +517,7 @@ namespace SoftBodySuite.Jello
         // ---------- late cloth pass (runs after the LAST body deformer) ----------
         // Jello sits mid-chain: Wobble/SoftBody feed its input (so their motion is already
         // in the cage), but Squish runs downstream and renders the final body. Driving the
-        // cloth from here — and folding Squish's contribution onto the cage — means the
+        // cloth from here (and folding Squish's contribution onto the cage) means the
         // garments follow the whole pipeline instead of a mid-chain snapshot.
         static readonly List<Vector3> lateScratch = new List<Vector3>();
 
@@ -641,7 +641,7 @@ namespace SoftBodySuite.Jello
         bool framedOnce;
 
         // ---------- cage followers ----------
-        // Called when the clothes pass cannot run at all — this stage switched off, or the
+        // Called when the clothes pass cannot run at all: this stage switched off, or the
         // follower turned off. Without it the garments keep the last mesh we drove them to
         // and simply freeze in place, because their own renderer is still hidden.
         public void ReleaseFollowers()
@@ -656,7 +656,7 @@ namespace SoftBodySuite.Jello
                         (whole || (cage != null && settingsRef.jello.useRemesh > 0.5f));
             if (!want) { if (folGenActive || followers.Count > 0) DetachFollowers(); return; }
             float range = Mathf.Clamp(settingsRef.cloth.follow.range, 0.005f, FOLLOW_RANGE_MAX);
-            // cage rebuilt (cage mode) or bind-mode flipped: detach and RETURN — requeueing
+            // cage rebuilt (cage mode) or bind-mode flipped: detach and RETURN. Requeueing
             // next frame lets the pending-destroy "_JelloFollow" corpses actually die
             if (folGenActive && (folLastWhole != whole || (!whole && folCage != cage))) { DetachFollowers(); return; }
             // bind-affecting knobs: debounce the drag; followers keep running until settled
@@ -705,7 +705,7 @@ namespace SoftBodySuite.Jello
                 {
                     folRetryT = 0f;
                     // rebuild the search grid: its cell binning froze at generation start,
-                    // and the whole point of the retry is that the pose has MOVED since —
+                    // and the whole point of the retry is that the pose has MOVED since:
                     // stale cells either find nothing or mis-bind to the wrong body patch
                     bindGrid = null; bindPts = null; bindTris = null;
                     for (int i = 0; i < folFailed.Count; i++) if (folFailed[i] != null) folQueue.Add(folFailed[i]);
@@ -723,7 +723,7 @@ namespace SoftBodySuite.Jello
             {
                 SkinnedMeshRenderer r = rends[i];
                 if (r == null || r == smr || r.sharedMesh == null) continue;
-                // hidden/disabled/outfit-off meshes stay untouched — a follower copy would
+                // hidden/disabled/outfit-off meshes stay untouched: a follower copy would
                 // RESURRECT them on screen
                 if (!r.enabled || !r.gameObject.activeInHierarchy) continue;
                 if (r.forceRenderingOff) continue;                 // some proxy already owns its rendering
@@ -755,7 +755,7 @@ namespace SoftBodySuite.Jello
         }
 
         // Build (once per follower generation) a search grid over the CURRENT-POSE clean
-        // surface — rest-space search mis-bound verts and froze pose error into the fit.
+        // surface: rest-space search mis-bound verts and froze pose error into the fit.
         // bindPts stays live: cage mode points at cage.simBaked; whole mode is refreshed
         // in place per bind call (cell membership drifts a vert-cm, well under a cell).
         Vector3 UpDispAt(int i)
@@ -784,7 +784,7 @@ namespace SoftBodySuite.Jello
             {
                 if (cage == null || cage.simBaked == null || cage.SimVertCount < 1 ||
                     (cage.simBaked[0] == Vector3.zero && cage.simBaked[cage.SimVertCount - 1] == Vector3.zero))
-                    return false;   // freshly built cage hasn't interpolated yet — wait one tick
+                    return false;   // freshly built cage hasn't interpolated yet: wait one tick
                 // stays live either way: both arrays are rewritten every frame
                 bindPts = (cageClean != null && cageClean.Length == cage.SimVertCount &&
                            cageClean[0] != Vector3.zero) ? cageClean : cage.simBaked;
@@ -849,7 +849,7 @@ namespace SoftBodySuite.Jello
                 if (haveN) gNormSum[gg] += nrm[i];
             }
 
-            // ---- bind each group once (shared by all its duplicates — no seam tearing) ----
+            // ---- bind each group once (shared by all its duplicates: no seam tearing) ----
             // AABB prefilter keeps far meshes (hair etc.) nearly free. Double-sided cloth:
             // opposing duplicate normals cancel → ungated (but range-limited) fallback.
             Vector3 lo = bindMin - Vector3.one * range, hi = bindMax + Vector3.one * range;
@@ -1006,7 +1006,7 @@ namespace SoftBodySuite.Jello
             // ---- VALLEY-GAP INFILL ----
             // Where the region has a valley (cleavage), the cloth bridging it often fails to
             // bind (the walls face away from the bridge). Small/medium UNBOUND islands that
-            // sit between bound areas get FILL groups: no binding of their own — their motion
+            // sit between bound areas get FILL groups: no binding of their own, and their motion
             // is diffused from the surrounding bound cloth every frame ("transfer, average
             // and smooth from nearby"). Large unbound sheets (skirts, straps heading away)
             // stay untracked by design.
@@ -1027,7 +1027,7 @@ namespace SoftBodySuite.Jello
                 int anchorMin = settingsRef != null ? Mathf.Max(1, Mathf.RoundToInt(settingsRef.cloth.follow.anchorMin)) : 150;
 
                 // size the BOUND areas first: only components at least `anchorMin` big count
-                // as anchors — a stray bound speck can't legitimise filling around itself
+                // as anchors: a stray bound speck can't legitimise filling around itself
                 int[] drvComp = new int[nGlobal];
                 for (int i = 0; i < nGlobal; i++) drvComp[i] = -1;
                 List<int> drvSize = new List<int>();
@@ -1305,7 +1305,7 @@ namespace SoftBodySuite.Jello
                 // ---- CLOTH-SIDE ANTI-CLIP (the body is never touched) ----
                 // Each group knows how far it rested OUTSIDE the body (gOff.z) and what the
                 // full wrap would have done (gDnRaw). A garment may drift closer to the skin
-                // than its rest gap, but never nearer than `minClear` — so the flesh cannot
+                // than its rest gap, but never nearer than `minClear`, so the flesh cannot
                 // emerge through it, and the fix is applied entirely to the garment.
                 if (settingsRef != null && settingsRef.cloth.follow.clothOutside)
                 {
@@ -1326,7 +1326,7 @@ namespace SoftBodySuite.Jello
                 }
 
                 // anti-clip floor: whatever the seam smoothing/clamps did above, the protected
-                // outward component survives — a close-fitting cup can never be pierced.
+                // outward component survives: a close-fitting cup can never be pierced.
                 // The floor still obeys the seam RAMP law near the driven edge (a boundary
                 // group snapping to full amplitude against undriven neighbours is a tear).
                 float pSmax = settingsRef != null ? settingsRef.jello.seamMaxStretch : 0f;
@@ -1638,7 +1638,7 @@ namespace SoftBodySuite.Jello
                     Vector3 e1, e2, n2;
                     if (!TriFrame(A2, B2, C2, out e1, out e2, out n2))
                     { f.gDisp[g2] = Vector3.zero; f.gNrm[g2] = Vector3.up; f.gProt[g2] = 0f; continue; }
-                    // same canonicalization as at bind — the floor must push OUT of the body
+                    // same canonicalization as at bind: the floor must push OUT of the body
                     Vector3 nrf = f.whole
                         ? bakedNormals[ia] + bakedNormals[ib] + bakedNormals[ic]
                         : cage.simNormals[ia] + cage.simNormals[ib] + cage.simNormals[ic];
@@ -1661,15 +1661,15 @@ namespace SoftBodySuite.Jello
                     Vector3 nl = M.MultiplyVector(n2).normalized;
 
                     // ANTI-CLIP SPLIT: only the tangential part obeys falloff/fit and the seam
-                    // machinery below. The OUTWARD-normal part — the component that stops the
-                    // breast punching through the cup — gets a protected floor for close-
+                    // machinery below. The OUTWARD-normal part (the component that stops the
+                    // breast punching through the cup) gets a protected floor for close-
                     // fitting verts (rest clearance |off.z| under ~1 cm, fading out by 3 cm).
                     float baseW = f.gFall[g2] * fit;
                     float dn = Vector3.Dot(dlRaw, nl);
                     Vector3 dt = dlRaw - nl * dn;
                     float wClip = 1f - Mathf.Clamp01((Mathf.Abs(off.z) - 0.01f) / 0.02f);
                     // the floor fades in over the first ~2 cm from the driven edge: an
-                    // unprotectable boundary vert can't guard the cup anyway — an uncapped
+                    // unprotectable boundary vert can't guard the cup anyway: an uncapped
                     // floor there only re-creates the seam step the smoothing removed
                     float ef = Mathf.Clamp01(f.gSeam[g2] / 0.02f);
                     wClip *= ef * ef * (3f - 2f * ef);
@@ -2728,9 +2728,9 @@ namespace SoftBodySuite.Jello
         }
 
         // upstream source, best-first: SoftBody's output (order 20500, runs before us at
-        // 20600), else Wobble's. Squish Studio is DOWNSTREAM (20700, final) — never a source.
+        // 20600), else Wobble's. Squish Studio is DOWNSTREAM (20700, final): never a source.
         // The suite hands verts over directly, so looking for an upstream proxy
-        // GameObject is not just unnecessary — it is wrong. A stage that is switched
+        // GameObject is not just unnecessary: it is wrong. A stage that is switched
         // off keeps its last mesh, and reading it would freeze the body.
         public static bool directChain;
 
@@ -2781,7 +2781,7 @@ namespace SoftBodySuite.Jello
 
             // upstream appearing/disappearing: cheap re-check 1x/second for UPGRADES, but
             // re-chain INSTANTLY while unchained or the source died (fake-null after a
-            // rebind destroys it) — waiting a whole second flashed two bodies per tweak
+            // rebind destroys it): waiting a whole second flashed two bodies per tweak
 
             // handed to us directly by the stage before this one
             if (upVerts != null && upVerts.Length == bakedVerts.Length)
@@ -2825,7 +2825,7 @@ namespace SoftBodySuite.Jello
             {
                 // the renderer's mesh was swapped out from under us (outfit systems etc.)
                 Debug.LogWarning("[Jello] '" + smr.name + "' vertex count changed ("
-                    + bakedVerts.Length + " -> " + scratch.Count + ") — detaching, will rebind");
+                    + bakedVerts.Length + " -> " + scratch.Count + "): detaching, will rebind");
                 Detach();
                 return;
             }
@@ -2876,11 +2876,11 @@ namespace SoftBodySuite.Jello
             if (simEnabled && hrAny && !frameFlip && heldValid && heldDisp != null && heldDisp.Length == disp.Length)
             {
                 // HELD frame: reuse last computed displacement (fresh skinning still flows
-                // through — only the offset field is one frame old)
+                // through: only the offset field is one frame old)
                 System.Array.Copy(heldDisp, disp, disp.Length);
                 if (cageHeld != null && cageOut != null && cageHeld.Length == cageOut.Length)
                     System.Array.Copy(cageHeld, cageOut, cageOut.Length);   // followers hold too
-                // keep simBaked FRESH on held frames — followers rebuild their wrap frames
+                // keep simBaked FRESH on held frames: followers rebuild their wrap frames
                 // from it every frame against a fresh garment bake; a stale interp made the
                 // garment lag the body by a frame at half rate
                 if (cage != null && cageSim != null) cage.InterpBaked(bakedVerts, bakedNormals);
@@ -2979,7 +2979,7 @@ namespace SoftBodySuite.Jello
                             sims[r].FieldAndWrite(bakedVerts, bakedNormals, disp, pdt, SimsAsList(), go.transform);
                 }
 
-                // boundary seam smoothing — final polish on the painted<->unpainted edge
+                // boundary seam smoothing: final polish on the painted<->unpainted edge
                 if (settingsRef != null)
                 {
                     int slv = Mathf.Clamp(Mathf.RoundToInt(settingsRef.jello.seamLevel), 0, 200);
@@ -2991,7 +2991,7 @@ namespace SoftBodySuite.Jello
                 if (heldPrev == null || heldPrev.Length != disp.Length) heldPrev = new Vector3[disp.Length];
                 if (halfRateLerp && heldValid)
                 {
-                    // LERP mode: show the midpoint between the previous and the new tick —
+                    // LERP mode: show the midpoint between the previous and the new tick:
                     // smoother than holding, at half a physics tick of extra latency
                     System.Array.Copy(heldDisp, heldPrev, disp.Length);
                     System.Array.Copy(disp, heldDisp, disp.Length);
@@ -3002,7 +3002,7 @@ namespace SoftBodySuite.Jello
             }
 
             // The clothes must ride EXACTLY the jell-o movement the body got. They used to get
-            // their own separately filtered copy of it — no seam smoothing, no edge clamp. With
+            // their own separately filtered copy of it: no seam smoothing, no edge clamp. With
             // wobble feeding in, jell-o's field grows wobble-sized and mostly pulls AGAINST the
             // wobble, so that unclamped copy cancelled more of the wobble than the body did, and
             // the body poked through the clothes. This is the single point every branch (off,
@@ -3061,7 +3061,7 @@ namespace SoftBodySuite.Jello
                 display.SetVertices(bakedVerts);
                 display.SetNormals(bakedNormals);
             }
-            // fixed expanded bounds once — per-frame RecalculateBounds is a full-mesh scan
+            // fixed expanded bounds once: per-frame RecalculateBounds is a full-mesh scan
             if (!dispBoundsSet) { display.bounds = new Bounds(display.bounds.center, display.bounds.size + Vector3.one * 2f); dispBoundsSet = true; }
             if (overlayOn && overlayMode == 1) RefreshSharpColors();   // live jaggedness view
 
@@ -3360,14 +3360,14 @@ namespace SoftBodySuite.Jello
 
         // Set a region's weights from a bone's skin weights (>= threshold). With
         // includeChildren, every bone further down that branch of the rig (all
-        // descendants that skin this mesh) contributes too — e.g. picking a breast
+        // descendants that skin this mesh) contributes too, e.g. picking a breast
         // root also grabs its tip/secondary bones.
         public void SelectFromBone(SquishRegion region, string boneName, float threshold, bool includeChildren)
         {
             SelectFromBoneOn(smr, region, boneName, threshold, includeChildren);
         }
 
-        // Static variant usable on ANY SkinnedMeshRenderer (no proxy needed) — lets the
+        // Static variant usable on ANY SkinnedMeshRenderer (no proxy needed): lets the
         // same vertex-group selection be applied across multiple meshes.
         public static void SelectFromBoneOn(SkinnedMeshRenderer smr, SquishRegion region,
                                             string boneName, float threshold, bool includeChildren)
@@ -3504,7 +3504,7 @@ namespace SoftBodySuite.Jello
                 regionValueFields[i].SetValue(dst, regionValueFields[i].GetValue(src));
         }
 
-        // one sim per region — or, in cage mode, ONE sim on a uniform remeshed
+        // one sim per region, or, in cage mode, ONE sim on a uniform remeshed
         // duplicate of all regions (bad topology never reaches the solver)
         void BuildSims(GameObject avatar, Animator anim)
         {
@@ -3550,11 +3550,11 @@ namespace SoftBodySuite.Jello
             cageBuilding = c;
             cageSw = System.Diagnostics.Stopwatch.StartNew();
             Debug.Log(c.logTag + " cage build started (edge " + L.ToString("0.0000") + " m, " + passes
-                + " passes) — running in background");
+                + " passes): running in background");
             System.Threading.Thread th = new System.Threading.Thread(() =>
             {
                 // NO Debug.Log in here: logging from a worker thread can deadlock
-                // against the host's log handler — progress goes via c.stage instead
+                // against the host's log handler: progress goes via c.stage instead
                 try { c.buildOk = c.Build(mvp, tris, wo, wm, wRep, mnrm, L, passes); }
                 catch (System.Exception e) { c.note = "exception: " + e.Message; }
                 finally { c.buildDone = true; }
@@ -3578,7 +3578,7 @@ namespace SoftBodySuite.Jello
             {
                 if (cageSw != null && cageSw.ElapsedMilliseconds > 30000)
                 {
-                    Debug.LogWarning("[Jello] cage build timed out — falling back to per-region sims");
+                    Debug.LogWarning("[Jello] cage build timed out: falling back to per-region sims");
                     cageToken++; cageBuilding = null;
                     BuildRegionSims(); ResolveColliderMeshes(avatarRef);
                 }
@@ -3588,7 +3588,7 @@ namespace SoftBodySuite.Jello
             if (c.note.Length > 0) Debug.LogWarning(c.logTag + " cage note: " + c.note);
             if (!c.buildOk)
             {
-                Debug.LogWarning("[Jello] cage remesh failed (stage: " + c.stage + ") — falling back to per-region sims");
+                Debug.LogWarning("[Jello] cage remesh failed (stage: " + c.stage + "): falling back to per-region sims");
                 BuildRegionSims(); ResolveColliderMeshes(avatarRef);
                 return;
             }
@@ -3791,7 +3791,7 @@ namespace SoftBodySuite.Jello
             for (int i = 0; i < g; i++) if (seamDist[i] <= SEAM_MAXR) band.Add(i);
             seamBand = band.ToArray();
             // sort by distance-to-seam so the ACTIVE band (verts within `range`, the only
-            // ones the smoothing touches) is a prefix — ApplySeamSmoothing then iterates
+            // ones the smoothing touches) is a prefix: ApplySeamSmoothing then iterates
             // only that prefix instead of the whole 0.25 m cache every frame (the lag).
             System.Array.Sort(seamBand, delegate(int x, int y) { return seamDist[x].CompareTo(seamDist[y]); });
         }
@@ -3855,9 +3855,9 @@ namespace SoftBodySuite.Jello
                     for (int m = 0; m < mem.Count; m++) disp[mem[m]] = d;
                 }
             });
-            // SEAM MAX STRETCH — displacement RAMP limit ("cone clamp"). F11 evidence: the
+            // SEAM MAX STRETCH: displacement RAMP limit ("cone clamp"). F11 evidence: the
             // whole 0→full transition packs into the smoothing band (avg +214% edge stretch),
-            // pinned between the still body and the moving interior — edge clamps inside the
+            // pinned between the still body and the moving interior: edge clamps inside the
             // band can only shuffle that, never remove it. Instead cap the displacement
             // MAGNITUDE by surface distance to the boundary: |disp| <= seamDist * slope with
             // slope = maxStretch / range ("one range out, at most maxStretch of motion"),

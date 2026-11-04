@@ -24,7 +24,7 @@ namespace SoftBodySuite.Field
     }
 
     // One impulse. Ripple's expanding ring and the jiggle envelope both read these
-    // rather than each keeping their own history — one impact, one event, however
+    // rather than each keeping their own history: one impact, one event, however
     // many effects are listening.
     public struct FieldEvent
     {
@@ -37,7 +37,7 @@ namespace SoftBodySuite.Field
     }
 
     // The shared per-cage-node state every FieldSource reads and writes. A plain data
-    // holder plus three cheap helpers — it allocates in Ensure() and NOWHERE else, so
+    // holder plus three cheap helpers: it allocates in Ensure() and NOWHERE else, so
     // a frame costs no GC no matter how many sources are live.
     public class DeformField
     {
@@ -46,11 +46,11 @@ namespace SoftBodySuite.Field
         public int n;
 
         // THREE accumulators, not two:
-        //   dispContact — smoothed by the halo gate, volume-preserved, barriered
-        //   dispWave    — never touched by the halo gate (ripple/jiggle crests); the
+        //   dispContact: smoothed by the halo gate, volume-preserved, barriered
+        //   dispWave: never touched by the halo gate (ripple/jiggle crests); the
         //                 min(halo*12,1) gate would eat exactly the crests under a
         //                 hand, which is the one case Squish+Ripple has to survive
-        //   dispGuard   — written by FieldPost's anti-clip ONLY, applied last, never
+        //   dispGuard: written by FieldPost's anti-clip ONLY, applied last, never
         //                 smoothed: a smoothed guarantee is not a guarantee. It has to
         //                 be its own bucket because the corrective smooth re-sinks
         //                 vertices INTO the collider, which is why the hard anti-clip
@@ -115,10 +115,10 @@ namespace SoftBodySuite.Field
 
         // Start of a frame. Clears what is re-derived from scratch and DELIBERATELY
         // leaves alone what is not:
-        //   excite — an integrator with memory; MotionExciter and ContactSource decay
+        //   excite: an integrator with memory; MotionExciter and ContactSource decay
         //            it themselves, and zeroing it here would kill every envelope
-        //   mask/pos/nrm — refilled wholesale by FieldProxy from the cage
-        //   events — aged out separately by AgeEvents, which runs BEFORE the sources
+        //   mask/pos/nrm: refilled wholesale by FieldProxy from the cage
+        //   events: aged out separately by AgeEvents, which runs BEFORE the sources
         public void BeginFrame(float deltaTime, float now)
         {
             if (dispContact == null) return;
@@ -158,7 +158,7 @@ namespace SoftBodySuite.Field
         }
 
         // Free slot first; when the ring is full the WEAKEST event is the one that
-        // loses its slot, not the oldest — a big new impact must never be dropped
+        // loses its slot, not the oldest: a big new impact must never be dropped
         // because eight taps are still ringing.
         public int PushEvent(int originNode, Vector3 originPos, float energy, float width)
         {
