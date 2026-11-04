@@ -9,28 +9,28 @@ after the skinning bake.
 
 ## What's new in Soft Body Suite 3
 
-- **A fourth stage: Field.** Every painted region gets its own remeshed cage and its own
+- A fourth stage, Field. Every painted region gets its own remeshed cage and its own
   solver, with its own settings and its own motion, so breasts and thighs can behave
-  completely differently. Effect families: **Squish**, **Squish & Inflate**, **Ripple**,
-  **Fat Jiggle**, **Penetration** and **Squish Organic**, plus twelve one-click presets.
-  **Field Mix** sets how much of it each region gets (0 = off).
-- **Ripples that start where they should:** from the outermost point when you jolt or stop,
+  completely differently. The effect families are Squish, Squish & Inflate, Ripple,
+  Fat Jiggle, Penetration and Squish Organic, plus twelve one-click presets.
+  Field Mix sets how much of it each region gets (0 = off).
+- Ripples start where they should: from the outermost point when you jolt or stop,
   from the touch point, from auto-found nipples, or from points you click on the body.
-  Waves can be set off by your own movement too, with nothing touching you.
-- **Contact shaping:** **Splay** lets flesh slide round the sides of an arm or finger,
-  **Push-out Ring** raises a soft rim around a dent, and **Lift** carries a push to the
+  Your own movement can set them off too, with nothing touching you.
+- Contact shaping. Splay lets flesh slide round the sides of an arm or finger,
+  Push-out Ring raises a soft rim around a dent, and Lift carries a push to the
   whole mass (a hand under a breast lifts all of it).
-- **Clothes skin guard:** a final pass lifts cloth back out of the body you actually see,
+- A skin guard for clothes: a final pass lifts cloth back out of the body you actually see,
   including cloth the model itself has sunk into the skin. Floating accessories (bows,
   ribbons) move as one rigid piece, and leg garments follow thigh regions even when they
   are rigged to differently named leg bones.
-- **Overall jiggle:** two sliders at the top of the window scale every stage at once:
+- Two overall jiggle sliders at the top of the window scale every stage at once:
   how big the jiggle is, and how long it keeps ringing.
-- **Region presets, Copy from, Normalize weights:** save a region's tuning and put it on
-  another region, copy settings straight from another region, and fix regions that barely
+- Region presets save a region's tuning and put it on another region, Copy from takes
+  settings straight from another region, and Normalize weights fixes regions that barely
   move. Paint edits now rebuild every stage.
-- **Much faster:** most heavy loops now use all your CPU cores, a lot of wasted work is gone,
-  and Jell-o's cage solve overlaps with the clothes' mesh bake. With Wobble + Jell-o +
+- It is much faster. Most heavy loops now use all your CPU cores, a lot of wasted work is
+  gone, and Jell-o's cage solve overlaps with the clothes' mesh bake. With Wobble + Jell-o +
   clothes on, one avatar went from about 45 fps to a steady 60 (VNyan's cap), with the same
   look.
 

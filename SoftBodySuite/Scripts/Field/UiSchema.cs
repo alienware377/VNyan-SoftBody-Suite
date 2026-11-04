@@ -48,7 +48,7 @@ namespace SoftBodySuite.Field
     //
     // This works without opening Unity because SuitePlugin.BuildSections()
     // discovers sections by scanning child names at runtime: a cloned
-    // "Hdr_Field - Contact" plus cloned "Slider_fx_*" rows are picked up by the
+    // "Hdr_Field · Contact" plus cloned "Slider_fx_*" rows are picked up by the
     // existing section machinery for free. Materialise must run before
     // BuildSections().
     public class UiSchema
@@ -360,7 +360,7 @@ namespace SoftBodySuite.Field
             {
                 // cloned from a slider row: the slider must go or it will eat the
                 // pointer, and a Toggle has to exist for HookToggle to find one
-            // why DestroyImmediate and not Destroy.
+            // Why DestroyImmediate and not Destroy:
             // Every row is cloned from a slider row, so a toggle/button row has to shed the
             // Slider and grow a Toggle or Button instead. Object.Destroy is deferred to the
             // end of frame, so the Slider was still attached when AddComponent ran, and

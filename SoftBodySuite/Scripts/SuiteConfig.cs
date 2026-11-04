@@ -171,7 +171,7 @@ namespace SoftBodySuite
         public float jerkFilter = 0.15f;          // EMA time constant on the jerk gate, seconds
         public float accRef = 20f;                // m/s^2 that maps to gate 1
 
-        // Wave heights are a fraction of the region'S own size, not metres.
+        // Wave heights are a fraction of the region's own size, not metres.
         //
         // rippleAmplitude and wobbleAmplitude used to be absolute metres, sized for
         // test objects far larger than any feature on a
